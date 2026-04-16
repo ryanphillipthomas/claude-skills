@@ -32,6 +32,7 @@ DERIVED_DATA_PATH="${DERIVED_DATA_PATH:-}"
 CLONED_SOURCE_PACKAGES_DIR_PATH="${CLONED_SOURCE_PACKAGES_DIR_PATH:-}"
 SIMULATOR_DESTINATION="${SIMULATOR_DESTINATION:-}"
 SKIP_PACKAGE_PLUGIN_VALIDATION="${SKIP_PACKAGE_PLUGIN_VALIDATION:-true}"
+RUN_POD_INSTALL="${RUN_POD_INSTALL:-true}"
 NOTES=""
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -63,6 +64,7 @@ Usage:
     [--cloned-source-packages-dir-path /tmp/verify-fix-source-packages] \
     [--simulator-destination "platform=iOS Simulator,name=iPhone 16"] \
     [--skip-package-plugin-validation true] \
+    [--run-pod-install true] \
     [--build-workflow-id build_for_verification] \
     [--notes "optional note"]
 EOF
@@ -187,6 +189,10 @@ parse_args() {
         SKIP_PACKAGE_PLUGIN_VALIDATION="${2:-}"
         shift 2
         ;;
+      --run-pod-install)
+        RUN_POD_INSTALL="${2:-}"
+        shift 2
+        ;;
       --build-workflow-id)
         BUILD_WORKFLOW_ID="${2:-}"
         shift 2
@@ -303,7 +309,6 @@ build_xcode_scope_args() {
 }
 
 build_xcode_common_args() {
-  printf -- '-clonedSourcePackagesDirPath %q ' "$CLONED_SOURCE_PACKAGES_DIR_PATH"
   if [[ "$SKIP_PACKAGE_PLUGIN_VALIDATION" == "true" ]]; then
     printf -- '-skipPackagePluginValidation '
   fi
@@ -344,6 +349,37 @@ run_command_logged() {
   bash -lc "$command_text" 2>&1 | tee -a "$logfile"
 }
 
+prepare_snapshot_dependencies() {
+  local snapshot_dir="$1"
+  local output_dir="$2"
+  local ref_name="$3"
+  local scope_args
+  local common_args
+  local xcodebuild_prefix
+  local package_log="$output_dir/package-resolve.log"
+  local pod_log="$output_dir/pod-install.log"
+  local command_text=""
+  local ref_source_packages_dir="$DERIVED_DATA_PATH/$ref_name/SourcePackages"
+
+  mkdir -p "$ref_source_packages_dir"
+
+  if [[ "$RUN_POD_INSTALL" != "true" ]]; then
+    :
+  elif [[ -f "$snapshot_dir/Wheels Up/Podfile" ]]; then
+    command_text="cd '$snapshot_dir/Wheels Up' && bundle exec pod install"
+    log "Running pod install for snapshot=$snapshot_dir"
+    run_command_logged "$command_text" "$pod_log"
+  fi
+
+  scope_args="$(build_xcode_scope_args_for_repo "$snapshot_dir")"
+  common_args="$(build_xcode_common_args)"
+  xcodebuild_prefix="$(build_xcode_prefix)"
+
+  command_text="${xcodebuild_prefix}${scope_args}${common_args}-clonedSourcePackagesDirPath '$ref_source_packages_dir' -scheme '$APP_SCHEME' -resolvePackageDependencies"
+  log "Resolving Swift packages for snapshot=$snapshot_dir"
+  run_command_logged "$command_text" "$package_log"
+}
+
 build_ref() {
   local ref_name="$1"
   local ref_sha="$2"
@@ -353,14 +389,17 @@ build_ref() {
   local common_args
   local xcodebuild_prefix
   local command_text
+  local ref_source_packages_dir
 
   if [[ "$EXECUTION_MODE" == "local" ]]; then
     snapshot_dir="$ARTIFACT_ROOT/worktrees/$ref_name"
     materialize_ref_snapshot "$ref_sha" "$snapshot_dir"
+    prepare_snapshot_dependencies "$snapshot_dir" "$output_dir" "$ref_name"
     scope_args="$(build_xcode_scope_args_for_repo "$snapshot_dir")"
     common_args="$(build_xcode_common_args)"
     xcodebuild_prefix="$(build_xcode_prefix)"
-    command_text="${xcodebuild_prefix}${scope_args}${common_args}-scheme '$APP_SCHEME' -destination '$SIMULATOR_DESTINATION' -derivedDataPath '$DERIVED_DATA_PATH/$ref_name' build-for-testing"
+    ref_source_packages_dir="$DERIVED_DATA_PATH/$ref_name/SourcePackages"
+    command_text="${xcodebuild_prefix}${scope_args}${common_args}-clonedSourcePackagesDirPath '$ref_source_packages_dir' -scheme '$APP_SCHEME' -destination '$SIMULATOR_DESTINATION' -derivedDataPath '$DERIVED_DATA_PATH/$ref_name' build-for-testing"
     log "Building ref=$ref_name sha=$ref_sha from snapshot=$snapshot_dir"
     run_command_logged "$command_text" "$output_dir/build.log"
     return
@@ -381,6 +420,7 @@ run_scenario() {
   local xcodebuild_prefix
   local test_filter=""
   local command_text
+  local ref_source_packages_dir
 
   if [[ "$EXECUTION_MODE" == "local" ]]; then
     snapshot_dir="$ARTIFACT_ROOT/worktrees/$ref_name"
@@ -393,7 +433,23 @@ run_scenario() {
     if [[ -n "$ONLY_TESTING" ]]; then
       test_filter="-only-testing:$ONLY_TESTING"
     fi
-    command_text="${xcodebuild_prefix}${scope_args}${common_args}-scheme '$TEST_SCHEME' -destination '$SIMULATOR_DESTINATION' -derivedDataPath '$DERIVED_DATA_PATH/$ref_name' test-without-building $test_filter"
+
+    if [[ -n "${TEST_USERNAME:-}" ]]; then
+      export IOS1234_TEST_USERNAME="$TEST_USERNAME"
+    fi
+
+    if [[ -n "${TEST_PASSWORD:-}" ]]; then
+      export IOS1234_TEST_PASSWORD="$TEST_PASSWORD"
+    fi
+
+    if [[ "$mode_name" == "baseline" ]]; then
+      export IOS1234_EXPECT_ERROR_ALERT="1"
+    else
+      export IOS1234_EXPECT_ERROR_ALERT="0"
+    fi
+
+    ref_source_packages_dir="$DERIVED_DATA_PATH/$ref_name/SourcePackages"
+    command_text="${xcodebuild_prefix}${scope_args}${common_args}-clonedSourcePackagesDirPath '$ref_source_packages_dir' -scheme '$TEST_SCHEME' -destination '$SIMULATOR_DESTINATION' -derivedDataPath '$DERIVED_DATA_PATH/$ref_name' test-without-building $test_filter"
     log "Running XCUITest for mode=$mode_name ref=$ref_name sha=$ref_sha"
     run_command_logged "$command_text" "$output_dir/run.log"
   else
@@ -473,6 +529,7 @@ write_result_json() {
   "derived_data_path": "$DERIVED_DATA_PATH",
   "cloned_source_packages_dir_path": "$CLONED_SOURCE_PACKAGES_DIR_PATH",
   "skip_package_plugin_validation": "$SKIP_PACKAGE_PLUGIN_VALIDATION",
+  "run_pod_install": "$RUN_POD_INSTALL",
   "simulator_destination": "$SIMULATOR_DESTINATION",
   "device_profile": "$DEVICE_PROFILE",
   "locale": "$LOCALE",

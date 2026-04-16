@@ -98,6 +98,10 @@ Optional inputs:
   Values: `true`, `false`
   Useful for non-interactive CLI builds when Swift package plugins such as `SwiftGenPlugin` fail validation.
 
+- `--run-pod-install`
+  Values: `true`, `false`
+  Useful for CocoaPods-based apps that need generated `Pods/Target Support Files` before `xcodebuild`.
+
 - `--build-workflow-id`
   Example: `build_for_verification`
 
