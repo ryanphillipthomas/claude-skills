@@ -1,0 +1,34 @@
+{
+  "jira_ticket": "IOS-1234",
+  "scenario_id": "IOS-1234-login-error-banner",
+  "title": "Login error banner is shown after valid credentials",
+  "owner": "ios-team",
+  "platform": "ios",
+  "runner": "xcuitest",
+  "device_profile": "iPhone 16",
+  "locale": "en_US",
+  "timezone": "America/New_York",
+  "test_environment": "staging",
+  "artifacts": [
+    "baseline/post-submit.png",
+    "candidate/post-submit.png",
+    "comparison/summary.md",
+    "comparison/diff.png",
+    "baseline/result.json",
+    "candidate/result.json",
+    "baseline/run.log",
+    "candidate/run.log"
+  ],
+  "required_assertions": {
+    "baseline": [
+      "login_screen_visible",
+      "error_banner_visible",
+      "home_screen_not_visible"
+    ],
+    "candidate": [
+      "login_screen_visible",
+      "error_banner_not_visible",
+      "home_screen_visible"
+    ]
+  }
+}
