@@ -421,6 +421,7 @@ run_scenario() {
   local test_filter=""
   local command_text
   local ref_source_packages_dir
+  local result_bundle_path
 
   if [[ "$EXECUTION_MODE" == "local" ]]; then
     snapshot_dir="$ARTIFACT_ROOT/worktrees/$ref_name"
@@ -449,7 +450,9 @@ run_scenario() {
     fi
 
     ref_source_packages_dir="$DERIVED_DATA_PATH/$ref_name/SourcePackages"
-    command_text="${xcodebuild_prefix}${scope_args}${common_args}-clonedSourcePackagesDirPath '$ref_source_packages_dir' -scheme '$TEST_SCHEME' -destination '$SIMULATOR_DESTINATION' -derivedDataPath '$DERIVED_DATA_PATH/$ref_name' test-without-building $test_filter"
+    result_bundle_path="$output_dir/TestResults.xcresult"
+    rm -rf "$result_bundle_path"
+    command_text="${xcodebuild_prefix}${scope_args}${common_args}-clonedSourcePackagesDirPath '$ref_source_packages_dir' -scheme '$TEST_SCHEME' -destination '$SIMULATOR_DESTINATION' -derivedDataPath '$DERIVED_DATA_PATH/$ref_name' -resultBundlePath '$result_bundle_path' test-without-building $test_filter"
     log "Running XCUITest for mode=$mode_name ref=$ref_name sha=$ref_sha"
     run_command_logged "$command_text" "$output_dir/run.log"
   else
