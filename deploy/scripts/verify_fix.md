@@ -94,6 +94,10 @@ Optional inputs:
   Example: `/tmp/verify-fix-source-packages`
   Useful for keeping Swift package resolution in a writable location during local runs.
 
+- `--skip-package-plugin-validation`
+  Values: `true`, `false`
+  Useful for non-interactive CLI builds when Swift package plugins such as `SwiftGenPlugin` fail validation.
+
 - `--build-workflow-id`
   Example: `build_for_verification`
 

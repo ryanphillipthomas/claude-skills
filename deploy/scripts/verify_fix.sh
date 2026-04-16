@@ -31,6 +31,7 @@ DEVELOPER_DIR_OVERRIDE="${DEVELOPER_DIR_OVERRIDE:-}"
 DERIVED_DATA_PATH="${DERIVED_DATA_PATH:-}"
 CLONED_SOURCE_PACKAGES_DIR_PATH="${CLONED_SOURCE_PACKAGES_DIR_PATH:-}"
 SIMULATOR_DESTINATION="${SIMULATOR_DESTINATION:-}"
+SKIP_PACKAGE_PLUGIN_VALIDATION="${SKIP_PACKAGE_PLUGIN_VALIDATION:-true}"
 NOTES=""
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -61,6 +62,7 @@ Usage:
     [--derived-data-path /tmp/verify-fix-derived-data] \
     [--cloned-source-packages-dir-path /tmp/verify-fix-source-packages] \
     [--simulator-destination "platform=iOS Simulator,name=iPhone 16"] \
+    [--skip-package-plugin-validation true] \
     [--build-workflow-id build_for_verification] \
     [--notes "optional note"]
 EOF
@@ -181,6 +183,10 @@ parse_args() {
         SIMULATOR_DESTINATION="${2:-}"
         shift 2
         ;;
+      --skip-package-plugin-validation)
+        SKIP_PACKAGE_PLUGIN_VALIDATION="${2:-}"
+        shift 2
+        ;;
       --build-workflow-id)
         BUILD_WORKFLOW_ID="${2:-}"
         shift 2
@@ -298,6 +304,9 @@ build_xcode_scope_args() {
 
 build_xcode_common_args() {
   printf -- '-clonedSourcePackagesDirPath %q ' "$CLONED_SOURCE_PACKAGES_DIR_PATH"
+  if [[ "$SKIP_PACKAGE_PLUGIN_VALIDATION" == "true" ]]; then
+    printf -- '-skipPackagePluginValidation '
+  fi
 }
 
 build_xcode_prefix() {
@@ -463,6 +472,7 @@ write_result_json() {
   "developer_dir_override": "$DEVELOPER_DIR_OVERRIDE",
   "derived_data_path": "$DERIVED_DATA_PATH",
   "cloned_source_packages_dir_path": "$CLONED_SOURCE_PACKAGES_DIR_PATH",
+  "skip_package_plugin_validation": "$SKIP_PACKAGE_PLUGIN_VALIDATION",
   "simulator_destination": "$SIMULATOR_DESTINATION",
   "device_profile": "$DEVICE_PROFILE",
   "locale": "$LOCALE",
