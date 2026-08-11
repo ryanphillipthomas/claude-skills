@@ -1,6 +1,8 @@
 import type {
   CaptureRecord,
   CaptureStatus,
+  DesignTokenCandidate,
+  DesignTokenReport,
   PageRecord,
   ReadinessResult,
   RecipeStep,
@@ -8,6 +10,7 @@ import type {
   StateProvenance,
   StructuredError,
   StyleDelta,
+  TokenNearDuplicate,
 } from '@ui-atlas/protocol';
 
 /**
@@ -160,6 +163,20 @@ export interface ReportPage {
   error?: StructuredError;
 }
 
+/**
+ * Observed computed values with counts. Deliberately shaped like the artifact
+ * rather than like a design system: no names, because naming is a judgement the
+ * tool does not make.
+ */
+export interface ReportTokens {
+  note: string;
+  pagesScanned: number;
+  elementsScanned: number;
+  candidates: DesignTokenCandidate[];
+  nearDuplicates: TokenNearDuplicate[];
+  warnings: string[];
+}
+
 export interface ReportModel {
   schemaVersion: 1;
   generatedAt: string;
@@ -168,6 +185,7 @@ export interface ReportModel {
   components: ComponentGroup[];
   duplicates: DuplicateGroup[];
   pages: ReportPage[];
+  tokens?: ReportTokens;
   facets: ReportFacets;
   /** JSONL lines that could not be read, so the report never lies by omission. */
   unreadableRecords: number;
@@ -382,6 +400,8 @@ export interface BuildModelInput {
   pages: PageRecord[];
   unreadableRecords: number;
   generatedAt: string;
+  /** `tokens.json`, when the run wrote one. */
+  tokens?: DesignTokenReport | undefined;
 }
 
 export function buildReportModel(input: BuildModelInput): ReportModel {
@@ -430,6 +450,37 @@ export function buildReportModel(input: BuildModelInput): ReportModel {
       return view;
     }),
     facets: buildFacets(captures),
+    ...(input.tokens === undefined ? {} : { tokens: toTokens(input.tokens) }),
     unreadableRecords: input.unreadableRecords,
+  };
+}
+
+/**
+ * An allowlist, like everything else in the view model (ADR 12). `runId` and
+ * `generatedAt` are already on the run; the rest of the file is what the page
+ * needs and nothing more.
+ */
+function toTokens(report: DesignTokenReport): ReportTokens {
+  return {
+    note: report.note,
+    pagesScanned: report.pagesScanned,
+    elementsScanned: report.elementsScanned,
+    candidates: report.candidates.map((candidate) => ({
+      category: candidate.category,
+      kind: candidate.kind,
+      value: candidate.value,
+      count: candidate.count,
+      properties: candidate.properties,
+      routes: candidate.routes,
+      examples: candidate.examples,
+    })),
+    nearDuplicates: report.nearDuplicates.map((pair) => ({
+      category: pair.category,
+      kind: pair.kind,
+      a: pair.a,
+      b: pair.b,
+      reason: pair.reason,
+    })),
+    warnings: report.warnings,
   };
 }

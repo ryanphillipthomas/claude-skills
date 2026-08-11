@@ -35,6 +35,9 @@
       "path": "packages/animation"
     },
     {
+      "path": "packages/tokens"
+    },
+    {
       "path": "apps/cli"
     }
   ]

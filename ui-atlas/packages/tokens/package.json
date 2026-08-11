@@ -1,5 +1,5 @@
 {
-  "name": "@ui-atlas/crawler",
+  "name": "@ui-atlas/tokens",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -13,13 +13,7 @@
   },
   "dependencies": {
     "@ui-atlas/protocol": "*",
-    "@ui-atlas/animation": "*",
     "@ui-atlas/config": "*",
-    "@ui-atlas/artifacts": "*",
-    "@ui-atlas/capture": "*",
-    "@ui-atlas/identity": "*",
-    "@ui-atlas/settle": "*",
-    "@ui-atlas/tokens": "*",
     "playwright": "1.56.1"
   }
 }

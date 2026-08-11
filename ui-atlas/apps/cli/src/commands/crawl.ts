@@ -4,6 +4,7 @@ import { emptyManifest, newRunId, readRunManifest, RunWriter } from '@ui-atlas/a
 import type { Page } from 'playwright';
 import { emulationOptions, launchSession, resolveViewport, viewportLabel } from '@ui-atlas/browser';
 import { CaptureService } from '@ui-atlas/capture';
+import { TokenScanner } from '@ui-atlas/tokens';
 import {
   Crawler,
   CrawlPolicy,
@@ -23,6 +24,7 @@ import { UiAtlasError, type CrawlState, type PageRecord } from '@ui-atlas/protoc
 import { flagNumber, flagString, type ParsedArgs } from '../args.js';
 import { loadCliConfig, TOOL_VERSION } from '../config.js';
 import type { Logger } from '../logger.js';
+import { reportTokens } from './tokens.js';
 
 export const CRAWL_HELP = `
 ui-atlas crawl <site-config.yml | url> [options]
@@ -59,6 +61,9 @@ ui-atlas crawl <site-config.yml | url> [options]
   --inventory         list each page's interactive controls and what each is
                       likely to do, into interactions.jsonl, and write a
                       reviewable suggested-recipes.yml. Nothing is clicked.
+  --tokens            count every page's computed colours, spacing, type and
+                      radii into tokens.json. Observations with counts, not a
+                      design system: nothing is named for you.
   --seed <url>        add a seed (repeatable via config); overrides crawl.seeds
   --max-pages <n>     hard cap on pages visited
   --max-depth <n>     seeds are depth 0
@@ -323,6 +328,16 @@ export async function runCrawl(args: ParsedArgs, logger: Logger): Promise<number
   }
 
   const policy = new CrawlPolicy(config.crawl, seedsForRun);
+  // One scanner for the whole crawl: a design system is not visible from one
+  // page, and a colour used once on twelve pages is a different finding from
+  // one used twelve times on a single page.
+  const tokens = new TokenScanner({
+    runId,
+    config: {
+      ...config.tokens,
+      enabled: config.tokens.enabled || args.flags.get('tokens') === true,
+    },
+  });
   const inventory = new InteractionInventory({
     config: config.crawl.inventory,
     runId,
@@ -341,6 +356,7 @@ export async function runCrawl(args: ParsedArgs, logger: Logger): Promise<number
       seeds: seedsForRun,
       recipes: recipesForPage(page),
       inventory,
+      tokens,
       ...(createWorker === undefined ? {} : { createWorker }),
       ...(resumeState === undefined ? {} : { resume: resumeState }),
       onProgress: (message) => logger.info(`visiting ${message}`),
@@ -354,6 +370,15 @@ export async function runCrawl(args: ParsedArgs, logger: Logger): Promise<number
   if (config.crawl.inventory.enabled && config.crawl.inventory.writeSuggestions) {
     const path = await writer.writeSuggestedRecipes(suggestRecipes(result.interactions));
     logger.info(`suggested recipes: ${path}`);
+  }
+
+  if (tokens.enabled) {
+    const report = await writer.writeTokens(tokens.summarise());
+    for (const warning of report.warnings) {
+      logger.warn(warning);
+      writer.addWarning(warning);
+    }
+    reportTokens(report, logger);
   }
 
   const manifest = await writer.finalize({

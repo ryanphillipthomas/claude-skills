@@ -14,6 +14,7 @@ import {
 import { Deadline, settlePage, sleep, TIMED_OUT, withTimeout } from '@ui-atlas/settle';
 import { Frontier } from './frontier.js';
 import { collectLinks, type DiscoveredLink } from './page-scripts.js';
+import type { TokenScanner } from '@ui-atlas/tokens';
 import type { InteractionInventory } from './inventory.js';
 import { CrawlPolicy } from './policy.js';
 import type { RecipeOutcome, RecipeRunner } from './recipes.js';
@@ -95,6 +96,12 @@ export interface CrawlerOptions {
    * takes the page as an argument rather than holding one.
    */
   inventory?: InteractionInventory | undefined;
+  /**
+   * Counts every whitelisted computed value on each page, so a design system is
+   * described from the whole site rather than from whichever page you started
+   * on. Read-only, and shared across workers the same way the inventory is.
+   */
+  tokens?: TokenScanner | undefined;
   /**
    * Called after a page has settled and its recipes have run, while it is still
    * the current document. Used by tests to inspect the live page.
@@ -643,8 +650,10 @@ export class Crawler {
 
     await this.discover(worker, item, finalUrl, warnings, pageDeadline);
     // Before recipes: the inventory describes the page as served, not whatever
-    // a recipe left it looking like.
+    // a recipe left it looking like. The same reasoning applies to the style
+    // scan — a hover held open by a recipe would put its colours in the counts.
     await this.runInventory(worker, record, warnings);
+    await this.runTokens(worker, record, warnings);
     const recipesFailed = await this.runRecipes(worker, record, warnings);
     await this.runPageHook(worker, record);
     return { record, outcome, recipesFailed };
@@ -665,6 +674,23 @@ export class Crawler {
       }
     } catch (error) {
       warnings.push(`interaction inventory failed: ${describe(error)}`);
+    }
+  }
+
+  private async runTokens(
+    worker: CrawlWorker,
+    record: PageRecord,
+    warnings: string[],
+  ): Promise<void> {
+    const tokens = this.options.tokens;
+    if (tokens === undefined || !tokens.enabled) return;
+
+    try {
+      await tokens.scan(worker.page, record.routeKey);
+    } catch (error) {
+      // One unreadable page is a fact about that page, not a reason to lose the
+      // counts from every other one.
+      warnings.push(`style scan failed on ${record.finalUrl}: ${describe(error)}`);
     }
   }
 

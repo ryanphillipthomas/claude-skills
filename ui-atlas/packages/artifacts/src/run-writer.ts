@@ -2,6 +2,7 @@ import {
   AnimationRecordSchema,
   CaptureRecordSchema,
   CrawlStateSchema,
+  DesignTokenReportSchema,
   InteractionCandidateSchema,
   PageRecordSchema,
   RunManifestSchema,
@@ -10,6 +11,7 @@ import {
   type AnimationRecord,
   type CaptureRecord,
   type CrawlState,
+  type DesignTokenReport,
   type InteractionCandidate,
   type PageRecord,
   type RunManifest,
@@ -39,6 +41,7 @@ export interface RunPaths {
   interactionsJsonl: string;
   suggestedRecipes: string;
   animationsJsonl: string;
+  tokens: string;
 }
 
 export function runPaths(outputRoot: string, project: string, runId: string): RunPaths {
@@ -59,6 +62,7 @@ export function runPaths(outputRoot: string, project: string, runId: string): Ru
     interactionsJsonl: resolveWithinRoot(runDir, 'interactions.jsonl'),
     suggestedRecipes: resolveWithinRoot(runDir, 'suggested-recipes.yml'),
     animationsJsonl: resolveWithinRoot(runDir, 'animations.jsonl'),
+    tokens: resolveWithinRoot(runDir, 'tokens.json'),
   };
 }
 
@@ -330,6 +334,19 @@ export class RunWriter {
       });
     }
     await appendJsonLine(this.paths.animationsJsonl, parsed.data);
+    return parsed.data;
+  }
+
+  /** The observed-value frequency table. Validated like every other record. */
+  async writeTokens(report: DesignTokenReport): Promise<DesignTokenReport> {
+    this.assertReady();
+    const parsed = DesignTokenReportSchema.safeParse(report);
+    if (!parsed.success) {
+      throw new UiAtlasError('artifact.write-failed', 'invalid design token report', {
+        detail: { issues: formatIssues(parsed.error) },
+      });
+    }
+    await atomicWriteFile(this.paths.tokens, `${JSON.stringify(parsed.data, null, 2)}\n`);
     return parsed.data;
   }
 

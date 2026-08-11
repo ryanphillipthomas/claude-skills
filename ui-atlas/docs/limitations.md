@@ -278,6 +278,38 @@ See [ADR 22](adr/0022-provoked-motion-is-sampled-as-one-group.md).
   then hover a child — is out of reach; write the sequence as steps and accept
   that only the last provocation is diffed.
 
+## Boundaries of observed-value extraction (`tokens`)
+
+See [ADR 24](adr/0024-observed-values-are-candidates-not-tokens.md).
+
+- **These are candidates, not tokens.** Nothing is named, because naming is a
+  judgement. `tokens.json` has no `name` field anywhere, and a test asserts it.
+- **Values that mean nobody decided anything are dropped** — a transparent
+  background, a zero margin, `font-style: normal`. They are the most common
+  computed values on any page, and keeping them would bury everything real.
+- **Only computed values are seen**, so CSS custom properties are invisible as
+  properties: `var(--brand)` arrives already resolved. The value is right; the
+  fact that the site already has a name for it is not visible here.
+- **A value is counted once per element, not once per rule.** Ten elements
+  sharing a class contribute ten.
+- **Elements that are not visible are still read.** A hover menu at rest is
+  `display: none` and its computed colours are real decisions, so a page with a
+  large hidden mega-menu weights towards it.
+- **Near-duplicates are reported and never merged.** Two colours one channel
+  apart may be a mistake or may be deliberate; the counts are the evidence, and
+  merging would destroy them.
+- **Colours are only compared at the same opacity.** A 50% overlay is not a
+  mistyped solid.
+- **A colour space the parser does not understand** — `color(display-p3 …)`,
+  `color-mix(…)` — is counted but cannot be compared channel by channel, and
+  gets no swatch in the report.
+- **Both caps are visible.** The per-page element cap and the per-category tail
+  cap each add a warning naming what was left out.
+- **Nothing is captured.** The `tokens` command writes no `captures.jsonl`.
+- **Pseudo-element styles are not read.** `::before` content is often decorative
+  and often carries a colour; `getComputedStyle` needs to be asked for it
+  separately, and it is not.
+
 ## Things the tool reports that surprise people
 
 - **`focus` and `focus-visible` can produce identical images.** Chromium decides

@@ -8,8 +8,9 @@ No cloud account, no AI service, no browser extension, no database server.
 Everything runs on your machine and writes plain files.
 
 **Current release: the guided inspector, responsive replay, the report, a
-bounded crawler with declarative interaction recipes, and animation inventory
-plus frame sampling.** Design-system extraction is still to come — see
+bounded crawler with declarative interaction recipes, animation inventory with
+frame sampling and a screencast fallback, and observed-value extraction.** What
+each of those does *not* promise is written down in
 [docs/limitations.md](docs/limitations.md).
 
 ## Requirements
@@ -110,9 +111,9 @@ Open it straight from disk — no server, no network requests, nothing to instal
   comparing is always side by side. Cells that were skipped say *why* (hidden at
   this viewport, not present, locator matched several elements) instead of
   showing a blank.
-- **Gallery, Duplicates, Issues, Pages** — a flat grid, images that came out
-  byte-identical, everything that failed or was skipped or raised a warning, and
-  the page visits.
+- **Gallery, Duplicates, Issues, Values, Pages** — a flat grid, images that came
+  out byte-identical, everything that failed or was skipped or raised a warning,
+  the observed computed values with counts and swatches, and the page visits.
 - **Detail panel** — click any capture for its locator candidates with scores and
   the reasons behind them, the computed-style delta with colour swatches, the
   readiness checks and their timings, and exactly what the tool did to reach the
@@ -461,6 +462,39 @@ promise. Recording again gives a different file.
 The report plays the recording where a thumbnail would go, with the player
 controls in the detail panel.
 
+### What a site is made of
+
+```bash
+npm run ui-atlas -- tokens https://example.com
+npm run ui-atlas -- tokens https://example.com/a https://example.com/b
+npm run ui-atlas -- crawl site.yml --tokens
+```
+
+Reads every element's computed style and counts what turns up: colours,
+backgrounds, borders, radii, spacing, typography and shadows. Written to
+`tokens.json`, and shown in the report's **Values** tab with swatches.
+
+**These are observations, not a design system.** "#2563eb appears on 34
+elements" is a fact; "this is your primary colour" is a judgement, and this
+makes none — nothing in the artifact has a name, because naming is yours to do.
+
+- **Values nobody decided are left out.** A transparent background, a zero
+  margin, `font-style: normal`. They are the most common computed values on any
+  page and none of them is a design decision; without dropping them the list is
+  mostly browser defaults.
+- **Colours are separated by use.** "What colour is the text" and "what colour
+  is behind it" are different questions, so `color` and `background-color` are
+  different categories.
+- **Near-duplicates are reported and never merged.** Two colours one channel
+  apart are usually a rounding error and occasionally deliberate — and the
+  counts are the evidence that answers which. Merging them would destroy exactly
+  that, so both survive and the pair is flagged.
+- **Every truncation says so.** A per-page element cap and a per-category tail
+  cap both bound the work, and both add a warning naming what was left out.
+
+`crawl --tokens` scans every page a crawl visits into one artifact, because a
+design system is not visible from a single page.
+
 ### Authentication
 
 ```bash
@@ -492,6 +526,7 @@ ui-atlas-output/
       screenshots/<route>/<viewport>/<capture-id>.json   metadata beside the image
       animations/<route>/<viewport>/<capture-id>.webm    recordings, when --video asked for one
       animations/<route>/<viewport>/<capture-id>.json    metadata beside the recording
+      tokens.json                                        observed values with counts
       report/index.html                                  browsable report
 ```
 

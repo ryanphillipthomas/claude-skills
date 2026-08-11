@@ -23,6 +23,7 @@ const KNOWN_BOOLEAN_FLAGS = new Set([
   'trace-on-failure',
   'sample',
   'video',
+  'tokens',
 ]);
 
 /**

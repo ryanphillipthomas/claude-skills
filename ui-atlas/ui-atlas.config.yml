@@ -198,6 +198,29 @@ crawl:
     maxPerPage: 200
     writeSuggestions: true
 
+# `ui-atlas tokens <url>`, or `crawl --tokens`. Reads every element's computed
+# style and counts what turns up.
+#
+# What comes out is a frequency table of observations, NOT a design system.
+# "#2563eb appears on 34 elements" is a fact; "this is your primary colour" is a
+# judgement, and this makes none — nothing in tokens.json has a name, because
+# naming is yours to do.
+#
+# Values that mean nobody decided anything — a transparent background, a zero
+# margin, `font-style: normal` — are left out. Without that the list is mostly
+# browser defaults.
+tokens:
+  enabled: false
+  # Elements past this are not read, and the artifact says how many.
+  maxElementsPerPage: 3000
+  maxExamplesPerValue: 5
+  # The long tail is truncated per category, and the artifact says so.
+  maxCandidatesPerCategory: 100
+  # Report two values close enough that one may be a mistake — a colour one
+  # channel off, a length half a pixel off. Reported, never merged: deciding
+  # which of the two is real would destroy the counts that answer it.
+  nearDuplicates: true
+
 # Redacted before anything is logged.
 redact:
   headers: [authorization, cookie, set-cookie, proxy-authorization, x-api-key]

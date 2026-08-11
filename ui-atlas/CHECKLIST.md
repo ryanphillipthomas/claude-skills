@@ -1,9 +1,9 @@
 # Implementation checklist
 
-Phases 0 through 3 are complete. Phase 4 is in progress: the animation
-inventory, deterministic frame sampling, provoked (hover/focus) motion and the
-screencast fallback are all done. What is still unbuilt is listed in
-[docs/limitations.md](docs/limitations.md).
+Phases 0 through 4 are complete. Phase 4 shipped in five slices: the animation
+inventory, deterministic frame sampling, provoked (hover/focus) motion, the
+screencast fallback and observed-value extraction. What is still unbuilt is
+listed in [docs/limitations.md](docs/limitations.md).
 
 ## Phase 0 — foundation
 
@@ -295,10 +295,33 @@ is still empty and no non-`GET` request was issued.
 - [x] The report plays it where a thumbnail would go, with controls only in the
       detail panel
 
-### Still to build in phase 4
+## Phase 4 — observed-value extraction (fifth slice)
+
+- [x] `ui-atlas tokens <url> [more urls...]` reads every element's computed
+      style and counts what turns up
+- [x] `crawl --tokens` scans every page a crawl visits into one artifact,
+      because a design system is not visible from one page
+- [x] **Candidates, not tokens.** No `name` field anywhere, asserted by a test;
+      `tokens.json` carries a note saying so in the artifact itself
+- [x] Values that mean nobody decided anything are dropped in the page
+- [x] Colours separated by use — text, background, border — rather than gathered
+      by type; candidates keyed by category *and* kind
+- [x] Opaque colours normalised to hex, alpha preserved, sub-pixel lengths
+      rounded to 0.1px, font stacks collapsed to one comparable string
+- [x] Near-duplicates reported and never merged, and only at the same opacity
+- [x] Both caps — per-page elements and per-category tail — add a warning naming
+      what was left out
+- [x] The report's **Values** tab, with a swatch guarded by shape rather than
+      trusted: the only capture-derived string that reaches a style attribute
+- [x] Read-only: a test snapshots the DOM, focus and scroll either side of a scan
+- [x] Duplicate component grouping across routes — already worked, since
+      `groupComponents` keys by structural fingerprint with no route in the key
+
+**Phase 4 is complete.**
+
+### Still to build
 
 - [ ] The toolbar's Animation button, still disabled
-- [ ] First-pass design-token extraction and duplicate component grouping
 - [ ] Wiring the animation inventory into `crawl`
 
 ## Still out of scope

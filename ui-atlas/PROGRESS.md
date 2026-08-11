@@ -3,19 +3,20 @@
 Running log for the build. Updated after each milestone so an interrupted
 session is recoverable.
 
-**Last updated:** 2026-08-11, after the screencast fallback landed.
+**Last updated:** 2026-08-11, after observed-value extraction landed and phase 4 closed.
 
 ## Status
 
-Phases 0, 1, 2 and 3 are complete and their exit criteria pass, with one
+Phases 0 through 4 are complete and their exit criteria pass, with one
 environment-bound gap recorded below. Phase 3 shipped in six slices: the bounded
 frontier, declarative interaction recipes, the suggested-interaction inventory,
 worker concurrency with per-origin throttling, retry with status-aware backoff,
 and trace-on-failure. The repository is buildable, tested and documented.
 
-Phase 4 is under way: the animation inventory, deterministic frame sampling,
-provoked hover/focus motion and the screencast fallback are all done.
-Design-system extraction is what remains.
+**Phase 4 is complete**, in five slices: the animation inventory, deterministic
+frame sampling, provoked hover/focus motion, the screencast fallback and
+observed-value extraction. Everything the brief scoped through phase 4 is
+built.
 
 ```
 npm install
@@ -28,9 +29,9 @@ npm test
 `npm test` (builds, then Vitest — unit and browser integration):
 
 ```
-Test Files  35 passed (35)
-     Tests  393 passed | 3 skipped (396)
-  Duration  ~249s
+Test Files  37 passed (37)
+     Tests  427 passed | 3 skipped (430)
+  Duration  ~246s
 ```
 
 On a networked machine the three external smoke tests run instead of skipping:
@@ -52,7 +53,7 @@ the phase 1 exit criterion. Nothing is unverified now.
 | `integration/faults` | 6 | detachment, navigation mid-capture, write failure, dead browser, destructive controls |
 | `integration/frames-shadow` | 5 | same- and cross-origin iframes, open and closed shadow DOM |
 | `integration/responsive` | 8 | five-viewport matrix, real mobile emulation, per-viewport reload, hidden/not-present outcomes |
-| `integration/report` | 8 | **phase 2 exit criterion**: the generated report driven in a real browser, including script injection |
+| `integration/report` | 9 | **phase 2 exit criterion**: the generated report driven in a real browser, including script injection |
 | `unit/reporter` | 14 | escaping, view model, matrix grouping, duplicate grouping, recordings in the allowlist |
 | `integration/state-preview` | 10 | live state preview: apply, hold, release, swap, forced undo, capture isolation |
 | `unit/crawl` | 43 | canonicalisation, path globs, link policy, frontier, budgets, in-flight vs committed, resume round-trip |
@@ -73,9 +74,11 @@ the phase 1 exit criterion. Nothing is unverified now.
 | `integration/provoked-animation` | 13 | **phase 4, third slice**: the two transitions one hover starts, the group on one clock, the page's own animations left running, restore then release, no reverse frame, ascending seeks, an interaction that starts nothing, release after a thrown capture, and the step's inability to click |
 | `unit/screencast` | 12 | what a recording would be of, how long it needs, and everything it refuses |
 | `integration/screencast` | 7 | **phase 4, fourth slice**: a real webm of the infinite animation, the record refusing to look like a sample, the sidecar, canvas and video as subjects, a page that needs no recording, an over-budget discard, and no scratch left behind |
+| `unit/tokens` | 24 | colour/length/font normalisation, category mapping, counting across pages, truncation warnings, near duplicates reported and never merged |
+| `integration/tokens` | 9 | **phase 4, fifth slice**: browser defaults excluded, script/style never read, the page unchanged either side, the per-page cap, the fixture's real colours, the CLI across several pages and past an unreachable one, a whole-site crawl scan, and doing nothing when switched off |
 | `integration/external-smoke` | 3 skipped | read-only public-site checks; skip without network |
 
-`npm run typecheck` passes for all twelve packages and for the test sources.
+`npm run typecheck` passes for all thirteen packages and for the test sources.
 
 ## Exit criteria
 
@@ -850,22 +853,85 @@ The first assertion required the recording's subjects not to mention
 was not. But `"infinite-swatch"` *contains* `"finite-swatch"`. The subject list
 was right all along; the assertion now compares the whole list exactly.
 
+## Observed-value extraction (phase 4, fifth slice)
+
+Done and covered by `tests/unit/tokens.test.ts` and
+`tests/integration/tokens.test.ts`. See
+[ADR 24](docs/adr/0024-observed-values-are-candidates-not-tokens.md).
+
+`ui-atlas tokens <url>` and `crawl --tokens` read every element's computed style
+and count what turns up, into `tokens.json` and the report's **Values** tab.
+
+The plan's four points:
+
+1. **The raw material.** Reading captured elements' `styleDelta` would only ever
+   describe the handful of things somebody photographed. The scan reads *every*
+   element instead, which is one page-side evaluation and gives real frequencies.
+2. **The property set and the artifact**, as planned — colour, background,
+   border, radius, spacing, typography, shadow.
+3. **The framing**, carried all the way through. See below.
+4. **Duplicate grouping across routes was already done.** See below.
+
+### The framing is the feature
+
+"#2563eb appears on 34 elements" is a fact; "this is your primary colour" is a
+judgement. There is **no `name` field anywhere** in the artifact, and a test
+asserts its absence. The schema is `DesignTokenCandidate`, the report tab is
+called *Values* rather than *Tokens*, and `tokens.json` carries a `note` saying
+what it is and is not, so the file is honest read with no other context.
+
+Three decisions follow from it:
+
+- **Values that mean nobody decided anything are dropped** — a transparent
+  background, a zero margin, `font-style: normal`. They are the most common
+  computed values on any page, and this is the whole difference between a list
+  of design decisions and a list of browser defaults.
+- **Near-duplicates are reported and never merged.** Two colours one channel
+  apart are usually a rounding error and occasionally deliberate. The counts are
+  the evidence that answers which, and merging would destroy exactly that.
+- **Every truncation says so.** Both the per-page element cap and the
+  per-category tail cap add a warning naming what was left out.
+
+### One correction to the plan
+
+**Cross-route component grouping already worked.** The plan assumed it was
+missing and would need a new key. `groupComponents` keys an element group by
+`element:<structural fingerprint>` with no route in it, so the same component
+captured on four routes has always been one group. Nothing to build; the
+assumption was simply wrong.
+
+### Two defects, both found by a test
+
+1. **The examples cap was only applied when merging**, not when a value was
+   first seen. The page-side cap happened to be the same number by
+   configuration, so the bound held by coincidence rather than by construction.
+2. **Hex colours were not normalised**, so `#2563EB` and `#2563eb` would have
+   been two values. Chromium always answers in `rgb()`, so this never fires in
+   practice — but a function that is right about its input rather than right
+   about its current caller is the difference between a bug and a near miss.
+   Hex parsing was added, including `#abc` and `#rrggbbaa`.
+
+### The one guarded string in the report
+
+The Values tab paints colour swatches, which means a capture-derived string
+reaching a `style` attribute — the only place in the whole report that happens.
+It is matched against `#rrggbb` or `rgba(n, n, n, a)` rather than trusted, and a
+test feeds it a `color(display-p3 …)` and requires the row to render with no
+swatch at all.
+
 ## Next smallest milestone
 
-**First-pass design-token extraction**, which is what closes phase 4.
+Phase 4 is complete, so the next thing is not a phase-4 slice. Two candidates,
+in the order they would pay off:
 
-1. The raw material is already collected. `styleDelta` on every capture records
-   computed values either side of a state change, and `ElementIdentity` carries a
-   structural fingerprint the report already groups by.
-2. The shape: read computed styles for a small, fixed property set — colour,
-   background, border, radius, spacing, font family/size/weight, shadow —
-   across every captured element, cluster the values, and write `tokens.json`.
-3. The honest framing to preserve, and the reason to keep it a *first pass*: an
-   extracted value is an observation, not a token. "#2563EB appears on 34
-   elements" is a fact; "this is your primary colour" is a guess. The artifact
-   should report frequency and where each value was seen, and let a person name
-   things.
-4. Duplicate component grouping is the other half and mostly exists: the report
-   groups by structural fingerprint and by image hash already. What is missing is
-   grouping *across* routes, which is a matter of what the key is rather than new
-   machinery.
+1. **Wire the animation inventory into `crawl`.** The interaction inventory and
+   the style scan both run per page already; the animation inventory is still
+   one-shot only, and it is the same seam (`runInventory`/`runTokens` in
+   `Crawler`). Small, and it makes "what moves on this site" answerable.
+2. **The toolbar's Animation button**, still disabled. It needs the bridge's
+   `capabilities.animation` flipped and a queue job kind — UI work rather than
+   capture work, since everything behind it now exists.
+
+Beyond that the brief is delivered through phase 4. Anything further is new
+scope: perceptual near-duplicate hashing, extension packaging, distributed
+workers.

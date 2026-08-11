@@ -490,6 +490,29 @@ export type RedactionConfig = z.infer<typeof RedactionConfigSchema>;
 /* Root                                                                        */
 /* -------------------------------------------------------------------------- */
 
+/* -------------------------------------------------------------------------- */
+/* Design token candidates                                                     */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Reading every element's computed style and counting what turns up.
+ *
+ * Off by default, and a *first pass* on purpose: what comes out is a frequency
+ * table of observations, not a design system. Naming a value is a judgement,
+ * and this makes none.
+ */
+export const TokensConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  /** Elements past this are not read, and the artifact says how many. */
+  maxElementsPerPage: z.number().int().min(1).max(100_000).default(3_000),
+  maxExamplesPerValue: z.number().int().min(1).max(50).default(5),
+  /** The long tail is truncated per category, and the artifact says so. */
+  maxCandidatesPerCategory: z.number().int().min(1).max(1_000).default(100),
+  /** Report values close enough that one may be a mistake. Never merges them. */
+  nearDuplicates: z.boolean().default(true),
+});
+export type TokensConfig = z.infer<typeof TokensConfigSchema>;
+
 export const UiAtlasConfigSchema = z.object({
   project: z
     .string()
@@ -516,6 +539,7 @@ export const UiAtlasConfigSchema = z.object({
    * and validation as every other command. Recipes will slot in here too.
    */
   crawl: CrawlConfigSchema.prefault({}),
+  tokens: TokensConfigSchema.prefault({}),
   redact: RedactionConfigSchema.prefault({}),
 });
 export type UiAtlasConfig = z.infer<typeof UiAtlasConfigSchema>;

@@ -5,6 +5,8 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { buildElementIdentity, buildFramePath } from '@ui-atlas/identity';
 import { probeSelector } from '@ui-atlas/overlay';
 import { generateReport } from '@ui-atlas/reporter';
+import { TokenScanner } from '@ui-atlas/tokens';
+import { TokensConfigSchema } from '@ui-atlas/config';
 import { startHarness, type TestHarness } from '../support/harness.js';
 
 /**
@@ -275,6 +277,57 @@ describe('generated report', () => {
       expect(panel).toContain('cut short by the budget');
       expect(panel).toContain('700 ms in');
       expect(panel).toContain('not a deterministic sample');
+      expect(report.errors).toEqual([]);
+    } finally {
+      await report.close();
+    }
+  });
+
+  it('shows observed values without ever naming one', async () => {
+    await harness.session.navigate(harness.url('/states.html'));
+    const writer = harness.session.writer;
+    const scanner = new TokenScanner({
+      runId: harness.session.runId,
+      config: TokensConfigSchema.parse({ enabled: true }),
+    });
+    await scanner.scan(harness.session.page, 'states');
+    // A value the extractor could not parse, to prove the swatch is guarded.
+    scanner.add(
+      {
+        entries: [
+          { property: 'color', value: 'color(display-p3 0.2 0.4 0.9)', count: 3, examples: ['b'] },
+        ],
+        elementsScanned: 1,
+        elementsSkipped: 0,
+      },
+      'states',
+    );
+    await writer.writeTokens(scanner.summarise());
+    await harness.session.close();
+
+    const report = await openReport(writer.paths.runDir);
+    try {
+      await report.page.getByRole('tab', { name: 'Values' }).click();
+      const view = report.page.locator('#view');
+      const text = (await view.textContent()) ?? '';
+
+      expect(text).toContain('not a design system');
+      expect(text).toContain('element(s) read across');
+      expect(await view.locator('.tokens__group').count()).toBeGreaterThan(0);
+
+      // Colours get a swatch, and its background is the value itself.
+      const swatch = view.locator('.swatch').first();
+      await swatch.waitFor();
+      const background = await swatch.evaluate((node) => getComputedStyle(node).backgroundColor);
+      expect(background).toMatch(/^rgba?\(/);
+
+      // A value the extractor did not build itself gets no swatch, so no
+      // capture-derived string ever reaches a style attribute unchecked.
+      const rows = view.locator('.table tbody tr');
+      const exotic = rows.filter({ hasText: 'display-p3' });
+      expect(await exotic.count()).toBe(1);
+      expect(await exotic.locator('.swatch').count()).toBe(0);
+
       expect(report.errors).toEqual([]);
     } finally {
       await report.close();

@@ -6,7 +6,7 @@ import { badge, clear, copyText, el, formatBytes, formatTime, pair } from './dom
 /* State                                                                       */
 /* -------------------------------------------------------------------------- */
 
-type TabId = 'components' | 'gallery' | 'duplicates' | 'issues' | 'pages';
+type TabId = 'components' | 'gallery' | 'duplicates' | 'issues' | 'tokens' | 'pages';
 
 interface Filters {
   routeKeys: Set<string>;
@@ -414,6 +414,120 @@ function renderPages(host: HTMLElement): void {
   host.append(el('table', { className: 'table', children: [head, body] }));
 }
 
+/**
+ * Observed values with counts, grouped by the design question they answer.
+ *
+ * The tab is called "Values" rather than "Tokens" for the same reason nothing
+ * here has a name: a token is something a person decided on, and these are
+ * things a browser reported.
+ */
+function renderTokens(host: HTMLElement): void {
+  const tokens = model.tokens;
+  if (tokens === undefined || tokens.candidates.length === 0) {
+    host.append(
+      emptyState(
+        'No styles were scanned in this run. Run `ui-atlas tokens <url>`, or add --tokens to a crawl.',
+      ),
+    );
+    return;
+  }
+
+  host.append(el('p', { className: 'note note--info', text: tokens.note }));
+  host.append(
+    el('p', {
+      className: 'muted',
+      text:
+        `${String(tokens.elementsScanned)} element(s) read across ` +
+        `${String(tokens.pagesScanned)} page(s).`,
+    }),
+  );
+  for (const warning of tokens.warnings) {
+    host.append(el('p', { className: 'note note--warn', text: warning }));
+  }
+
+  if (tokens.nearDuplicates.length > 0) {
+    const list = el('ul', { className: 'notelist' });
+    for (const pair of tokens.nearDuplicates) {
+      list.append(el('li', { text: `${pair.a} and ${pair.b} — ${pair.reason}` }));
+    }
+    host.append(
+      el('section', {
+        className: 'tokens__group',
+        children: [
+          el('h2', { className: 'tokens__heading', text: 'Values that may be the same value' }),
+          el('p', {
+            className: 'muted',
+            text: 'Reported, never merged: deciding which of two is the real one is not this tool\'s call.',
+          }),
+          list,
+        ],
+      }),
+    );
+  }
+
+  const categories = [...new Set(tokens.candidates.map((candidate) => candidate.category))];
+  for (const category of categories) {
+    const inCategory = tokens.candidates.filter((candidate) => candidate.category === category);
+    const body = el('tbody');
+    for (const candidate of inCategory) {
+      const value = el('td', { className: 'mono' });
+      // The only capture-derived string in the whole report that reaches a
+      // `style` attribute, so it is matched against a shape rather than
+      // trusted: a value the extractor did not build itself gets no swatch.
+      if (candidate.kind === 'color' && isPlainColour(candidate.value)) {
+        // `background-color`, not the `background` shorthand: the shorthand
+        // would clear the checkerboard that makes a translucent value legible.
+        value.append(
+          el('span', { className: 'swatch', attrs: { style: `background-color:${candidate.value}` } }),
+        );
+      }
+      value.append(document.createTextNode(candidate.value));
+
+      body.append(
+        el('tr', {
+          children: [
+            value,
+            el('td', { text: String(candidate.count) }),
+            el('td', { text: candidate.properties.join(', ') }),
+            el('td', { text: candidate.routes.join(', '), title: candidate.routes.join('\n') }),
+            el('td', { className: 'mono', text: candidate.examples.join(', ') }),
+          ],
+        }),
+      );
+    }
+
+    const head = el('thead', {
+      children: [
+        el('tr', {
+          children: ['value', 'count', 'seen as', 'routes', 'for example'].map((text) =>
+            el('th', { text }),
+          ),
+        }),
+      ],
+    });
+    host.append(
+      el('section', {
+        className: 'tokens__group',
+        children: [
+          el('h2', {
+            className: 'tokens__heading',
+            text: `${category} (${String(inCategory.length)})`,
+          }),
+          el('table', { className: 'table', children: [head, body] }),
+        ],
+      }),
+    );
+  }
+}
+
+/** `#2563eb` or `rgba(37, 99, 235, 0.5)`, and nothing else at all. */
+function isPlainColour(value: string): boolean {
+  return (
+    /^#[0-9a-f]{6}$/i.test(value) ||
+    /^rgba\(\d{1,3}, \d{1,3}, \d{1,3}, [0-9.]+\)$/.test(value)
+  );
+}
+
 function emptyState(message: string): HTMLElement {
   return el('div', {
     className: 'empty-state',
@@ -805,6 +919,7 @@ const TABS: Array<{ id: TabId; label: string }> = [
   { id: 'gallery', label: 'Gallery' },
   { id: 'duplicates', label: 'Duplicates' },
   { id: 'issues', label: 'Issues' },
+  { id: 'tokens', label: 'Values' },
   { id: 'pages', label: 'Pages' },
 ];
 
@@ -816,6 +931,7 @@ function renderTabs(host: HTMLElement): void {
     gallery: captures.length,
     duplicates: groupDuplicates(captures).length,
     issues: captures.filter((capture) => capture.status !== 'captured' || capture.warnings.length > 0).length,
+    tokens: model.tokens?.candidates.length ?? 0,
     pages: model.pages.length,
   };
 
@@ -856,6 +972,7 @@ function renderMain(): void {
   else if (tab === 'gallery') renderGallery(host, captures);
   else if (tab === 'duplicates') renderDuplicates(host, captures);
   else if (tab === 'issues') renderIssues(host, captures);
+  else if (tab === 'tokens') renderTokens(host);
   else renderPages(host);
 }
 

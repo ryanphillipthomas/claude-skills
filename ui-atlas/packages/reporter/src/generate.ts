@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { atomicWriteFile, readCaptures, readPages, readRunManifest } from '@ui-atlas/artifacts';
-import { UiAtlasError } from '@ui-atlas/protocol';
+import { DesignTokenReportSchema, UiAtlasError, type DesignTokenReport } from '@ui-atlas/protocol';
 import { embedJson, escapeHtml } from './escape.js';
 import { buildReportModel, type ReportModel } from './model.js';
 import { REPORT_STYLES } from './styles.js';
@@ -59,6 +59,7 @@ export async function generateReport(options: GenerateReportOptions): Promise<Ge
   const manifest = await readRunManifest(manifestPath);
   const captures = await readCaptures(resolve(runDir, 'captures.jsonl'));
   const pages = await readPages(resolve(runDir, 'pages.jsonl'));
+  const tokens = await readTokens(resolve(runDir, 'tokens.json'));
 
   const model = buildReportModel({
     manifest,
@@ -66,6 +67,7 @@ export async function generateReport(options: GenerateReportOptions): Promise<Ge
     pages: pages.records,
     unreadableRecords: captures.invalidLines.length + pages.invalidLines.length,
     generatedAt: options.generatedAt ?? new Date().toISOString(),
+    ...(tokens === undefined ? {} : { tokens }),
   });
 
   const html = renderDocument(model, await loadViewerBundle());
@@ -73,6 +75,23 @@ export async function generateReport(options: GenerateReportOptions): Promise<Ge
   const written = await atomicWriteFile(target, html);
 
   return { path: target, model, byteLength: written.byteLength };
+}
+
+/**
+ * `tokens.json`, when the run wrote one, validated before it is trusted.
+ *
+ * A missing file is ordinary — most runs do not scan styles. A *corrupt* one is
+ * not a reason to lose the whole report, so it is dropped rather than thrown:
+ * the same treatment an unreadable JSONL line already gets.
+ */
+async function readTokens(path: string): Promise<DesignTokenReport | undefined> {
+  if (!existsSync(path)) return undefined;
+  try {
+    const parsed = DesignTokenReportSchema.safeParse(JSON.parse(await readFile(path, 'utf8')));
+    return parsed.success ? parsed.data : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function renderDocument(model: ReportModel, viewer: string): string {

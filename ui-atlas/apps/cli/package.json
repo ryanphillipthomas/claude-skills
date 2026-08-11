@@ -25,6 +25,7 @@
     "@ui-atlas/overlay": "*",
     "@ui-atlas/protocol": "*",
     "@ui-atlas/settle": "*",
+    "@ui-atlas/tokens": "*",
     "playwright": "1.56.1",
     "@ui-atlas/reporter": "*"
   }

@@ -541,6 +541,83 @@ export const AnimationRecordSchema = z.object({
 export type AnimationRecord = z.infer<typeof AnimationRecordSchema>;
 
 /* -------------------------------------------------------------------------- */
+/* Design token candidates                                                     */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Which design question a value answers. Colours and lengths are kept apart by
+ * *use* rather than lumped together by type: "what colour is the text" and
+ * "what colour is behind it" are different questions with different answers.
+ */
+export const TOKEN_CATEGORIES = [
+  'color',
+  'background',
+  'border',
+  'radius',
+  'spacing',
+  'typography',
+  'shadow',
+] as const;
+export const TokenCategorySchema = z.enum(TOKEN_CATEGORIES);
+export type TokenCategory = z.infer<typeof TokenCategorySchema>;
+
+/** What kind of value it is, which decides how it is compared and displayed. */
+export const TOKEN_VALUE_KINDS = ['color', 'length', 'number', 'text'] as const;
+export const TokenValueKindSchema = z.enum(TOKEN_VALUE_KINDS);
+export type TokenValueKind = z.infer<typeof TokenValueKindSchema>;
+
+/**
+ * One observed computed value, with how often it was seen and where.
+ *
+ * **Candidate**, not token. "#2563eb appears on 34 elements" is a fact; "this is
+ * your primary colour" is a judgement, and this tool does not make it. Naming is
+ * left to a person, which is why nothing here has a name field.
+ */
+export const DesignTokenCandidateSchema = z.object({
+  category: TokenCategorySchema,
+  kind: TokenValueKindSchema,
+  /** Normalised for comparison: `rgb(37, 99, 235)` and `#2563EB` are one value. */
+  value: z.string(),
+  /** Elements whose computed style had this value. */
+  count: z.number().int().nonnegative(),
+  /** Which computed properties it turned up as. */
+  properties: z.array(z.string()),
+  routes: z.array(z.string()),
+  /** A few selector hints, so a value can be traced back to the markup. */
+  examples: z.array(z.string()),
+});
+export type DesignTokenCandidate = z.infer<typeof DesignTokenCandidateSchema>;
+
+/**
+ * Two values close enough that one of them may be a mistake. Reported, never
+ * merged: collapsing them would be the tool deciding which one is real.
+ */
+export const TokenNearDuplicateSchema = z.object({
+  category: TokenCategorySchema,
+  kind: TokenValueKindSchema,
+  a: z.string(),
+  b: z.string(),
+  reason: z.string(),
+});
+export type TokenNearDuplicate = z.infer<typeof TokenNearDuplicateSchema>;
+
+export const DesignTokenReportSchema = z.object({
+  schemaVersion: SchemaVersionSchema,
+  runId: z.string(),
+  generatedAt: IsoDateTimeSchema,
+  /** Says in the artifact itself what these values are and are not. */
+  note: z.string(),
+  pagesScanned: z.number().int().nonnegative(),
+  elementsScanned: z.number().int().nonnegative(),
+  /** Elements a per-page cap left out, so a truncated scan cannot look complete. */
+  elementsSkipped: z.number().int().nonnegative(),
+  candidates: z.array(DesignTokenCandidateSchema),
+  nearDuplicates: z.array(TokenNearDuplicateSchema),
+  warnings: z.array(z.string()),
+});
+export type DesignTokenReport = z.infer<typeof DesignTokenReportSchema>;
+
+/* -------------------------------------------------------------------------- */
 /* Crawl state                                                                 */
 /* -------------------------------------------------------------------------- */
 
