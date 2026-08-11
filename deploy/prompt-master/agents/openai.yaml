@@ -1,0 +1,7 @@
+interface:
+  display_name: "Prompt Master"
+  short_description: "Write, improve, or adapt production-ready prompts for a specific AI tool."
+  default_prompt: "Use Prompt Master to write, improve, or adapt a prompt for the AI tool I name."
+
+policy:
+  allow_implicit_invocation: true
