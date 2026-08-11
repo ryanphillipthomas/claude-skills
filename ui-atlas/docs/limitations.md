@@ -16,7 +16,8 @@ in its `warnings` or its `error`.
 | Worker concurrency | **Built.** `--concurrency <n>` runs isolated workers, each with its own context. `perPageDelayMs` is enforced per origin across all of them. Details below. |
 | Retry and backoff | **Built.** Bounded retries with jitter for timeouts and 5xx; a 429 or 503 holds the whole origin back, honouring `Retry-After`. Details below. |
 | Trace on failure | **Built.** `--trace-on-failure` keeps a Playwright trace for unreachable pages and for pages a recipe failed on. Off by default: a trace can contain session cookies. Details below. |
-| Animation capture | The motion fixture exists; discovery and deterministic frame sampling are phase 4. The toolbar's Animation button is disabled. |
+| Animation inventory | **Built.** `ui-atlas animations <url>` lists every animation the Web Animations API can see and says how samplable each is. It reads and only reads. Details below. |
+| Animation frame sampling | Not built. Pausing, seeking and capturing frames is the next slice; the toolbar's Animation button stays disabled until then. |
 | CDP forced pseudo-states | Not implemented. `focus-visible` is reached with a real keyboard interaction or reported as `skipped` — never faked. |
 | Chrome extension packaging | Not required and not built. |
 
@@ -69,9 +70,10 @@ All of these are deliberate for the first crawl slice; see
   responds with `Content-Disposition: attachment` will be navigated to. Chromium
   will not render it and the page record carries whatever the navigation
   produced.
-- **One worker, one page at a time.** Concurrency and per-origin throttling are
-  the next part of phase 3, so `perPageDelayMs` is currently the only politeness
-  control.
+- **Concurrency is opt-in and defaults to one worker.** `--concurrency <n>`
+  raises it; `perPageDelayMs` then applies per origin across every worker rather
+  than per worker, so more workers never means more requests per second to one
+  host.
 - **`maxRunMinutes` is checked between pages** and also clamps each page's own
   budget, so navigation, settle, the title read and link discovery are all
   bounded by whatever is left of the run. A crawl can still overshoot slightly:
@@ -164,6 +166,31 @@ See [ADR 16](adr/0016-interaction-inventory-suggests-never-acts.md).
 - **Top document only.** Controls inside iframes are not inventoried, for the
   same reason recipes cannot name them.
 - **It costs one page evaluation per page**, which is why it is off by default.
+
+## Boundaries of the animation inventory
+
+See [ADR 20](adr/0020-animation-inventory-describes-without-touching.md).
+
+- **It captures nothing and changes nothing.** No animation is paused, seeked or
+  cancelled, and no screenshot is taken. A test snapshots every animation's play
+  state and playback rate before and after a pass and requires them identical.
+- **Canvas, WebGL and video motion is invisible to it.** None of them is an
+  `Animation`, so `getAnimations` cannot report them. They are counted and named
+  in a warning instead, because "no animations found" on a canvas-driven page
+  would be a lie of omission.
+- **A `requestAnimationFrame` loop is equally invisible**, and unlike a canvas
+  there is nothing to count. Script-driven motion simply will not appear.
+- **A hover transition does not exist on a page at rest**, so it is absent from
+  the inventory of a page nobody has touched. Provoking one is a recipe's job.
+  The fixture proves both halves: absent at rest, present after a hover.
+- **Only what is running when the page settles is listed.** An animation that
+  starts later, or one already finished and garbage-collected, is not there.
+- **`sampleable` is a statement about determinism, not about usefulness.** It
+  says a seek would reproduce a frame; it does not promise the frame is
+  interesting.
+- **Nothing is wired into `crawl` yet.** The inventory is a one-shot command; a
+  site-wide animation inventory would be a small addition alongside the
+  interaction inventory.
 
 ## Things the tool reports that surprise people
 

@@ -23,6 +23,7 @@ export default defineConfig({
       { find: /^@ui-atlas\/overlay$/, replacement: pkg('overlay', 'src/host/index.ts') },
       { find: /^@ui-atlas\/reporter$/, replacement: pkg('reporter') },
       { find: /^@ui-atlas\/crawler$/, replacement: pkg('crawler') },
+      { find: /^@ui-atlas\/animation$/, replacement: pkg('animation') },
     ],
   },
   test: {

@@ -1,7 +1,7 @@
 # Implementation checklist
 
-Phases 0, 1 and 2 are complete. Phase 3 is in progress: its first slice, the
-bounded link frontier, is done. What is still unbuilt is listed in
+Phases 0 through 3 are complete. Phase 4 is in progress: its first slice, the
+animation inventory, is done. What is still unbuilt is listed in
 [docs/limitations.md](docs/limitations.md).
 
 ## Phase 0 — foundation
@@ -215,6 +215,35 @@ is still empty and no non-`GET` request was issued.
 - [ ] Sitemap seeding, and optional dedup by page structural fingerprint
 - [ ] `captureResponsive` during a crawl (the step validates but reports that it
       was unavailable)
+
+## Phase 4 — animation inventory (first slice)
+
+- [x] `ui-atlas animations <url>` lists every animation the Web Animations API
+      can see, across every frame Playwright can reach
+- [x] Records kind, timing, iterations, easing, direction, fill, keyframe
+      offsets, animated properties, play state and target
+- [x] Classifies each `sampleable` / `infinite` / `scroll-driven` /
+      `indeterminate` / `instant`, with the reason recorded
+- [x] **It reads and only reads.** Nothing paused, seeked or cancelled, and
+      nothing captured — asserted by snapshotting play state and playback rate
+      either side of a pass
+- [x] `durationMs` and `iterations` are absent rather than zero for `auto` and
+      `Infinity`; no iteration length is offered for anything not time-driven
+- [x] Canvas, WebGL and video elements counted and named, because their motion
+      is invisible to `getAnimations`
+- [x] A hover-only transition is legitimately absent from a page at rest, and a
+      test asserts both that absence and its appearance after a hover
+- [x] Written to `animations.jsonl`; a run has no `captures.jsonl`
+
+### Still to build in phase 4
+
+- [ ] Deterministic frame sampling of what the inventory marks `sampleable`,
+      with every animation's original state restored
+- [ ] Hover-transition sampling (enter hover, discover what appeared, sample)
+- [ ] Optional video/screencast fallback for motion that is not keyframable
+- [ ] The toolbar's Animation button, still disabled
+- [ ] First-pass design-token extraction and duplicate component grouping
+- [ ] Wiring the animation inventory into `crawl`
 
 ## Still out of scope
 

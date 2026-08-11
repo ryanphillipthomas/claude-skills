@@ -427,6 +427,81 @@ export const InteractionCandidateSchema = z.object({
 export type InteractionCandidate = z.infer<typeof InteractionCandidateSchema>;
 
 /* -------------------------------------------------------------------------- */
+/* Animation inventory                                                         */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Whether an animation can be sampled at a chosen point and produce the same
+ * frame every time. Only `sampleable` can; the rest are named with a reason
+ * rather than sampled anyway and presented as if they were deterministic.
+ */
+export const ANIMATION_SAMPLEABILITY = [
+  /** Finite, time-driven, with a known duration. Frame sampling can be honest. */
+  'sampleable',
+  /** Repeats forever, so there is no 100% to sample at. */
+  'infinite',
+  /** Progresses with the scroll position, not the clock. */
+  'scroll-driven',
+  /** Duration is `auto`, or the timeline could not be identified. */
+  'indeterminate',
+  /** Zero duration or zero iterations: no intermediate frames exist. */
+  'instant',
+] as const;
+export const AnimationSampleabilitySchema = z.enum(ANIMATION_SAMPLEABILITY);
+export type AnimationSampleability = z.infer<typeof AnimationSampleabilitySchema>;
+
+export const ANIMATION_KINDS = ['css-animation', 'css-transition', 'web-animation'] as const;
+export const AnimationKindSchema = z.enum(ANIMATION_KINDS);
+export type AnimationKind = z.infer<typeof AnimationKindSchema>;
+
+export const AnimationRecordSchema = z.object({
+  schemaVersion: SchemaVersionSchema,
+  id: z.string(),
+  runId: z.string(),
+  url: z.string(),
+  routeKey: z.string(),
+  foundAt: IsoDateTimeSchema,
+  /** Frame the animation lives in, outermost first. Empty for the top document. */
+  framePath: z.array(FrameIdentitySchema),
+  kind: AnimationKindSchema,
+  /** The animation's own id, or a position-based label when it has none. */
+  animationId: z.string(),
+  animationName: z.string().optional(),
+  transitionProperty: z.string().optional(),
+  playState: z.string(),
+  timeline: z.enum(['document', 'scroll', 'view', 'unknown']),
+  playbackRate: z.number(),
+  /** Absent for a duration of `auto`, which has no number to sample within. */
+  durationMs: z.number().nonnegative().optional(),
+  delayMs: z.number(),
+  endDelayMs: z.number(),
+  /** Absent when the animation repeats forever. */
+  iterations: z.number().nonnegative().optional(),
+  iterationStart: z.number(),
+  direction: z.string(),
+  fill: z.string(),
+  easing: z.string(),
+  offsets: z.array(z.number()),
+  properties: z.array(z.string()),
+  pseudoElement: z.string().optional(),
+  target: z
+    .object({
+      tagName: z.string(),
+      id: z.string().optional(),
+      testId: z.string().optional(),
+      selectorHint: z.string(),
+      boundingBox: BoxSchema,
+    })
+    .optional(),
+  sampleability: AnimationSampleabilitySchema,
+  reasons: z.array(z.string()),
+  /** Present when there is a length to seek within. */
+  iterationDurationMs: z.number().nonnegative().optional(),
+  activeDurationMs: z.number().nonnegative().optional(),
+});
+export type AnimationRecord = z.infer<typeof AnimationRecordSchema>;
+
+/* -------------------------------------------------------------------------- */
 /* Crawl state                                                                 */
 /* -------------------------------------------------------------------------- */
 

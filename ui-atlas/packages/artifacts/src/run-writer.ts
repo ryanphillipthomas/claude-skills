@@ -1,4 +1,5 @@
 import {
+  AnimationRecordSchema,
   CaptureRecordSchema,
   CrawlStateSchema,
   InteractionCandidateSchema,
@@ -6,6 +7,7 @@ import {
   RunManifestSchema,
   SCHEMA_VERSION,
   UiAtlasError,
+  type AnimationRecord,
   type CaptureRecord,
   type CrawlState,
   type InteractionCandidate,
@@ -35,6 +37,7 @@ export interface RunPaths {
   crawlState: string;
   interactionsJsonl: string;
   suggestedRecipes: string;
+  animationsJsonl: string;
 }
 
 export function runPaths(outputRoot: string, project: string, runId: string): RunPaths {
@@ -54,6 +57,7 @@ export function runPaths(outputRoot: string, project: string, runId: string): Ru
     crawlState: resolveWithinRoot(runDir, 'crawl-state.json'),
     interactionsJsonl: resolveWithinRoot(runDir, 'interactions.jsonl'),
     suggestedRecipes: resolveWithinRoot(runDir, 'suggested-recipes.yml'),
+    animationsJsonl: resolveWithinRoot(runDir, 'animations.jsonl'),
   };
 }
 
@@ -253,6 +257,22 @@ export class RunWriter {
       });
     }
     await appendJsonLine(this.paths.interactionsJsonl, parsed.data);
+    return parsed.data;
+  }
+
+  /**
+   * Append a described animation. Observations, never instructions: nothing in
+   * `animations.jsonl` has been paused, seeked or sampled.
+   */
+  async addAnimation(record: AnimationRecord): Promise<AnimationRecord> {
+    this.assertReady();
+    const parsed = AnimationRecordSchema.safeParse(record);
+    if (!parsed.success) {
+      throw new UiAtlasError('artifact.write-failed', 'invalid animation record', {
+        detail: { animationId: record.id, issues: formatIssues(parsed.error) },
+      });
+    }
+    await appendJsonLine(this.paths.animationsJsonl, parsed.data);
     return parsed.data;
   }
 

@@ -32,6 +32,9 @@
       "path": "packages/crawler"
     },
     {
+      "path": "packages/animation"
+    },
+    {
       "path": "apps/cli"
     }
   ]

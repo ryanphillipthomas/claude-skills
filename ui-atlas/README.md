@@ -7,10 +7,10 @@ states, and keep enough metadata to find it again.
 No cloud account, no AI service, no browser extension, no database server.
 Everything runs on your machine and writes plain files.
 
-**Current release: the guided inspector, responsive replay, the report, and a
-bounded crawler with declarative interaction recipes.** Animation capture and
-design-system extraction are later phases — see
-[docs/limitations.md](docs/limitations.md).
+**Current release: the guided inspector, responsive replay, the report, a
+bounded crawler with declarative interaction recipes, and the animation
+inventory.** Animation frame sampling and design-system extraction are still to
+come — see [docs/limitations.md](docs/limitations.md).
 
 ## Requirements
 
@@ -326,6 +326,36 @@ are valid YAML and still wrong — a recipe scoped to a route `denyPaths` or
 recipe that clicks but keeps no artifact, duplicate names — and exits non-zero
 when it finds one, so it can gate a pipeline.
 
+### Animations
+
+```bash
+npm run ui-atlas -- animations https://example.com
+```
+
+Lists every animation the Web Animations API can see and says of each whether it
+could be sampled at a chosen point and give the same frame every time:
+
+| Verdict | Meaning |
+| --- | --- |
+| `sampleable` | Finite, time-driven, known duration. A seek reproduces a frame. |
+| `infinite` | Repeats forever, so there is no 100% to sample at. |
+| `scroll-driven` | Progress follows the scroll position, not the clock. |
+| `indeterminate` | Duration is `auto`, or the timeline could not be identified. |
+| `instant` | Zero duration or iterations: no intermediate frames exist. |
+
+**It reads and only reads.** Nothing is paused, seeked or cancelled, and no
+screenshot is taken — a test snapshots every animation's play state and playback
+rate before and after a pass and requires them identical. Frame sampling is the
+next slice, and it will only sample what this marks `sampleable`.
+
+Written to `animations.jsonl`. Two gaps it tells you about rather than hiding:
+
+- **Canvas, WebGL and video are not `Animation`s**, so `getAnimations` cannot
+  see them. Those elements are counted and named, because "no animations found"
+  on a canvas-driven page is a lie of omission.
+- **A hover transition does not exist on a page at rest**, so it will not
+  appear. Provoking one is a recipe's job.
+
 ### Authentication
 
 ```bash
@@ -352,6 +382,7 @@ ui-atlas-output/
       interactions.jsonl                              inventoried controls, classified
       suggested-recipes.yml                           a recipe skeleton to review
       traces/<page-id>.zip                            failures only; can contain cookies
+      animations.jsonl                                described animations, never sampled
       screenshots/<route>/<viewport>/<capture-id>.png
       screenshots/<route>/<viewport>/<capture-id>.json   metadata beside the image
       report/index.html                                  browsable report
@@ -408,6 +439,7 @@ packages/capture  screenshots, the state controller, computed-style deltas, queu
 packages/overlay  the injected inspector and the host side of its bridge
 packages/reporter the static report: view model, viewer, generator
 packages/crawler  URL canonicalisation, link policy, frontier, budgets, recipes
+packages/animation animation discovery and sampleability classification
 ```
 
 The Node host owns the browser, the filesystem, the capture queue and policy.

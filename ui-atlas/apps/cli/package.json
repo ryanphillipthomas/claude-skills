@@ -15,6 +15,7 @@
     }
   },
   "dependencies": {
+    "@ui-atlas/animation": "*",
     "@ui-atlas/artifacts": "*",
     "@ui-atlas/browser": "*",
     "@ui-atlas/capture": "*",

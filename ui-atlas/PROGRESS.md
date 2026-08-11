@@ -3,7 +3,7 @@
 Running log for the build. Updated after each milestone so an interrupted
 session is recoverable.
 
-**Last updated:** 2026-08-11, after trace-on-failure landed. Phase 3 is complete.
+**Last updated:** 2026-08-11, after the animation inventory landed.
 
 ## Status
 
@@ -13,8 +13,8 @@ frontier, declarative interaction recipes, the suggested-interaction inventory,
 worker concurrency with per-origin throttling, retry with status-aware backoff,
 and trace-on-failure. The repository is buildable, tested and documented.
 
-Phase 4 — animation capture and design-system extraction — has not been
-started.
+Phase 4 has started: its first slice, the animation inventory, is done. Frame
+sampling and design-system extraction are still to come.
 
 ```
 npm install
@@ -27,9 +27,9 @@ npm test
 `npm test` (builds, then Vitest — unit and browser integration):
 
 ```
-Test Files  28 passed (28)
-     Tests  320 passed | 3 skipped (323)
-  Duration  ~190s
+Test Files  30 passed (30)
+     Tests  341 passed | 3 skipped (344)
+  Duration  ~240s
 ```
 
 On a networked machine the three external smoke tests run instead of skipping:
@@ -65,9 +65,11 @@ the phase 1 exit criterion. Nothing is unverified now.
 | `unit/retry` | 18 | `Retry-After` in both forms, backoff doubling and jitter bounds, which statuses retry, which slow the origin |
 | `integration/retry` | 8 | **phase 3, fifth slice**: recovery after two failures, giving up honestly, no retry on 404, `Retry-After` honoured and clamped, origin backoff reported once, retries not eating the page budget, the run deadline winning |
 | `integration/traces` | 8 | **phase 3, sixth slice**: nothing written for a healthy crawl, a trace for an unreachable page and for a failed recipe, no trace for a 404, `maxTraces`, and the report not leaking `tracePath` |
+| `unit/animation` | 14 | sampleability rules, scroll beating every other signal, summaries, unobservable-motion wording |
+| `integration/animation` | 7 | **phase 4, first slice**: every kind of motion on the fixture, the scroll-driven verdict, the hover transition's honest absence, nothing perturbed, canvas/video counted, frames reached, end to end through the CLI |
 | `integration/external-smoke` | 3 skipped | read-only public-site checks; skip without network |
 
-`npm run typecheck` passes for all eleven packages and for the test sources.
+`npm run typecheck` passes for all twelve packages and for the test sources.
 
 ## Exit criteria
 
@@ -146,6 +148,7 @@ Consequential ones are in [`docs/adr/`](docs/adr/):
 17. Workers are isolated; politeness is per origin, not per worker
 18. Retrying is per page; backing off is per origin
 19. A trace is kept only for a failure, and never leaves the run directory
+20. The animation inventory describes without touching, and says what it cannot sample
 
 Smaller assumptions, not worth an ADR:
 
@@ -582,27 +585,83 @@ This is the one deliberate exception to
 stays out of artifacts, which is why it is opt-in, bounded by `maxTraces`, and
 announced.
 
+## Animation inventory (phase 4, first slice)
+
+Done and covered by `tests/unit/animation.test.ts` and
+`tests/integration/animation.test.ts`. See
+[ADR 20](docs/adr/0020-animation-inventory-describes-without-touching.md).
+
+`ui-atlas animations <url>` lists every animation the Web Animations API can see
+and says of each whether it could be sampled at a chosen point and give the same
+frame every time. It writes `animations.jsonl` and captures nothing.
+
+All four points of the plan this replaced are done:
+
+1. `document.getAnimations()` in every frame Playwright can reach — which
+   includes cross-origin frames that page script could never evaluate in —
+   recording kind, timing, iterations, easing, direction, fill, keyframe offsets,
+   animated properties, play state and target.
+2. Each classified `sampleable` / `infinite` / `scroll-driven` /
+   `indeterminate` / `instant`, with the reason recorded on the record.
+3. Surfaced as a list to read. Frame sampling is the next slice.
+4. `motion.html` is the fixture, and the honest outcomes are what the tests
+   assert: the infinite animation is reported *and* explicitly not sampleable,
+   and the scroll-driven one is marked reachable only by scrolling.
+
+### Why this slice captures nothing
+
+Sampling an infinite animation "at 100%" produces a screenshot of an arbitrary
+moment presented as an end state. Seeking `currentTime` on a scroll-driven
+animation produces a frame the site would never show at that scroll position.
+Both look exactly like a successful capture, which is why the classification
+comes first and the sampling comes second.
+
+Three decisions follow from that:
+
+- **It reads and only reads.** Nothing is paused, seeked or cancelled. A test
+  snapshots every animation's play state and playback rate either side of a full
+  pass and requires them identical. The restore step is the part most likely to
+  be subtly wrong, and a slice that needs no restore cannot get it wrong.
+- **`durationMs` and `iterations` are absent, not zero**, for `auto` and
+  `Infinity`. A zero would be a lie with a number on it. Nothing not driven by
+  time gets an `iterationDurationMs` at all, because offering a number there
+  invites exactly the seek that cannot work.
+- **Scroll beats every other verdict.** When a scroll-driven animation is also
+  infinite, the reason it cannot be sampled is the timeline, and the reason is
+  what a person acts on.
+
+### Two honest gaps, both tested
+
+1. **Canvas, WebGL and video motion is invisible**, because none of them is an
+   `Animation`. Those elements are counted and named in a warning: "no animations
+   found" on a canvas-driven page would be a lie of omission. `media.html` proves
+   it.
+2. **A hover transition does not exist on a page at rest**, so it is absent. That
+   falls out of refusing to interact, and the test asserts both halves — absent
+   before the hover, present after it.
+
+One correction to the plan as written: `Document.getAnimations()` takes no
+options. `{ subtree: true }` is the `Element.getAnimations()` form, and the
+document-level call already covers the whole document. Caught by the compiler.
+
 ## Next smallest milestone
 
-Phase 3 is done, so the next step is **phase 4: animation capture**. The ground
-is already laid — `motion.html` exists, `AnimationSample` is in the data model,
-and the toolbar's Animation button is disabled and waiting.
+**Deterministic frame sampling of what the inventory already marks `sampleable`.**
 
-The smallest useful slice:
+1. Pause the animation, seek `currentTime` to each configured offset (0, 25, 50,
+   75, 100% by default), capture, and restore the original `currentTime`,
+   `playbackRate` and play state in a `finally`.
+2. Sample only what the inventory calls `sampleable`. Everything else gets a
+   `skipped` capture record carrying the classification's own reason — the
+   vocabulary for that already exists ([ADR 6](docs/adr/0006-capture-record-shape.md)).
+3. `AnimationSample` is already in the data model and already carries
+   `limitations`; the sampler fills it in rather than inventing a shape.
+4. Restoration is the risk. The inventory's "nothing was perturbed" test is the
+   template: snapshot every animation before, sample one, and require every
+   *other* animation unchanged and the sampled one back where it started.
+5. The toolbar's Animation button can be enabled once this works, since
+   `capabilities.animation` is already wired through the bridge as `false`.
 
-**Animation inventory: discover and describe, capture nothing.**
-
-1. `document.getAnimations({ subtree: true })` in every accessible frame,
-   recording target, type, duration, delay, iterations, easing, play state and
-   keyframe offsets.
-2. Classify each as finite, infinite, scroll-driven or script-driven, because
-   only the first is deterministically sampleable and the rest need saying so.
-3. Surface it the way the interaction inventory does — a list to read, not
-   frames to capture. Deterministic frame sampling is the slice after.
-4. `motion.html` is the fixture, and the honest outcomes matter more than the
-   count: an infinite animation must be reported as unsamplable rather than
-   quietly sampled at an arbitrary moment.
-
-After that: pause/seek/sample at configurable offsets with every animation's
-original state restored, then hover-transition sampling, then the video
-fallback.
+After that: hover-transition sampling (enter hover, discover what appeared,
+sample it), then the bounded screencast fallback for motion that is not
+keyframable, then design-token extraction.

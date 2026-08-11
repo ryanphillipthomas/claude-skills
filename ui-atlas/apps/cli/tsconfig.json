@@ -37,6 +37,9 @@
     },
     {
       "path": "../../packages/crawler"
+    },
+    {
+      "path": "../../packages/animation"
     }
   ]
 }
