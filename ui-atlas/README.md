@@ -196,6 +196,33 @@ a page that never answered at all is a finding about the run, and is the only
 thing that makes `crawl` exit non-zero. One broken link will not fail your
 pipeline.
 
+### Trace on failure
+
+```bash
+npm run ui-atlas -- crawl site.yml --trace-on-failure
+```
+
+Keeps a Playwright trace — a steppable filmstrip with the DOM, the console and
+every network request — for pages that could not be reached, and for pages a
+recipe failed on. That second case is the one it is really for: the page loaded
+fine, so nothing in `pages.jsonl` explains why a step could not find its element.
+
+**It is off by default, on purpose.** A trace records network traffic including
+request headers, so a trace taken during an authenticated crawl contains the
+session cookie that authenticated it. Turning it on is a decision about where
+that material is allowed to land, and the run says so the first time it writes
+one.
+
+Nothing is written for a page that worked: recording runs continuously in memory
+and the chunk is discarded unless the page failed. An error *status* does not
+count — a `404` is an answer, and its status is the whole story. `maxTraces`
+(20) bounds how many are kept.
+
+Traces are named by page record id, so `pages.jsonl` and the file line up. **The
+report does not show them**, and a test fails if that changes: the report is the
+artifact you send to someone, and a trace path in it invites forwarding a file
+full of request headers.
+
 A site config is an ordinary UI Atlas config with a `crawl:` block:
 
 ```yaml
@@ -324,6 +351,7 @@ ui-atlas-output/
       crawl-state.json                                resumable crawl frontier
       interactions.jsonl                              inventoried controls, classified
       suggested-recipes.yml                           a recipe skeleton to review
+      traces/<page-id>.zip                            failures only; can contain cookies
       screenshots/<route>/<viewport>/<capture-id>.png
       screenshots/<route>/<viewport>/<capture-id>.json   metadata beside the image
       report/index.html                                  browsable report

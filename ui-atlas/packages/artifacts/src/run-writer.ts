@@ -131,6 +131,17 @@ export class RunWriter {
     return writer;
   }
 
+  /**
+   * Absolute path a failure trace for `pageId` must be written to, with its
+   * directory created. Traces can contain session cookies, so they live under
+   * the run's own `traces/` directory and nowhere else.
+   */
+  async traceDestination(pageId: string): Promise<string> {
+    this.assertReady();
+    await ensureDir(this.paths.tracesDir);
+    return resolveWithinRoot(this.paths.tracesDir, `${sanitizeSegment(pageId, 'page')}.zip`);
+  }
+
   /** Crawl frontier from a previous run, or `undefined` if there is none. */
   async readCrawlState(): Promise<CrawlState | undefined> {
     if (!existsSync(this.paths.crawlState)) return undefined;

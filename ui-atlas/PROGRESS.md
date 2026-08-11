@@ -3,16 +3,18 @@
 Running log for the build. Updated after each milestone so an interrupted
 session is recoverable.
 
-**Last updated:** 2026-08-11, after retry and status-aware backoff landed.
+**Last updated:** 2026-08-11, after trace-on-failure landed. Phase 3 is complete.
 
 ## Status
 
-Phases 0, 1 and 2 are complete and their exit criteria pass, with one
-environment-bound gap recorded below. Phase 3 is one item from done: the bounded
+Phases 0, 1, 2 and 3 are complete and their exit criteria pass, with one
+environment-bound gap recorded below. Phase 3 shipped in six slices: the bounded
 frontier, declarative interaction recipes, the suggested-interaction inventory,
-worker concurrency with per-origin throttling, and retry with status-aware
-backoff are all built, and its exit criterion passes on the fixture graph. Only
-trace-on-failure remains. The repository is buildable, tested and documented.
+worker concurrency with per-origin throttling, retry with status-aware backoff,
+and trace-on-failure. The repository is buildable, tested and documented.
+
+Phase 4 — animation capture and design-system extraction — has not been
+started.
 
 ```
 npm install
@@ -25,9 +27,9 @@ npm test
 `npm test` (builds, then Vitest — unit and browser integration):
 
 ```
-Test Files  27 passed (27)
-     Tests  312 passed | 3 skipped (315)
-  Duration  ~186s
+Test Files  28 passed (28)
+     Tests  320 passed | 3 skipped (323)
+  Duration  ~190s
 ```
 
 On a networked machine the three external smoke tests run instead of skipping:
@@ -62,6 +64,7 @@ the phase 1 exit criterion. Nothing is unverified now.
 | `integration/concurrency` | 5 | **phase 3, fourth slice**: same coverage as one worker, no duplicate records, budget under parallel flight, the delay holding across workers, concurrent resume, loud single-worker fallback |
 | `unit/retry` | 18 | `Retry-After` in both forms, backoff doubling and jitter bounds, which statuses retry, which slow the origin |
 | `integration/retry` | 8 | **phase 3, fifth slice**: recovery after two failures, giving up honestly, no retry on 404, `Retry-After` honoured and clamped, origin backoff reported once, retries not eating the page budget, the run deadline winning |
+| `integration/traces` | 8 | **phase 3, sixth slice**: nothing written for a healthy crawl, a trace for an unreachable page and for a failed recipe, no trace for a 404, `maxTraces`, and the report not leaking `tracePath` |
 | `integration/external-smoke` | 3 skipped | read-only public-site checks; skip without network |
 
 `npm run typecheck` passes for all eleven packages and for the test sources.
@@ -142,6 +145,7 @@ Consequential ones are in [`docs/adr/`](docs/adr/):
 16. The interaction inventory suggests; it never acts
 17. Workers are isolated; politeness is per origin, not per worker
 18. Retrying is per page; backing off is per origin
+19. A trace is kept only for a failure, and never leaves the run directory
 
 Smaller assumptions, not worth an ADR:
 
@@ -529,20 +533,76 @@ Building it surfaced one real defect and one wrong expectation:
    attempt" case asserted the first attempt's delay; by the third 429 the
    backoff has doubled twice. The code was right.
 
+## Trace on failure (phase 3, sixth slice — phase 3 complete)
+
+Done and covered by `tests/integration/traces.test.ts`. See
+[ADR 19](docs/adr/0019-traces-are-kept-only-for-failures.md).
+
+`crawl --trace-on-failure` keeps a Playwright trace for a page that could not be
+reached and for a page a recipe failed on. That second case is what the feature
+is really for: the page loaded fine, so nothing in `pages.jsonl` explains why a
+step could not find its element.
+
+All four points of the plan this replaced are done, and the fourth turned out to
+be the whole design:
+
+1. `RunPaths.tracesDir` is finally used, created lazily so a clean run has no
+   empty directory suggesting something is missing.
+2. Playwright's chunk API does the work: `tracing.start()` once per worker
+   context, `startChunk()` before each page, and a chunk written **only** when
+   the page failed. Recording costs memory; only a failure costs a file.
+3. Named by page record id, with an optional `tracePath` on `PageRecord`.
+4. A trace records network traffic including request headers, so one taken
+   during an authenticated crawl contains the session cookie that authenticated
+   it.
+
+### That last point drove everything
+
+- **Off by default.** Every other diagnostic here is safe to leave on; this one
+  writes impersonation-capable material to disk.
+- **Nothing is written for a page that worked.** The chunk API is what makes
+  that possible — the alternative is tracing everything and deleting most of it,
+  which puts every successful page's cookies on the disk on the way to being
+  deleted.
+- **An error status is not a failure for this purpose.** A `404` is an answer;
+  its status is the whole story, so a trace would add a sensitive file and no
+  information.
+- **The report does not surface `tracePath`.** The report is the artifact you
+  send to someone ([ADR 12](docs/adr/0012-report-is-one-static-file.md)), and a
+  trace path in it invites forwarding a file full of request headers. The report
+  already builds an allowlist view model, so this needed no new mechanism — but
+  it needed a test, because an allowlist that is never challenged proves
+  nothing. Adding `tracePath` to that view model makes the test fail; verified
+  by doing exactly that and watching it go red.
+- **The first trace of a run warns** that the run directory is now sensitive.
+  Once per run, because it is a fact about the directory.
+
+This is the one deliberate exception to
+[ADR 10](docs/adr/0010-auth-and-browser-modes.md)'s rule that auth material
+stays out of artifacts, which is why it is opt-in, bounded by `maxTraces`, and
+announced.
+
 ## Next smallest milestone
 
-**Trace-on-failure**, which closes phase 3.
+Phase 3 is done, so the next step is **phase 4: animation capture**. The ground
+is already laid — `motion.html` exists, `AnimationSample` is in the data model,
+and the toolbar's Animation button is disabled and waiting.
 
-1. `RunPaths.tracesDir` already exists and is still unused.
-2. Start a Playwright trace on a worker's context, and keep it only for a page
-   that ended unreachable or that a recipe failed on — a trace per page would
-   dwarf the screenshots.
-3. Name it by the page record id, so `pages.jsonl` and the trace can be lined up,
-   and add an optional `tracePath` to `PageRecord`.
-4. Traces capture network traffic and can contain authentication material. They
-   must never be written for a successful page, and the report must not link
-   them without saying so.
+The smallest useful slice:
 
-After phase 3, phase 4 is animation capture and design-system extraction: the
-motion fixture exists, the toolbar's Animation button is still disabled, and
-`AnimationSample` is already in the data model.
+**Animation inventory: discover and describe, capture nothing.**
+
+1. `document.getAnimations({ subtree: true })` in every accessible frame,
+   recording target, type, duration, delay, iterations, easing, play state and
+   keyframe offsets.
+2. Classify each as finite, infinite, scroll-driven or script-driven, because
+   only the first is deterministically sampleable and the rest need saying so.
+3. Surface it the way the interaction inventory does — a list to read, not
+   frames to capture. Deterministic frame sampling is the slice after.
+4. `motion.html` is the fixture, and the honest outcomes matter more than the
+   count: an infinite animation must be reported as unsamplable rather than
+   quietly sampled at an arbitrary moment.
+
+After that: pause/seek/sample at configurable offsets with every animation's
+original state restored, then hover-transition sampling, then the video
+fallback.

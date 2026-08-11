@@ -1,5 +1,5 @@
-import type { Page } from 'playwright';
-import { newPageId, routeKeyFromUrl, type RunWriter } from '@ui-atlas/artifacts';
+import type { BrowserContext, Page } from 'playwright';
+import { newPageId, routeKeyFromUrl, toRecordPath, type RunWriter } from '@ui-atlas/artifacts';
 import type { UiAtlasConfig } from '@ui-atlas/config';
 import {
   SCHEMA_VERSION,
@@ -49,6 +49,8 @@ export interface CrawlResult {
   retries: number;
   /** Origins that asked for a slower rate with a 429 or 503. */
   backedOffOrigins: string[];
+  /** Run-relative paths of traces kept for pages that failed. */
+  traces: string[];
   warnings: string[];
   state: CrawlState;
 }
@@ -130,6 +132,9 @@ export class Crawler {
   private retries = 0;
   /** Origins already reported as having asked for a slower rate. */
   private readonly backedOffOrigins = new Set<string>();
+  private readonly traces: string[] = [];
+  /** Contexts tracing was successfully started on, so it is stopped once. */
+  private readonly tracing = new Set<BrowserContext>();
 
   constructor(private readonly options: CrawlerOptions) {
     const crawl = options.config.crawl;
@@ -248,8 +253,11 @@ export class Crawler {
             `${String(this.frontier.visitedCount)}/${String(crawl.budgets.maxPages)} ${item.url}`,
           );
 
-          const record = await this.visit(worker, item, runDeadline, throttle);
-          pages.push(await writer.addPage(record));
+          await this.beginPageTrace(worker);
+          const visited = await this.visit(worker, item, runDeadline, throttle);
+          // Before the record is written, so `tracePath` lands on it.
+          await this.endPageTrace(worker, visited.record, visited.failed, visited.warnings);
+          pages.push(await writer.addPage(visited.record));
           // Committed only once the record is on disk: until then a snapshot
           // puts the page back in the queue rather than calling it visited.
           this.frontier.commit(item.url);
@@ -274,8 +282,12 @@ export class Crawler {
     };
 
     try {
+      await this.startTracing(workers);
       await Promise.all(workers.map((worker) => runOne(worker)));
     } finally {
+      // Stop recording before closing anything, so no context is torn down
+      // with a chunk still open.
+      await this.stopTracing();
       // Worker 0's page belongs to the caller; the rest are ours to close.
       for (const worker of workers.slice(1)) {
         await worker.close?.().catch(() => undefined);
@@ -320,9 +332,105 @@ export class Crawler {
       clicks: this.recipeOutcomes.reduce((total, outcome) => total + outcome.clicks, 0),
       retries: this.retries,
       backedOffOrigins: [...this.backedOffOrigins],
+      traces: [...this.traces],
       warnings: this.warnings,
       state,
     };
+  }
+
+  /* ---------------------------------------------------------------------- */
+  /* Failure traces                                                          */
+  /* ---------------------------------------------------------------------- */
+
+  private get traceEnabled(): boolean {
+    return this.options.config.crawl.trace.enabled;
+  }
+
+  /**
+   * Begin recording on every worker's context. Recording costs memory but
+   * nothing on disk: a chunk is only written when a page actually fails.
+   */
+  private async startTracing(workers: CrawlWorker[]): Promise<void> {
+    if (!this.traceEnabled) return;
+    const { trace } = this.options.config.crawl;
+    for (const worker of workers) {
+      const context = worker.page.context();
+      if (this.tracing.has(context)) continue;
+      try {
+        await context.tracing.start({
+          screenshots: trace.screenshots,
+          snapshots: trace.snapshots,
+          // Never embed our own source files in an artifact.
+          sources: false,
+        });
+        this.tracing.add(context);
+      } catch (error) {
+        this.warnings.push(`tracing could not be started on a worker: ${describe(error)}`);
+      }
+    }
+  }
+
+  private async stopTracing(): Promise<void> {
+    for (const context of this.tracing) {
+      await context.tracing.stop().catch(() => undefined);
+    }
+    this.tracing.clear();
+  }
+
+  /** Start a chunk for one page. Silent no-op when tracing is off. */
+  private async beginPageTrace(worker: CrawlWorker): Promise<void> {
+    if (!this.traceEnabled) return;
+    const context = worker.page.context();
+    if (!this.tracing.has(context)) return;
+    await context.tracing.startChunk().catch(() => undefined);
+  }
+
+  /**
+   * End the chunk. It is written only for a page that failed, and only while
+   * under `maxTraces` — a trace per page would dwarf the screenshots, and every
+   * one of them is a file that can contain session cookies.
+   */
+  private async endPageTrace(
+    worker: CrawlWorker,
+    record: PageRecord,
+    failed: boolean,
+    warnings: string[],
+  ): Promise<void> {
+    if (!this.traceEnabled) return;
+    const context = worker.page.context();
+    if (!this.tracing.has(context)) return;
+
+    const { trace } = this.options.config.crawl;
+    if (!failed) {
+      await context.tracing.stopChunk().catch(() => undefined);
+      return;
+    }
+    if (this.traces.length >= trace.maxTraces) {
+      await context.tracing.stopChunk().catch(() => undefined);
+      warnings.push(`no trace kept: the run already has ${String(trace.maxTraces)}`);
+      return;
+    }
+
+    try {
+      const destination = await this.options.writer.traceDestination(record.id);
+      await context.tracing.stopChunk({ path: destination });
+      const relative = toRecordPath(this.options.writer.paths.runDir, destination);
+      record.tracePath = relative;
+      this.traces.push(relative);
+      this.noteTracesWritten();
+    } catch (error) {
+      warnings.push(`the failure trace could not be written: ${describe(error)}`);
+    }
+  }
+
+  /** Said once per run, because it is about the run directory, not one page. */
+  private noteTracesWritten(): void {
+    if (this.traces.length !== 1) return;
+    this.warnings.push(
+      'failure traces were written to traces/. A Playwright trace records ' +
+        'network traffic including request headers, so it can contain session ' +
+        'cookies: treat this run directory as sensitive and do not share it.',
+    );
   }
 
   /**
@@ -357,13 +465,13 @@ export class Crawler {
     item: FrontierItem,
     runDeadline: Deadline,
     throttle: OriginThrottle,
-  ): Promise<PageRecord> {
+  ): Promise<{ record: PageRecord; failed: boolean; warnings: string[] }> {
     const retry = this.options.config.crawl.retry;
     const origin = originOrKey(item.url);
     const warnings: string[] = [];
 
     for (let attempt = 1; ; attempt += 1) {
-      const { record, outcome } = await this.attemptVisit(worker, item, runDeadline, {
+      const { record, outcome, recipesFailed } = await this.attemptVisit(worker, item, runDeadline, {
         attempt,
         warnings,
       });
@@ -384,7 +492,10 @@ export class Crawler {
 
       if (!decision.retry) {
         if (attempt > 1) record.attempts = attempt;
-        return record;
+        // Worth a trace when the page never answered, or when a recipe failed
+        // against it. An error *status* is the whole story on its own.
+        const failed = isUnreachable(record) || recipesFailed;
+        return { record, failed, warnings };
       }
 
       // The retry itself has to fit in the run, or there is no point starting it.
@@ -396,7 +507,7 @@ export class Crawler {
       if (runDeadline.remainingMs() <= waitMs) {
         warnings.push('the run budget ran out before the next attempt');
         record.attempts = attempt;
-        return record;
+        return { record, failed: isUnreachable(record) || recipesFailed, warnings };
       }
       this.retries += 1;
       if (waitMs > 0) await sleep(waitMs);
@@ -409,7 +520,7 @@ export class Crawler {
     item: FrontierItem,
     runDeadline: Deadline,
     context: { attempt: number; warnings: string[] },
-  ): Promise<{ record: PageRecord; outcome: AttemptOutcome }> {
+  ): Promise<{ record: PageRecord; outcome: AttemptOutcome; recipesFailed: boolean }> {
     const { config, runId } = this.options;
     const { page } = worker;
     const crawl = config.crawl;
@@ -443,6 +554,7 @@ export class Crawler {
           error: toStructuredError(error, 'capture.timeout'),
         },
         outcome: { kind: 'navigation-error', message },
+        recipesFailed: false,
       };
     }
 
@@ -472,6 +584,7 @@ export class Crawler {
           },
         },
         outcome,
+        recipesFailed: false,
       };
     }
 
@@ -517,7 +630,7 @@ export class Crawler {
       // No recipes either. A recipe is approval to interact with pages on the
       // origins the operator named, not with wherever a redirect landed.
       await this.runPageHook(worker, record);
-      return { record, outcome };
+      return { record, outcome, recipesFailed: false };
     }
 
     // A redirect means this run has now fetched the destination too. Mark it
@@ -532,9 +645,9 @@ export class Crawler {
     // Before recipes: the inventory describes the page as served, not whatever
     // a recipe left it looking like.
     await this.runInventory(worker, record, warnings);
-    await this.runRecipes(worker, record, warnings);
+    const recipesFailed = await this.runRecipes(worker, record, warnings);
     await this.runPageHook(worker, record);
-    return { record, outcome };
+    return { record, outcome, recipesFailed };
   }
 
   private async runInventory(
@@ -565,16 +678,18 @@ export class Crawler {
     worker: CrawlWorker,
     record: PageRecord,
     warnings: string[],
-  ): Promise<void> {
+  ): Promise<boolean> {
     const runner = worker.recipes;
-    if (runner === undefined || runner.isEmpty) return;
+    if (runner === undefined || runner.isEmpty) return false;
 
+    let anyFailed = false;
     const outcomes = await runner.runFor(worker.page, record.finalUrl);
     for (const outcome of outcomes) {
       this.recipeOutcomes.push(outcome);
       // Per-page detail belongs on the page record.
       warnings.push(...outcome.warnings);
       if (outcome.status !== 'failed') continue;
+      anyFailed = true;
 
       const detail = `recipe "${outcome.recipe}" failed: ${outcome.error ?? 'no detail'}`;
       warnings.push(detail);
@@ -586,6 +701,7 @@ export class Crawler {
         this.warnings.push(`${detail} (first seen on ${outcome.route})`);
       }
     }
+    return anyFailed;
   }
 
   private async runPageHook(worker: CrawlWorker, record: PageRecord): Promise<void> {
@@ -653,6 +769,11 @@ function safeOrigin(raw: string): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+/** A page no HTTP response ever came back for, however many attempts it took. */
+function isUnreachable(record: PageRecord): boolean {
+  return record.error !== undefined && record.httpStatus === undefined;
 }
 
 /** Throttle key. An unparseable URL gets its own bucket rather than sharing one. */

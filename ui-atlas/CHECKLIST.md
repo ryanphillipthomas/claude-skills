@@ -191,8 +191,27 @@ is still empty and no non-`GET` request was issued.
 - [x] Exit code follows *unreachable* pages only, not error statuses: one broken
       link does not fail a pipeline
 
+## Phase 3 — trace on failure (sixth slice)
+
+- [x] `crawl --trace-on-failure` keeps a Playwright trace for a page that could
+      not be reached, and for a page a recipe failed on
+- [x] **Off by default**: a trace records request headers, so one taken during
+      an authenticated crawl contains the session cookie
+- [x] Recorded continuously in memory via Playwright's chunk API; the chunk is
+      written only on failure and discarded otherwise, so a successful page's
+      cookies never reach the disk
+- [x] An error status is not a failure for this purpose — a `404` is an answer
+- [x] `maxTraces` bounds it, and a page that missed out says so
+- [x] Named by page record id, so `pages.jsonl` and the file line up
+- [x] **The report does not surface `tracePath`**, and a test fails if it starts
+- [x] The first trace of a run warns that the run directory is now sensitive
+- [x] Tracing stopped in a `finally`, before any context is closed
+
+**Phase 3 is complete.**
+
 ### Still to build in phase 3
-- [ ] Trace-on-failure
+
+(nothing)
 - [ ] Sitemap seeding, and optional dedup by page structural fingerprint
 - [ ] `captureResponsive` during a crawl (the step validates but reports that it
       was unavailable)

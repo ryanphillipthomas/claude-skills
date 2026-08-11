@@ -15,7 +15,7 @@ in its `warnings` or its `error`.
 | Interaction inventory | **Built.** `crawl --inventory` lists each page's interactive controls, classifies what each is likely to do, and writes a reviewable recipe skeleton. It reads and nothing else. Details below. |
 | Worker concurrency | **Built.** `--concurrency <n>` runs isolated workers, each with its own context. `perPageDelayMs` is enforced per origin across all of them. Details below. |
 | Retry and backoff | **Built.** Bounded retries with jitter for timeouts and 5xx; a 429 or 503 holds the whole origin back, honouring `Retry-After`. Details below. |
-| Traces | Trace-on-failure is the last of phase 3. `traces/` exists in the run layout and is still unused. |
+| Trace on failure | **Built.** `--trace-on-failure` keeps a Playwright trace for unreachable pages and for pages a recipe failed on. Off by default: a trace can contain session cookies. Details below. |
 | Animation capture | The motion fixture exists; discovery and deterministic frame sampling are phase 4. The toolbar's Animation button is disabled. |
 | CDP forced pseudo-states | Not implemented. `focus-visible` is reached with a real keyboard interaction or reported as `skipped` — never faked. |
 | Chrome extension packaging | Not required and not built. |
@@ -88,6 +88,21 @@ All of these are deliberate for the first crawl slice; see
 - **An error status stops link discovery.** A `4xx`/`5xx` page is recorded with
   a structured error and its links are not followed, on the grounds that an
   error page's navigation is not the site's link graph.
+- **A trace can contain session cookies.** It records network traffic including
+  request headers. This is the one deliberate exception to
+  [ADR 10](adr/0010-auth-and-browser-modes.md)'s rule that auth material stays
+  out of artifacts, which is why tracing is off by default, why nothing is
+  written for a page that worked, and why the run warns the first time it keeps
+  one. Treat a run directory containing `traces/` as sensitive.
+- **Traces are not redacted.** Playwright offers no redaction hook, so there is
+  no way to strip a cookie from a trace after the fact. The only control is
+  whether the file exists.
+- **The report deliberately does not link traces.** It is the artifact you send
+  to someone. Find them under the run's `traces/`, named by page record id.
+- **An error status is not traced.** A `404` is an answer; its status is the
+  whole story, so a trace would add a sensitive file and no information.
+- **Nothing outside `crawl` traces.** The inspector and `capture` are
+  interactive and already show you what happened.
 - **A persistent profile cannot run concurrently.** `browser.mode: profile` owns
   its only context and cannot create siblings, so it warns and stays at one
   worker. Use `clean` or `storage-state`.

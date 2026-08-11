@@ -71,6 +71,11 @@ ui-atlas crawl <site-config.yml | url> [options]
   --max-attempts <n>  attempts per page, including the first. Timeouts and 5xx
                       are retried with backoff and jitter; a 429 or 503 slows
                       the whole origin down, honouring Retry-After.
+  --trace-on-failure  keep a Playwright trace for pages that could not be
+                      reached, and for pages a recipe failed on. A trace records
+                      network traffic including request headers, so it can
+                      contain session cookies: treat the run directory as
+                      sensitive. Nothing is written for a page that worked.
   --resume <run-dir>  continue an interrupted crawl in its own run directory
   --mode <mode>       clean | profile | storage-state | attach
   --profile <name>    the auth profile saved by \`ui-atlas auth save\`
@@ -132,6 +137,7 @@ export async function runCrawl(args: ParsedArgs, logger: Logger): Promise<number
   if (delayMs !== undefined) crawlOverrides['perPageDelayMs'] = delayMs;
   const maxAttempts = flagNumber(args, 'max-attempts');
   if (maxAttempts !== undefined) crawlOverrides['retry'] = { maxAttempts };
+  if (args.flags.get('trace-on-failure') === true) crawlOverrides['trace'] = { enabled: true };
 
   const seedFlag = flagString(args, 'seed');
   const seeds: string[] = [];
@@ -389,6 +395,7 @@ function summarise(result: CrawlResult): Record<string, unknown> {
     clicks: result.clicks,
     retries: result.retries,
     backedOffOrigins: result.backedOffOrigins,
+    traces: result.traces,
     unreachable: unreachable(result).map((record) => record.requestedUrl),
     recipes: result.recipes,
     inventory: summariseInventory(result.interactions),
@@ -444,6 +451,10 @@ function report(result: CrawlResult, logger: Logger): void {
 
   if (result.retries > 0) {
     logger.info(`${String(result.retries)} retry attempt(s) across the run`);
+  }
+  if (result.traces.length > 0) {
+    logger.info(`${String(result.traces.length)} failure trace(s) kept:`);
+    for (const trace of result.traces.slice(0, 10)) logger.info(`  ${trace}`);
   }
   for (const origin of result.backedOffOrigins) {
     logger.warn(`${origin} asked for a slower rate; the crawl backed off`);

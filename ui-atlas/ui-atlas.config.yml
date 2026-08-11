@@ -115,6 +115,16 @@ crawl:
     retryStatuses: [408, 425, 429, 500, 502, 503, 504]
     backoffStatuses: [429, 503]
     maxRetryAfterMs: 120000
+  # A Playwright trace for the pages that failed, and only those. Off by
+  # default on purpose: a trace records network traffic including request
+  # headers, so one taken during an authenticated crawl contains the session
+  # cookie that authenticated it. Nothing is written for a page that worked, an
+  # error status does not count as a failure, and the report never links them.
+  trace:
+    enabled: false
+    maxTraces: 20
+    screenshots: true
+    snapshots: true
   # The only way the crawler interacts with a page. Without a matching recipe it
   # navigates, reads links and touches nothing. Writing a recipe is what approves
   # the interaction, so `--dry-run` prints every control one would click.

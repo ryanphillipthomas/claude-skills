@@ -229,6 +229,23 @@ export const RetryConfigSchema = z.object({
 });
 export type RetryConfig = z.infer<typeof RetryConfigSchema>;
 
+export const TraceConfigSchema = z.object({
+  /**
+   * Off by default, and deliberately so. A Playwright trace records network
+   * traffic including request headers, so a trace taken during an authenticated
+   * crawl can contain session cookies. Turning it on is a decision about where
+   * that material is allowed to land.
+   */
+  enabled: z.boolean().default(false),
+  /** Bound on traces kept, so a badly broken site cannot fill the disk. */
+  maxTraces: z.number().int().min(1).max(1_000).default(20),
+  /** The filmstrip. Larger files, far more useful when reading one back. */
+  screenshots: z.boolean().default(true),
+  /** DOM snapshots, which is what makes a trace steppable. */
+  snapshots: z.boolean().default(true),
+});
+export type TraceConfig = z.infer<typeof TraceConfigSchema>;
+
 export const CrawlBudgetsSchema = z.object({
   /** Hard cap on pages *visited*. Reaching it ends the crawl. */
   maxPages: z.number().int().min(1).max(100_000).default(50),
@@ -367,6 +384,8 @@ export const CrawlConfigSchema = z.object({
   concurrency: z.number().int().min(1).max(32).default(1),
   /** Bounded retries for the failures that are worth trying again. */
   retry: RetryConfigSchema.prefault({}),
+  /** Keep a Playwright trace for the pages that failed, and only those. */
+  trace: TraceConfigSchema.prefault({}),
   /**
    * The only way the crawler is allowed to interact with a page. Without a
    * matching recipe it navigates, reads links and touches nothing.

@@ -332,6 +332,13 @@ export const PageRecordSchema = z.object({
   httpStatus: z.number().int().optional(),
   /** Present only when the page took more than one: absent means it worked. */
   attempts: z.number().int().min(1).optional(),
+  /**
+   * Run-relative path to a Playwright trace, written only for a page that
+   * failed. A trace records network traffic including request headers, so it
+   * can carry session cookies — which is why it is never written for a page
+   * that worked, and why the report does not surface it.
+   */
+  tracePath: z.string().optional(),
   readiness: ReadinessResultSchema.optional(),
   warnings: z.array(z.string()),
   error: StructuredErrorSchema.optional(),
