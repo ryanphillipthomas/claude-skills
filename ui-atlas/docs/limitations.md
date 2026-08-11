@@ -9,7 +9,7 @@ in its `warnings` or its `error`.
 | Area | Status |
 | --- | --- |
 | Responsive capture sets | **Built.** Each preset gets a fresh context, its own reload and its own re-resolution; absent, hidden and ambiguous elements are recorded per viewport. Two caveats: a persistent `profile` context cannot create sibling contexts, so replay there degrades to a resize with a warning on every mobile preset; and the toolbar's `viewport/set` control still only resizes the current page (it warns that a mobile preset is not real emulation) — use the responsive set for true emulation. |
-| Static HTML report | `ui-atlas report <run-dir>` prints a terminal summary of the same artifacts the browsable report will be generated from. The HTML report is phase 2. |
+| Static HTML report | **Built.** `ui-atlas report <run-dir>` writes `report/index.html`. It references screenshots by relative path, so the report travels with its run directory rather than as a lone file. |
 | Crawler and recipes | `ui-atlas crawl` exits with a message. URL frontier, budgets, declarative recipes and the suggested-interaction inventory are phase 3. |
 | Animation capture | The motion fixture exists; discovery and deterministic frame sampling are phase 4. The toolbar's Animation button is disabled. |
 | CDP forced pseudo-states | Not implemented. `focus-visible` is reached with a real keyboard interaction or reported as `skipped` — never faked. |
@@ -40,6 +40,18 @@ in its `warnings` or its `error`.
   the inspector is hidden with `display: none` before a capture rather than
   removed, and why the "no overlay in artifacts" test compares against a session
   where the overlay was never injected.
+
+## Things the tool reports that surprise people
+
+- **`focus` and `focus-visible` can produce identical images.** Chromium decides
+  whether to paint a focus ring from its "last interaction was keyboard"
+  heuristic, and on a page nothing has been pointer-clicked yet a programmatic
+  `focus()` can satisfy it too. Both captures are labelled honestly — each says
+  how it was verified — and the report's Duplicates tab is what makes the
+  sameness visible. It is a fact about the browser, not a fault in the capture.
+- **A state with no computed-style delta gets a warning.** If hovering changed
+  nothing in the watched properties, the record says so rather than implying a
+  hover style exists.
 
 ## Environment notes
 

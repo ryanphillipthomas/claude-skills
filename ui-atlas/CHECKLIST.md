@@ -70,12 +70,24 @@ appearing in screenshots or the page remaining altered.**
 - [x] Five-viewport matrix test over `responsive.html`, proving the reload from
       the artifacts themselves
 
+## Phase 2 — static report
+
+- [x] `ui-atlas report <run-dir>` writes a self-contained `report/index.html`
+- [x] Component matrices, orientated so the compared dimension is side by side
+- [x] Filters for status, state, provenance, viewport, route, role and free text
+- [x] Detail panel: locator candidates with scores and reasons, computed-style
+      delta with colour swatches, readiness checks, interaction recipe
+- [x] Duplicate grouping by exact image hash
+- [x] Failed and skipped captures as first-class rows, each saying why
+- [x] No network requests, no authentication material, no absolute paths
+- [x] Capture data treated as hostile: JSON-embedded and rendered as text only,
+      with an injection test that drives the real report in a real browser
+
 **Exit criterion — a selected component produces a five-viewport matrix,
-including honest hidden/missing outcomes.** Met for the matrix and the outcomes.
-Browsing it in the report is still open: the HTML report is the remaining half
-of phase 2.
+including honest hidden/missing outcomes, and can be browsed in the report.**
+Met, end to end, in `tests/integration/report.test.ts`.
 
 ## Still out of scope
 
 Crawler, recipes, extension packaging, distributed workers, AI control,
-CDP animation, the browsable HTML report.
+CDP animation, perceptual (near-duplicate) hashing.

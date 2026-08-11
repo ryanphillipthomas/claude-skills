@@ -23,6 +23,7 @@
     "@ui-atlas/overlay": "*",
     "@ui-atlas/protocol": "*",
     "@ui-atlas/settle": "*",
-    "playwright": "1.56.1"
+    "playwright": "1.56.1",
+    "@ui-atlas/reporter": "*"
   }
 }

@@ -7,8 +7,8 @@ states, and keep enough metadata to find it again.
 No cloud account, no AI service, no browser extension, no database server.
 Everything runs on your machine and writes plain files.
 
-**Current release: the guided inspector, plus responsive replay.**
-The crawler, the browsable report and animation capture are later phases — see
+**Current release: the guided inspector, responsive replay and the report.**
+The crawler and animation capture are later phases — see
 [docs/limitations.md](docs/limitations.md).
 
 ## Requirements
@@ -86,15 +86,33 @@ device scale) rather than a narrow window. A component that is absent or hidden
 at one breakpoint is recorded there as `skipped` with a reason, not as a
 failure.
 
-### Run summary
+### Report
 
 ```bash
 npm run ui-atlas -- report ui-atlas-output/default/<run-id>
-npm run ui-atlas -- report ui-atlas-output/default/<run-id> --json
 ```
 
-Counts, warnings, failed and skipped captures, and duplicate images by content
-hash. The browsable HTML report is phase 2.
+Writes `report/index.html` into the run directory and prints its `file://` URL.
+Open it straight from disk — no server, no network requests, nothing to install.
+
+- **Components** — every component you captured, as a matrix. Whichever of
+  viewports or states has more members becomes the columns, so what you are
+  comparing is always side by side. Cells that were skipped say *why* (hidden at
+  this viewport, not present, locator matched several elements) instead of
+  showing a blank.
+- **Gallery, Duplicates, Issues, Pages** — a flat grid, images that came out
+  byte-identical, everything that failed or was skipped or raised a warning, and
+  the page visits.
+- **Detail panel** — click any capture for its locator candidates with scores and
+  the reasons behind them, the computed-style delta with colour swatches, the
+  readiness checks and their timings, and exactly what the tool did to reach the
+  state. Arrow keys move between captures, `/` focuses search, `Escape` closes.
+
+Filter by status, state, provenance, viewport, route and role. `--json` prints
+the summary instead; `--no-html` skips writing the report.
+
+The report contains no authentication material, no absolute paths, and no
+executable content derived from the sites you captured.
 
 ### Authentication
 
@@ -120,6 +138,7 @@ ui-atlas-output/
       pages.jsonl                                     one record per page visit
       screenshots/<route>/<viewport>/<capture-id>.png
       screenshots/<route>/<viewport>/<capture-id>.json   metadata beside the image
+      report/index.html                                  browsable report
 ```
 
 Every write is atomic: a temporary file in the same directory, fsynced,
@@ -171,6 +190,7 @@ packages/identity locator candidates, scoring, structural fingerprint, re-resolu
 packages/settle   bounded readiness with a hard deadline
 packages/capture  screenshots, the state controller, computed-style deltas, queue
 packages/overlay  the injected inspector and the host side of its bridge
+packages/reporter the static report: view model, viewer, generator
 ```
 
 The Node host owns the browser, the filesystem, the capture queue and policy.

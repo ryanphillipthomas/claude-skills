@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Injection — UI Atlas fixture</title>
+    <link rel="stylesheet" href="/base.css" />
+  </head>
+  <body>
+    <h1>Hostile content</h1>
+    <p>
+      Everything a capture records — accessible names, visible text, titles — comes from the
+      inspected site. The report embeds that data and is opened locally from
+      <code>file://</code>, so none of it may ever execute.
+    </p>
+
+    <button
+      type="button"
+      class="btn"
+      data-testid="xss-button"
+      aria-label="&lt;img src=x onerror=&quot;window.__uiAtlasPwned=1&quot;&gt;"
+    >
+      Hostile accessible name
+    </button>
+
+    <button type="button" class="btn" data-testid="xss-text">
+      &lt;/script&gt;&lt;script&gt;window.__uiAtlasPwned=2&lt;/script&gt;
+    </button>
+
+    <button
+      type="button"
+      class="btn"
+      data-testid="xss-title"
+      title="&quot;&gt;&lt;svg onload=&quot;window.__uiAtlasPwned=3&quot;&gt;"
+    >
+      Hostile title
+    </button>
+  </body>
+</html>

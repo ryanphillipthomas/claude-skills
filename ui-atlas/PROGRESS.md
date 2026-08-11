@@ -3,14 +3,13 @@
 Running log for the build. Updated after each milestone so an interrupted
 session is recoverable.
 
-**Last updated:** 2026-08-11, after responsive replay landed.
+**Last updated:** 2026-08-11, after the static report landed.
 
 ## Status
 
-Phases 0 and 1 are complete and their exit criteria pass, with one
-environment-bound gap recorded below. **Responsive replay** — the first slice of
-phase 2, authorised separately — is also done. The repository is buildable,
-tested and documented.
+Phases 0, 1 and 2 are complete and their exit criteria pass, with one
+environment-bound gap recorded below. The repository is buildable, tested and
+documented.
 
 ```
 npm install
@@ -23,9 +22,9 @@ npm test
 `npm test` (builds, then Vitest — unit and browser integration):
 
 ```
-Test Files  14 passed (14)
-     Tests  140 passed | 3 skipped (143)
-  Duration  ~90s
+Test Files  16 passed (16)
+     Tests  160 passed | 3 skipped (163)
+  Duration  ~105s
 ```
 
 | Suite | Tests | What it proves |
@@ -43,9 +42,11 @@ Test Files  14 passed (14)
 | `integration/faults` | 6 | detachment, navigation mid-capture, write failure, dead browser, destructive controls |
 | `integration/frames-shadow` | 5 | same- and cross-origin iframes, open and closed shadow DOM |
 | `integration/responsive` | 8 | five-viewport matrix, real mobile emulation, per-viewport reload, hidden/not-present outcomes |
+| `integration/report` | 7 | **phase 2 exit criterion**: the generated report driven in a real browser, including script injection |
+| `unit/reporter` | 13 | escaping, view model, matrix grouping, duplicate grouping |
 | `integration/external-smoke` | 3 skipped | read-only public-site checks; skip without network |
 
-`npm run typecheck` passes for all nine packages and for the test sources.
+`npm run typecheck` passes for all ten packages and for the test sources.
 
 ## Exit criteria
 
@@ -116,14 +117,15 @@ Consequential ones are in [`docs/adr/`](docs/adr/):
 9. Undo the DOM changes screenshotting itself causes
 10. Browser modes and where authentication material lives
 11. Responsive sets replay the route in a fresh context per viewport
+12. The report is one static file, and it treats capture data as hostile
 
 Smaller assumptions, not worth an ADR:
 
 - `--headless` and `UI_ATLAS_HEADLESS=1` exist so the same commands run in CI.
 - `ui-atlas capture` is an addition to the brief's command list: it is what makes
   the phase 0 exit criterion a single command, and it is the CLI's smoke test.
-- `ui-atlas report` prints a terminal summary now; the browsable report is
-  phase 2 and will read the same artifacts.
+- `ui-atlas report` writes the browsable report *and* prints the terminal
+  summary; `--no-html` skips the file.
 - The inspector's viewport preset buttons resize the current page; that is not
   device emulation, so selecting a mobile preset warns and the record's
   `viewport.mobile` stays false. Real emulation comes from a responsive set,
@@ -154,6 +156,32 @@ Two honest caveats, both recorded in `docs/limitations.md`:
 - The toolbar's viewport presets still only resize the current page. The
   responsive set is the path to real emulation.
 
+## Static report (phase 2, second slice)
+
+Done and covered by `tests/unit/reporter.test.ts` and
+`tests/integration/report.test.ts`. `ui-atlas report <run-dir>` writes one
+self-contained `report/index.html`: no server, no build, and — asserted by test —
+no network requests when opened from `file://`. See
+[ADR 12](docs/adr/0012-report-is-one-static-file.md).
+
+Capture data is treated as hostile, because it is: accessible names and visible
+text come from the inspected site, and the report is opened locally. The model
+is embedded as JSON rather than as script, every string is rendered through
+`textContent`, and a test captures three elements whose name, text and title are
+XSS payloads, then opens the real report in a real browser and asserts nothing
+executed.
+
+Building it surfaced two things worth knowing:
+
+1. A **matrix orientation bug** — a state set's `set.member` is a state name, not
+   a viewport. Reading it as a viewport label turned a five-state matrix into a
+   diagonal of five one-cell "viewports". Caught by looking at the rendered
+   report, now covered by a regression test.
+2. On the fixture, **`focus` and `focus-visible` produce byte-identical images**.
+   That is Chromium's focus-ring heuristic, not a capture fault — both records
+   state how they were verified, and the report's Duplicates tab is what makes
+   the sameness visible. Recorded in `docs/limitations.md`.
+
 ## Known failures
 
 None. The only unverified item is the public-site half of the phase 1 exit
@@ -162,21 +190,22 @@ criterion, which is an environment limitation, not a failure — see above and
 
 ## Next smallest milestone
 
-**The static HTML report** — the remaining half of phase 2, and the thing that
-makes a responsive matrix legible instead of a folder of PNGs:
+Phase 3 is the bounded crawler, and it is a much bigger step than anything so
+far — it is the first part of the tool that visits pages nobody chose by hand.
+The smallest useful slice, and the one everything else in phase 3 depends on:
 
-1. Generate `report/index.html` into the run directory from `captures.jsonl` and
-   `pages.jsonl`, self-contained and read-only, with images referenced by their
-   relative paths.
-2. A state matrix and a responsive matrix for a selected component, driven by
-   `set.id` / `set.member` / `state.name` — the grouping is already on every
-   record.
-3. Failed and skipped rows shown as first-class cells, carrying their error code
-   and reason, so a hidden-at-tablet outcome reads as a result rather than a gap.
-4. Filters for route, viewport, role, state, provenance and warnings; duplicate
-   grouping by image SHA-256 (`summariseCaptures` already computes it).
-5. Nothing about authentication in the output: no storage state, no request
-   headers, no secrets.
+**URL canonicalisation and a same-origin frontier, with budgets, and no clicking.**
 
-`ui-atlas report <run-dir>` already reads exactly these artifacts for its
-terminal summary, so the data layer is proven; this is the presentation.
+1. Canonicalise scheme/host, drop fragments, normalise trailing slashes, apply
+   configured query rules; deduplicate by canonical URL.
+2. A frontier that only follows same-origin `<a href>`, honours include/exclude
+   globs, and skips `mailto:`, `tel:`, downloads and logout/signout URLs.
+3. Budgets enforced as hard limits: max pages, max depth, per-page timeout, total
+   run timeout.
+4. Nothing is clicked. Link discovery only. The `destructive.html` fixture
+   already asserts an empty click log and should be wired into the crawl tests.
+5. A resumable queue keyed deterministically, so an interrupted crawl restarts
+   without duplicate records.
+
+Recipes, worker concurrency and the suggested-interaction inventory build on top
+of that frontier and should come after it, not with it.

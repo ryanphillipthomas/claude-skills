@@ -17,6 +17,7 @@ const KNOWN_BOOLEAN_FLAGS = new Set([
   'full-page',
   'quiet',
   'responsive',
+  'open',
 ]);
 
 /**

@@ -1,6 +1,8 @@
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { readCaptures, readPages, readRunManifest, runPaths } from '@ui-atlas/artifacts';
+import { generateReport } from '@ui-atlas/reporter';
 import { UiAtlasError, type CaptureRecord } from '@ui-atlas/protocol';
 import type { ParsedArgs } from '../args.js';
 import type { Logger } from '../logger.js';
@@ -8,13 +10,16 @@ import type { Logger } from '../logger.js';
 export const REPORT_HELP = `
 ui-atlas report <run-directory>
 
-  Summarises a run directory on the terminal: counts, warnings, failed and
-  skipped captures, and duplicate images by content hash.
+  Writes a browsable, self-contained report to <run-directory>/report/index.html
+  and prints a summary: counts, warnings, failed and skipped captures, and
+  duplicate images by content hash.
 
-  The browsable HTML report is a phase 2 deliverable; this command reads the
-  same artifacts it will be built from.
+  The report opens straight from disk. It needs no server and makes no network
+  requests, and it contains no authentication material.
 
-  --json    print the summary as JSON instead of text
+  --no-html   only print the summary, do not write the report
+  --open      print the file:// URL on its own line, ready to open
+  --json      print the summary as JSON instead of text
 `.trim();
 
 export interface RunSummary {
@@ -77,6 +82,13 @@ export async function runReport(args: ParsedArgs, logger: Logger): Promise<numbe
     throw new UiAtlasError('config.invalid', `no run.json in ${runDir}`);
   }
 
+  let reportPath: string | undefined;
+  if (args.flags.get('no-html') !== true) {
+    const generated = await generateReport({ runDir });
+    reportPath = generated.path;
+    logger.debug('report written', { byteLength: generated.byteLength });
+  }
+
   const manifest = await readRunManifest(manifestPath);
   const captures = await readCaptures(resolve(runDir, 'captures.jsonl'));
   const pages = await readPages(resolve(runDir, 'pages.jsonl'));
@@ -99,7 +111,9 @@ export async function runReport(args: ParsedArgs, logger: Logger): Promise<numbe
   };
 
   if (args.flags.get('json') === true) {
-    process.stdout.write(`${JSON.stringify(summary, null, 2)}\n`);
+    process.stdout.write(
+      `${JSON.stringify({ ...summary, ...(reportPath === undefined ? {} : { reportPath }) }, null, 2)}\n`,
+    );
     return 0;
   }
 
@@ -124,7 +138,9 @@ export async function runReport(args: ParsedArgs, logger: Logger): Promise<numbe
   for (const warning of summary.warnings.slice(0, 20)) {
     lines.push(`  ! ${warning}`);
   }
-  lines.push('', 'The browsable HTML report lands in phase 2.');
+  if (reportPath !== undefined) {
+    lines.push('', `report    ${pathToFileURL(reportPath).href}`);
+  }
 
   process.stdout.write(`${lines.join('\n')}\n`);
   logger.debug('report rendered', { runDir });
