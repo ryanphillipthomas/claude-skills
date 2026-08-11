@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Identity — UI Atlas fixture</title>
+    <link rel="stylesheet" href="/base.css" />
+  </head>
+  <body>
+    <h1>Locator candidates</h1>
+
+    <main id="content">
+      <section aria-labelledby="stable-heading">
+        <h2 id="stable-heading">Stable identifiers</h2>
+
+        <button type="button" class="btn" data-testid="save-button">Save</button>
+        <button type="button" class="btn" id="publish-button">Publish</button>
+        <button type="button" class="btn" id=":r7a:">Generated id button</button>
+        <button type="button" class="btn" id="c4f9a1e77b0d42">Hashed id button</button>
+
+        <div class="field">
+          <label for="account-email">Email address</label>
+          <input id="account-email" type="email" placeholder="you@example.com" />
+        </div>
+
+        <p>
+          <img src="/__image" alt="Company logo" width="32" height="32" />
+          <span title="A helpful title">Titled span</span>
+        </p>
+      </section>
+
+      <section aria-labelledby="ambiguous-heading" data-testid="ambiguous-region">
+        <h2 id="ambiguous-heading">Ambiguous by design</h2>
+        <button type="button" class="btn">Duplicate</button>
+        <button type="button" class="btn">Duplicate</button>
+        <button type="button" class="btn">Duplicate</button>
+      </section>
+
+      <section aria-labelledby="nested-heading">
+        <h2 id="nested-heading">Deeply nested, nothing stable</h2>
+        <div><div><div><div><span class="x1y2z3">Buried text</span></div></div></div></div>
+      </section>
+    </main>
+  </body>
+</html>

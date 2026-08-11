@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Settle — UI Atlas fixture</title>
+    <link rel="stylesheet" href="/base.css" />
+    <style>
+      @font-face {
+        font-family: "Fixture Slow";
+        /* Deliberately missing: document.fonts.ready must still resolve. */
+        src: url("/__slow-font.woff2") format("woff2");
+        font-display: swap;
+      }
+      .slow-font { font-family: "Fixture Slow", system-ui, sans-serif; }
+      .sticky { position: sticky; top: 0; background: #f8fafc; padding: 8px 0; border-bottom: 1px solid #e2e8f0; }
+      .scroller { height: 160px; overflow: auto; border: 1px solid #cbd5e1; border-radius: 8px; padding: 8px; }
+      .tall { height: 900px; background: linear-gradient(#f1f5f9, #e2e8f0); }
+      #late-block { height: 0; overflow: hidden; background: #fee2e2; }
+    </style>
+  </head>
+  <body>
+    <div class="sticky"><strong>Sticky header</strong></div>
+    <h1 class="slow-font">Settle behaviour</h1>
+
+    <section aria-labelledby="images-heading">
+      <h2 id="images-heading">Lazy and slow images</h2>
+      <img data-testid="slow-image" src="/__slow-image?ms=500" width="120" height="120" alt="Slow image" />
+      <img data-testid="lazy-image" loading="lazy" src="/__slow-image?ms=250" width="120" height="120" alt="Lazy image" />
+    </section>
+
+    <section aria-labelledby="network-heading">
+      <h2 id="network-heading">Endless network activity</h2>
+      <p>This page holds an open request forever, so `networkidle` would never fire.</p>
+      <p data-testid="endless-status">pending</p>
+    </section>
+
+    <section aria-labelledby="mutation-heading">
+      <h2 id="mutation-heading">Late mutation</h2>
+      <div id="late-block" data-testid="late-block">Appears 400ms after load.</div>
+    </section>
+
+    <section aria-labelledby="scroll-heading">
+      <h2 id="scroll-heading">Nested scrolling</h2>
+      <div class="scroller" data-testid="scroller">
+        <div class="tall">Scroll me</div>
+      </div>
+    </section>
+
+    <script>
+      // Never resolves: exactly the traffic that makes networkidle unusable.
+      fetch('/__endless').catch(() => {});
+
+      setTimeout(() => {
+        const block = document.getElementById('late-block');
+        if (block) {
+          block.style.height = '48px';
+          block.textContent = 'Late block is now visible.';
+        }
+      }, 400);
+    </script>
+  </body>
+</html>

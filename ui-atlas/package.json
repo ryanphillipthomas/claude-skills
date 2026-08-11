@@ -1,0 +1,40 @@
+{
+  "name": "ui-atlas-workspace",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Local-first tool for collecting website UI reference material for design-system work.",
+  "engines": {
+    "node": ">=20.11"
+  },
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "clean": "node scripts/clean.mjs",
+    "build:ts": "tsc -b tsconfig.json",
+    "build": "npm run build:ts && npm run build:bundles",
+    "typecheck": "tsc -b tsconfig.json --pretty && tsc -p tsconfig.tests.json",
+    "pretest": "npm run build",
+    "test": "vitest run",
+    "test:unit": "vitest run tests/unit",
+    "test:integration": "vitest run tests/integration",
+    "test:watch": "vitest",
+    "fixtures": "node --experimental-strip-types tests/fixtures/serve.ts",
+    "ui-atlas": "node apps/cli/dist/bin.js",
+    "check": "npm run typecheck && npm run test",
+    "build:bundles": "node packages/overlay/build.mjs && node packages/reporter/build.mjs"
+  },
+  "dependencies": {
+    "playwright": "1.56.1",
+    "yaml": "^2.8.1",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "esbuild": "^0.25.10",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  }
+}

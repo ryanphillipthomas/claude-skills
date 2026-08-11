@@ -1,0 +1,35 @@
+{
+  "files": [],
+  "references": [
+    {
+      "path": "packages/protocol"
+    },
+    {
+      "path": "packages/config"
+    },
+    {
+      "path": "packages/artifacts"
+    },
+    {
+      "path": "packages/identity"
+    },
+    {
+      "path": "packages/settle"
+    },
+    {
+      "path": "packages/browser"
+    },
+    {
+      "path": "packages/capture"
+    },
+    {
+      "path": "packages/overlay"
+    },
+    {
+      "path": "packages/reporter"
+    },
+    {
+      "path": "apps/cli"
+    }
+  ]
+}

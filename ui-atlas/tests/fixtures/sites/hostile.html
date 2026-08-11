@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Hostile CSS — UI Atlas fixture</title>
+    <link rel="stylesheet" href="/base.css" />
+    <style>
+      /* Everything an overlay has to survive: aggressive globals, forced
+         colours, and a full-viewport high z-index layer. */
+      * {
+        font-family: "Comic Sans MS", cursive !important;
+        letter-spacing: 0.4px !important;
+      }
+      div, span, section {
+        background-image: linear-gradient(45deg, rgba(255, 0, 0, 0.04), rgba(0, 0, 255, 0.04)) !important;
+      }
+      button { border-radius: 0 !important; }
+      .cover {
+        position: fixed;
+        inset: 0;
+        z-index: 2147483000;
+        background: rgba(15, 23, 42, 0.06);
+        pointer-events: none;
+      }
+      .banner {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        z-index: 2147483001;
+        background: #facc15;
+        padding: 8px 12px;
+        pointer-events: auto;
+      }
+      .content { margin-top: 56px; }
+    </style>
+  </head>
+  <body>
+    <div class="cover" aria-hidden="true"></div>
+    <div class="banner">A very insistent cookie banner at z-index 2147483001.</div>
+
+    <div class="content">
+      <h1>Hostile global CSS</h1>
+      <button type="button" class="btn" data-testid="hostile-button">Still selectable</button>
+    </div>
+  </body>
+</html>

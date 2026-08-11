@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Motion — UI Atlas fixture</title>
+    <link rel="stylesheet" href="/base.css" />
+    <style>
+      .swatch { width: 120px; height: 120px; border-radius: 12px; background: #2563eb; }
+
+      .transition { transition: transform 600ms ease-in-out, background-color 600ms ease-in-out; }
+      .transition:hover { transform: translateX(120px); background-color: #db2777; }
+
+      @keyframes drift { from { transform: translateX(0); } to { transform: translateX(160px); } }
+      .finite { animation: drift 1200ms ease-in-out 1 forwards; }
+      .infinite { animation: drift 1500ms linear infinite alternate; }
+
+      .scroll-area { height: 200px; overflow: auto; border: 1px solid #cbd5e1; border-radius: 8px; }
+      .scroll-tall { height: 800px; }
+      @supports (animation-timeline: scroll()) {
+        @keyframes fade { from { opacity: 0.2; } to { opacity: 1; } }
+        .scroll-driven { animation: fade linear; animation-timeline: scroll(nearest); }
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Motion</h1>
+
+    <section aria-labelledby="transition-heading">
+      <h2 id="transition-heading">Hover transition</h2>
+      <div class="swatch transition" data-testid="transition-swatch"></div>
+    </section>
+
+    <section aria-labelledby="finite-heading">
+      <h2 id="finite-heading">Finite CSS animation</h2>
+      <div class="swatch finite" data-testid="finite-swatch"></div>
+    </section>
+
+    <section aria-labelledby="infinite-heading">
+      <h2 id="infinite-heading">Infinite CSS animation</h2>
+      <div class="swatch infinite" data-testid="infinite-swatch"></div>
+    </section>
+
+    <section aria-labelledby="waapi-heading">
+      <h2 id="waapi-heading">Web Animations API</h2>
+      <div class="swatch" data-testid="waapi-swatch"></div>
+    </section>
+
+    <section aria-labelledby="scroll-heading">
+      <h2 id="scroll-heading">Scroll-driven</h2>
+      <div class="scroll-area">
+        <div class="scroll-tall"><div class="swatch scroll-driven" data-testid="scroll-swatch"></div></div>
+      </div>
+    </section>
+
+    <script>
+      const target = document.querySelector('[data-testid="waapi-swatch"]');
+      target.animate(
+        [{ transform: 'rotate(0deg)' }, { transform: 'rotate(180deg)' }],
+        { duration: 2000, iterations: 3, easing: 'ease-in-out' },
+      );
+    </script>
+  </body>
+</html>
