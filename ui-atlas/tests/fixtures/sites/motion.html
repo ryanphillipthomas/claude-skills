@@ -10,6 +10,11 @@
       .transition { transition: transform 600ms ease-in-out, background-color 600ms ease-in-out; }
       .transition:hover { transform: translateX(120px); background-color: #db2777; }
 
+      /* One property, and a shorter one, so a focus group is a different shape
+         from the hover group above. */
+      .focus-swatch { border: 0; padding: 0; transition: transform 400ms linear; }
+      .focus-swatch:focus { transform: translateX(80px); }
+
       @keyframes drift { from { transform: translateX(0); } to { transform: translateX(160px); } }
       .finite { animation: drift 1200ms ease-in-out 1 forwards; }
       .infinite { animation: drift 1500ms linear infinite alternate; }
@@ -28,6 +33,11 @@
     <section aria-labelledby="transition-heading">
       <h2 id="transition-heading">Hover transition</h2>
       <div class="swatch transition" data-testid="transition-swatch"></div>
+    </section>
+
+    <section aria-labelledby="focus-heading">
+      <h2 id="focus-heading">Focus transition</h2>
+      <button type="button" class="swatch focus-swatch" data-testid="focus-swatch">Focus me</button>
     </section>
 
     <section aria-labelledby="finite-heading">

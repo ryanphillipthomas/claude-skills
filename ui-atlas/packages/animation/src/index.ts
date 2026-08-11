@@ -1,4 +1,7 @@
 export * from './classify.js';
+export * from './diff.js';
+export * from './group.js';
+export * from './handles.js';
 export * from './inventory.js';
 export * from './page-scripts.js';
 export * from './sample-scripts.js';

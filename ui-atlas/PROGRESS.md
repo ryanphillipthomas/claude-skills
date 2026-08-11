@@ -3,7 +3,7 @@
 Running log for the build. Updated after each milestone so an interrupted
 session is recoverable.
 
-**Last updated:** 2026-08-11, after animation frame sampling landed.
+**Last updated:** 2026-08-11, after provoked (hover/focus) motion landed.
 
 ## Status
 
@@ -13,8 +13,8 @@ frontier, declarative interaction recipes, the suggested-interaction inventory,
 worker concurrency with per-origin throttling, retry with status-aware backoff,
 and trace-on-failure. The repository is buildable, tested and documented.
 
-Phase 4 is under way: the animation inventory and deterministic frame sampling
-are both done. Hover-transition sampling, the screencast fallback and
+Phase 4 is under way: the animation inventory, deterministic frame sampling and
+provoked hover/focus motion are all done. The screencast fallback and
 design-system extraction are still to come.
 
 ```
@@ -28,9 +28,9 @@ npm test
 `npm test` (builds, then Vitest — unit and browser integration):
 
 ```
-Test Files  31 passed (31)
-     Tests  349 passed | 3 skipped (352)
-  Duration  ~222s
+Test Files  33 passed (33)
+     Tests  372 passed | 3 skipped (375)
+  Duration  ~238s
 ```
 
 On a networked machine the three external smoke tests run instead of skipping:
@@ -69,6 +69,8 @@ the phase 1 exit criterion. Nothing is unverified now.
 | `unit/animation` | 14 | sampleability rules, scroll beating every other signal, summaries, unobservable-motion wording |
 | `integration/animation` | 7 | **phase 4, first slice**: every kind of motion on the fixture, the scroll-driven verdict, the hover transition's honest absence, nothing perturbed, canvas/video counted, frames reached, end to end through the CLI |
 | `integration/animation-sampling` | 8 | **phase 4, second slice**: only sampleable animations sampled, seek arithmetic, restoration after a full pass and after a thrown capture, the right animation of two sharing a name, the element really moving, real frames through the CLI |
+| `unit/animation-diff` | 10 | what an interaction started: index-independence, multiset counting, per-element and per-frame separation |
+| `integration/provoked-animation` | 13 | **phase 4, third slice**: the two transitions one hover starts, the group on one clock, the page's own animations left running, restore then release, no reverse frame, ascending seeks, an interaction that starts nothing, release after a thrown capture, and the step's inability to click |
 | `integration/external-smoke` | 3 skipped | read-only public-site checks; skip without network |
 
 `npm run typecheck` passes for all twelve packages and for the test sources.
@@ -706,22 +708,105 @@ animations shows the others wherever they happened to be. Freezing everything
 would produce a composite moment that never existed — a bigger lie, not a
 smaller one.
 
+## Provoked motion (phase 4, third slice)
+
+Done and covered by `tests/unit/animation-diff.test.ts` and
+`tests/integration/provoked-animation.test.ts`. See
+[ADR 22](docs/adr/0022-provoked-motion-is-sampled-as-one-group.md).
+
+The `captureAnimation` recipe step reaches the motion the previous two slices
+could not: the transition that does not exist until something provokes it, which
+is most of the motion in a design system.
+
+```yaml
+- captureAnimation: { hover: { testId: product-card }, kind: element }
+```
+
+All four points of the plan this replaces are done, and two of them changed
+shape once the browser had a say:
+
+1. The step takes an inventory, hovers or focuses, takes another, and **the
+   difference is what that interaction started**.
+2. The provocation lives *inside* the step rather than beside it. A separate
+   `hover` step would throw away the before-list, and a 200ms transition
+   provoked by one step has usually finished by the time the next runs.
+3. `hover` and `focus` only: the step **cannot click**. A test points it at
+   `destructive.html`'s *Delete account* button and requires the audit log empty.
+4. Animations restored first, provocation released second, both in a `finally`.
+   The reverse transition is never photographed because every frame is taken
+   before the release.
+
+### The design decision that was not in the plan
+
+**A group is one picture.** Hovering the fixture swatch starts two transitions —
+`transform` and `background-color` — at the same instant. Sampling them one at a
+time, the way ADR 21 samples ambient animations, would produce a frame with the
+transform half way and the colour still at its start: a composite that never
+existed.
+
+So every member is paused first, then all of them are seeked to the **same
+absolute time** and photographed once. `progress` therefore means a fraction of
+the interaction's span here, not of one animation's iteration — a deliberate
+divergence from ADR 21, because for a group the only meaningful "50%" is the
+same instant for every member.
+
+### The defect the browser taught us
+
+Seeking to 100% **removes a CSS transition from `getAnimations()` outright** —
+it is finished, and a transition has nothing to fill with, so the browser drops
+it. Everything after that seek then addresses an animation the document no
+longer has: no error, no movement, and a frame that looks exactly like every
+other frame while showing the end state.
+
+`--offsets 1,0.5,0` was therefore a silent wrong-frame bug. Offsets are now
+seeked in ascending order whatever order they were written in, which is the one
+order in which every frame is the moment it claims to be, and nothing is lost
+because each frame carries its own offset. The test requires the middle frame to
+be genuinely in the middle; removing the sort turns it red.
+
+### And one caveat that was a false alarm
+
+`limitationsFor` warns that `fill: backwards` means 100% may show the
+un-animated element. True for a CSS animation, wrong for a transition: past its
+end a transition falls back to the underlying style, and while the hover is
+still applied that style *is* the value it was transitioning to. The warning is
+suppressed for transitions, so the frame most likely to be looked at no longer
+carries a false alarm.
+
+### One test premise that was wrong
+
+The freeze test asserted both transitions were `paused` in every frame. They are
+not present at all in the 100% frame — see above — and the element correctly
+shows its end state without them. The test now requires them paused in every
+frame where they still exist, and requires that to be all but the last, so it
+cannot pass vacuously.
+
+### One dependency added
+
+`@ui-atlas/crawler` now depends on `@ui-atlas/animation`. The probe stayed
+injected because it was one function; this is a whole capability, and injecting
+it would have scattered the interesting logic across the wiring.
+
 ## Next smallest milestone
 
-**Hover-transition sampling**, which closes the loop between recipes and motion.
+**The bounded screencast fallback** — `animation-video` is still a stub that
+throws.
 
-1. A transition does not exist until something provokes it, which is why the
-   inventory legitimately cannot see one on a page at rest.
-2. The shape: enter hover, re-run the inventory, diff against the pre-hover list
-   to find what *appeared*, and sample only those. `motion.html`'s
-   `transition-swatch` is the fixture, and the inventory test already proves the
-   before/after asymmetry the diff depends on.
-3. It belongs behind a recipe step rather than a new command — `hover` already
-   exists as a step, so this is `captureAnimation` alongside `captureStates`.
-4. The restore story gets one step longer: release the hover as well as the
-   animation, and the transition that then runs *backwards* must not be
-   photographed as though it were the forward one.
+1. It is for exactly the motion the last three slices cannot represent as
+   keyframes: `infinite`, `scroll-driven` and `indeterminate` animations, plus
+   the canvas/WebGL/`requestAnimationFrame` motion `getAnimations` never sees at
+   all. Those are named today with a reason and no artifact.
+2. Playwright records video per **context**, not per page, and only writes the
+   file on `context.close()`. So this cannot reuse the crawl's context: it needs
+   a short-lived one, which makes it a natural fit for the `animations` command
+   before it is one for `crawl`.
+3. Hard bounds from the start, like every other budget here: a maximum duration,
+   a maximum file size, and a frame rate that is recorded rather than assumed.
+   An infinite animation has no natural end, so the tool must supply one and say
+   it did.
+4. The honest framing to preserve: a video is **not** a deterministic sample. It
+   should never be labelled with a `progress`, and `AnimationSample.method`
+   already has `screencast` waiting for exactly this.
 
-After that: the bounded screencast fallback for motion that cannot be
-represented as keyframes (`animation-video` is still a stub), then first-pass
-design-token extraction and duplicate component grouping, which closes phase 4.
+After that: first-pass design-token extraction and duplicate component grouping,
+which closes phase 4.

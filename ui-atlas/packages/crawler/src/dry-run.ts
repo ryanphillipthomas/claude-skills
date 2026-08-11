@@ -3,6 +3,13 @@ import { firstMatchingGlob } from './glob.js';
 import { describeTarget } from './targets.js';
 import { stepIsInteractive, stepName } from './recipes.js';
 
+/**
+ * What `capture.animation.offsets` defaults to. The plan works from
+ * configuration alone and has no capture config to read, so a step that does
+ * not override the offsets is counted at the schema's default length.
+ */
+const DEFAULT_ANIMATION_OFFSETS = [0, 0.25, 0.5, 0.75, 1];
+
 export interface RecipePlan {
   name: string;
   match: string[];
@@ -47,6 +54,11 @@ export function planCrawl(config: CrawlConfig, origins: readonly string[]): Craw
       if ('capture' in step) captures += 1;
       if ('captureStates' in step) captures += step.captureStates.length;
       if ('captureResponsive' in step) captures += 1;
+      // One frame per offset, and it carries its own target rather than
+      // needing a `select` step first.
+      if ('captureAnimation' in step) {
+        captures += (step.captureAnimation.offsets ?? DEFAULT_ANIMATION_OFFSETS).length;
+      }
     }
 
     const needsSelection = recipe.steps.some(

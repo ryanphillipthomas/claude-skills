@@ -128,6 +128,7 @@ export async function startCrawlHarness(options: CrawlHarnessOptions = {}): Prom
     recipeRunner: (runnerConfig: UiAtlasConfig) =>
       new RecipeRunner({
         config: runnerConfig,
+        runId,
         captures: new CaptureService({
           page,
           writer,
@@ -138,6 +139,9 @@ export async function startCrawlHarness(options: CrawlHarnessOptions = {}): Prom
           viewportLabel: viewportLabel(CRAWL_VIEWPORT),
         }),
         probe: (target, spec) => probeLocator(locatorFor(target, spec), describeTarget(spec)),
+        onAnimation: async (record) => {
+          await writer.addAnimation(record);
+        },
       }),
     workerFactory: (factoryOptions = {}) => ({
       create: async (index: number): Promise<CrawlWorker> => {

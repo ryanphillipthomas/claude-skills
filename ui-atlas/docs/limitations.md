@@ -183,8 +183,9 @@ See [ADR 20](adr/0020-animation-inventory-describes-without-touching.md).
 - **A `requestAnimationFrame` loop is equally invisible**, and unlike a canvas
   there is nothing to count. Script-driven motion simply will not appear.
 - **A hover transition does not exist on a page at rest**, so it is absent from
-  the inventory of a page nobody has touched. Provoking one is a recipe's job.
-  The fixture proves both halves: absent at rest, present after a hover.
+  the inventory of a page nobody has touched. Provoking one is the
+  `captureAnimation` recipe step's job, below. The fixture proves both halves:
+  absent at rest, present after a hover.
 - **Only what is running when the page settles is listed.** An animation that
   starts later, or one already finished and garbage-collected, is not there.
 - **`sampleable` is a statement about determinism, not about usefulness.** It
@@ -219,6 +220,37 @@ See [ADR 21](adr/0021-frame-sampling-restores-what-it-moves.md).
   that cannot be represented as keyframes; nothing here needs it yet.
 - **CDP animation control is not used.** The Web Animations API answers both the
   inventory and the sampling question on its own.
+
+## Boundaries of provoked motion (`captureAnimation`)
+
+See [ADR 22](adr/0022-provoked-motion-is-sampled-as-one-group.md).
+
+- **It hovers or focuses, and can never click.** A click is the one interaction
+  that changes the world, so it stays a step somebody wrote on purpose. A test
+  points this step at `destructive.html`'s *Delete account* button and requires
+  the audit log to stay empty.
+- **`progress` means something different here.** For a group it is a fraction of
+  the *interaction's whole span*, not of one animation's iteration, because two
+  transitions from one hover are one picture and must share a clock. A member
+  with a shorter duration reaches its end partway through and holds it, which is
+  what the page does; the frame says so.
+- **Offsets are seeked in ascending order whatever order they were written in.**
+  A CSS transition leaves `getAnimations()` the moment it finishes, so a
+  backwards seek lands on an animation the document no longer has and silently
+  photographs the wrong moment.
+- **An interaction that restarts an animation already running is invisible to
+  it.** The diff answers "what appeared", and a re-run looks identical to being
+  left alone.
+- **Letting go of a hover is `mouse.move(0, 0)`.** There is no `unhover`, so a
+  page with something interactive in its top-left corner gets that hovered
+  instead.
+- **The reverse transition is never photographed.** Releasing runs the
+  transition backwards; every frame is taken strictly before the release.
+- **Only the provoked group is frozen.** The page's own animations keep running,
+  for the same reason as above, and a test requires it.
+- **One interaction per step.** Motion that needs a sequence — hover, then wait,
+  then hover a child — is out of reach; write the sequence as steps and accept
+  that only the last provocation is diffed.
 
 ## Things the tool reports that surprise people
 

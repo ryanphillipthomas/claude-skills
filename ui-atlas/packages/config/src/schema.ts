@@ -331,6 +331,32 @@ const CaptureStepSchema = z.strictObject({
 });
 
 /**
+ * Photograph motion that only exists once something provokes it.
+ *
+ * The provocation is part of the step rather than a separate `hover` before it,
+ * because knowing which animations an interaction *started* means holding the
+ * list from before it — and because a 200ms transition provoked by one step and
+ * sampled by the next has usually finished in between.
+ *
+ * `click` is deliberately not offered. A click is the one interaction that can
+ * change the world, so it stays a step of its own that someone wrote on
+ * purpose; this step can only ever hover or focus.
+ */
+const CaptureAnimationStepSchema = z
+  .strictObject({
+    hover: RecipeTargetSchema.optional(),
+    focus: RecipeTargetSchema.optional(),
+    /** `element` photographs the provoked element; `viewport` the whole frame. */
+    kind: z.enum(['element', 'viewport']).default('element'),
+    /** Points across the interaction's whole span, overriding the config. */
+    offsets: z.array(z.number().min(0).max(1)).min(1).max(50).optional(),
+    label: z.string().optional(),
+  })
+  .refine((step) => (step.hover === undefined) !== (step.focus === undefined), {
+    message: 'captureAnimation needs exactly one of hover or focus',
+  });
+
+/**
  * One step. The single-key object form comes from the brief's example YAML:
  * `- hover: { role: button, name: Menu }`.
  *
@@ -354,6 +380,7 @@ export const RecipeStepConfigSchema = z.union([
   z.strictObject({ waitMs: z.number().int().min(0).max(30_000) }),
   z.strictObject({ capture: CaptureStepSchema.prefault({}) }),
   z.strictObject({ captureStates: z.array(StateNameSchema).min(1) }),
+  z.strictObject({ captureAnimation: CaptureAnimationStepSchema }),
   z.strictObject({
     captureResponsive: z
       .strictObject({ kind: z.enum(['element', 'viewport', 'full-page']).default('viewport') })

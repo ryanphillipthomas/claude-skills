@@ -257,6 +257,7 @@ export async function runCrawl(args: ParsedArgs, logger: Logger): Promise<number
   const recipesForPage = (target: Page): RecipeRunner =>
     new RecipeRunner({
       config,
+      runId,
       captures: new CaptureService({
         page: target,
         writer,
@@ -268,6 +269,9 @@ export async function runCrawl(args: ParsedArgs, logger: Logger): Promise<number
       }),
       probe: (probeTarget, spec) =>
         probeLocator(locatorFor(probeTarget, spec), describeTarget(spec)),
+      onAnimation: async (record) => {
+        await writer.addAnimation(record);
+      },
       onProgress: (message) => logger.info(message),
     });
 

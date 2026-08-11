@@ -1,8 +1,9 @@
 # Implementation checklist
 
 Phases 0 through 3 are complete. Phase 4 is in progress: the animation
-inventory and deterministic frame sampling are both done. What is still unbuilt
-is listed in [docs/limitations.md](docs/limitations.md).
+inventory, deterministic frame sampling and provoked (hover/focus) motion are
+all done. What is still unbuilt is listed in
+[docs/limitations.md](docs/limitations.md).
 
 ## Phase 0 — foundation
 
@@ -113,7 +114,7 @@ Met, end to end, in `tests/integration/report.test.ts`.
 - [x] Declarative `recipes:` in the site config, validated before execution
 - [x] Steps: `select`, `click`, `hover`, `focus`, `press`, `scroll`, `scrollTo`,
       `waitFor`, `waitForUrl`, `waitMs`, `capture`, `captureStates`,
-      `captureResponsive`
+      `captureResponsive`, `captureAnimation` (added in phase 4)
 - [x] Closed target vocabulary — `role`+`name`, `testId`, `text`, `label`,
       `placeholder`, `css` — resolving through Playwright locator engines, with
       no route from a recipe to arbitrary page JavaScript
@@ -253,9 +254,28 @@ is still empty and no non-`GET` request was issued.
       reversed iterations, a page-set playback rate, a pseudo-element target
 - [x] Frames of one animation grouped by `set: { kind: 'animation' }`
 
+## Phase 4 — provoked motion (third slice)
+
+- [x] `captureAnimation` recipe step: inventory, provoke, inventory, and the
+      difference is what that interaction started
+- [x] `hover` and `focus` only — the step **cannot click**, asserted against
+      `destructive.html`'s audit log
+- [x] The diff identifies an animation by what it is, not by index or id, and
+      compares as a multiset so duplicates are not collapsed
+- [x] Every member of a group is paused first, then all are seeked to the *same
+      absolute time* and photographed once
+- [x] `progress` is a fraction of the interaction's span, and a member that ends
+      earlier says so in `limitations`
+- [x] Offsets are seeked in ascending order, because a finished CSS transition
+      leaves `getAnimations()` and a backwards seek then shows the wrong moment
+- [x] Animations restored, *then* the provocation released, so the transition
+      running backwards is never photographed
+- [x] Release runs in a `finally`, so a capture that throws still lets go
+- [x] Only the provoked group is frozen; the page's own animations keep running
+- [x] The provoked animations are written to `animations.jsonl`
+
 ### Still to build in phase 4
 
-- [ ] Hover-transition sampling (enter hover, discover what appeared, sample)
 - [ ] Optional video/screencast fallback for motion that is not keyframable
 - [ ] The toolbar's Animation button, still disabled
 - [ ] First-pass design-token extraction and duplicate component grouping

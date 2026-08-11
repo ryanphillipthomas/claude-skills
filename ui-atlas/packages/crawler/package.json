@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@ui-atlas/protocol": "*",
+    "@ui-atlas/animation": "*",
     "@ui-atlas/config": "*",
     "@ui-atlas/artifacts": "*",
     "@ui-atlas/capture": "*",

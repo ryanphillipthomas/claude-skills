@@ -353,7 +353,7 @@ Written to `animations.jsonl`. Two gaps it tells you about rather than hiding:
   see them. Those elements are counted and named, because "no animations found"
   on a canvas-driven page is a lie of omission.
 - **A hover transition does not exist on a page at rest**, so it will not
-  appear. Provoking one is a recipe's job.
+  appear. Provoking one is the `captureAnimation` recipe step's job, below.
 
 ### Animation frames
 
@@ -383,6 +383,46 @@ is not the whole story, and a page-set playback rate is ignored by a seek.
 Only the animation being sampled is paused. A page with several running
 animations shows the others wherever they happened to be — freezing everything
 would produce a composite moment that never existed.
+
+### Hover and focus transitions
+
+Most of the motion in a design system is not running when a page loads. A hover
+transition does not *exist* until something provokes it, which is why the
+inventory above cannot see one. The `captureAnimation` recipe step can:
+
+```yaml
+crawl:
+  recipes:
+    - name: card-hover
+      match: '/products/**'
+      steps:
+        - captureAnimation: { hover: { testId: product-card }, kind: element }
+```
+
+It takes an inventory, hovers (or focuses), takes another, and **the difference
+is what that interaction started**. Those animations are photographed at each
+offset, put back, and only then is the hover released.
+
+- **It can never click.** `hover` and `focus`, and nothing else — a click is the
+  one interaction that can change the world, so it stays a step somebody wrote
+  on purpose. A test points this step at `destructive.html`'s *Delete account*
+  button and requires the audit log to stay empty afterwards.
+- **A group is one picture.** Hovering typically starts several transitions at
+  once — `transform` and `background-color`, say. They are seeked to the *same
+  moment* and photographed together, because a frame with the transform half way
+  and the colour still at its start is a composite that never existed. `progress`
+  is therefore a fraction of the whole interaction here, not of one animation's
+  iteration.
+- **The way back is never photographed.** Letting go of a hover runs the
+  transition *backwards*; every frame is taken strictly before the release.
+- **Offsets are seeked in ascending order** whatever order you write them in. A
+  CSS transition leaves `getAnimations()` the instant it finishes, so a backwards
+  seek lands on an animation the document no longer has and quietly shows the
+  wrong moment.
+
+The animations it provoked are written to `animations.jsonl` like any others, so
+"what does this card do when you point at it" is answerable without opening an
+image.
 
 ### Authentication
 
