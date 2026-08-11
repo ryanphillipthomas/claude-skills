@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Frames — UI Atlas fixture</title>
+    <link rel="stylesheet" href="/base.css" />
+    <style>
+      iframe { width: 420px; height: 220px; border: 1px solid #cbd5e1; border-radius: 8px; }
+    </style>
+  </head>
+  <body>
+    <h1>Frames</h1>
+
+    <section aria-labelledby="same-origin-heading">
+      <h2 id="same-origin-heading">Same-origin iframe</h2>
+      <iframe name="same-origin" title="Same origin child" src="/frame-child.html"></iframe>
+    </section>
+
+    <section aria-labelledby="cross-origin-heading">
+      <h2 id="cross-origin-heading">Cross-origin iframe</h2>
+      <p>
+        Filled in at runtime from a second fixture origin. Top-page JavaScript cannot traverse it;
+        the Playwright host inspects it through a frame locator instead.
+      </p>
+      <iframe name="cross-origin" title="Cross origin child" id="cross-origin-frame"></iframe>
+    </section>
+
+    <script>
+      const params = new URLSearchParams(location.search);
+      const other = params.get('crossOrigin');
+      if (other) {
+        document.getElementById('cross-origin-frame').src = new URL('/frame-child.html', other).toString();
+      }
+    </script>
+  </body>
+</html>

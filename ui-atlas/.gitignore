@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+*.tsbuildinfo
+
+# Captured artifacts (never commit run output)
+ui-atlas-output/
+test-output/
+
+# Authentication material — storage state, persistent browser profiles.
+# These may contain impersonation-capable cookies. Never commit them.
+.ui-atlas/
+profiles/
+storage-state/
+*.storage-state.json
+
+# Local editor / OS noise
+.DS_Store
+.vitest/
+coverage/

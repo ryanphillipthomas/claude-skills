@@ -1,0 +1,22 @@
+{
+  "name": "@ui-atlas/overlay",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/host/index.js",
+  "types": "./dist/host/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/host/index.d.ts",
+      "default": "./dist/host/index.js"
+    }
+  },
+  "scripts": {
+    "build:bundle": "node build.mjs"
+  },
+  "dependencies": {
+    "@ui-atlas/identity": "*",
+    "@ui-atlas/protocol": "*",
+    "playwright": "1.56.1"
+  }
+}

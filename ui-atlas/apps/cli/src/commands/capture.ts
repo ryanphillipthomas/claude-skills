@@ -1,0 +1,120 @@
+import { buildElementIdentity, buildFramePath } from '@ui-atlas/identity';
+import { probeSelector } from '@ui-atlas/overlay';
+import {
+  UiAtlasError,
+  type CaptureKind,
+  type CaptureRecord,
+  type ElementIdentity,
+  type StateName,
+  STATE_NAMES,
+} from '@ui-atlas/protocol';
+import { flagString, requireHttpUrl, type ParsedArgs } from '../args.js';
+import { loadCliConfig, TOOL_VERSION } from '../config.js';
+import type { Logger } from '../logger.js';
+import { AtlasSession } from '../session.js';
+
+export const CAPTURE_HELP = `
+ui-atlas capture <url> [options]
+
+  One-shot, non-interactive capture. Useful in CI and as a smoke test.
+
+  --kind <kind>       viewport | full-page | element (default: viewport)
+  --select <css>      CSS selector for --kind element
+  --states <list>     comma separated, e.g. default,hover,focus (default: default)
+  --project <name>    artifact project directory
+  --output <dir>      artifact root
+  --width/--height    base viewport size
+  --config <path>     explicit config file
+  --json              print the capture records as JSON on stdout
+`.trim();
+
+const CAPTURE_KINDS: CaptureKind[] = ['element', 'viewport', 'full-page'];
+
+function parseKind(value: string | undefined): CaptureKind {
+  if (value === undefined) return 'viewport';
+  if ((CAPTURE_KINDS as string[]).includes(value)) return value as CaptureKind;
+  throw new UiAtlasError(
+    'config.invalid',
+    `--kind must be one of ${CAPTURE_KINDS.join(', ')} (got "${value}")`,
+  );
+}
+
+function parseStates(value: string | undefined): StateName[] {
+  if (value === undefined) return ['default'];
+  const parts = value
+    .split(',')
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0);
+  const states: StateName[] = [];
+  for (const part of parts) {
+    if (!(STATE_NAMES as readonly string[]).includes(part)) {
+      throw new UiAtlasError('config.invalid', `unknown state "${part}"`);
+    }
+    states.push(part as StateName);
+  }
+  return states.length > 0 ? states : ['default'];
+}
+
+export async function runCapture(args: ParsedArgs, logger: Logger): Promise<number> {
+  const target = args.positionals[1];
+  if (target === undefined) {
+    throw new UiAtlasError('config.invalid', 'capture needs a URL\n\n' + CAPTURE_HELP);
+  }
+  const url = requireHttpUrl(target);
+  const kind = parseKind(flagString(args, 'kind'));
+  const states = parseStates(flagString(args, 'states'));
+  const selector = flagString(args, 'select');
+
+  if (kind === 'element' && selector === undefined) {
+    throw new UiAtlasError('config.invalid', '--kind element also needs --select <css>');
+  }
+
+  const loaded = await loadCliConfig(args, { browser: { headless: true } });
+  const session = await AtlasSession.start({
+    config: loaded.config,
+    outputRoot: loaded.outputRoot,
+    command: `capture ${url}`,
+    toolVersion: TOOL_VERSION,
+    logger,
+    overlay: false,
+  });
+
+  const records: CaptureRecord[] = [];
+  try {
+    const page = await session.navigate(url);
+    if (page.error !== undefined) {
+      logger.error(`navigation failed: ${page.error.message}`);
+      return 1;
+    }
+
+    let identity: ElementIdentity | undefined;
+    if (selector !== undefined) {
+      const probe = await probeSelector(session.page, selector);
+      identity = buildElementIdentity(probe, await buildFramePath(session.page.mainFrame()));
+      logger.info(`selected ${identity.tagName} via ${identity.chosenLocator.type}`);
+    }
+
+    const setId = states.length > 1 ? `set-${session.runId}` : undefined;
+    for (const state of states) {
+      const record = await session.captures.capture({
+        kind,
+        state,
+        identity,
+        sourceUrl: url,
+        ...(setId === undefined ? {} : { set: { id: setId, kind: 'state' as const, member: state } }),
+      });
+      records.push(record);
+      const summary = `${record.status} ${record.kind}/${record.state.name} (${record.state.provenance})`;
+      if (record.status === 'captured') logger.info(`${summary} → ${record.image?.relativePath ?? ''}`);
+      else logger.warn(`${summary}: ${record.error?.message ?? 'no detail'}`);
+    }
+  } finally {
+    const manifest = await session.close();
+    logger.info(`artifacts: ${session.writer.paths.runDir}`);
+    if (args.flags.get('json') === true) {
+      process.stdout.write(`${JSON.stringify({ manifest, captures: records }, null, 2)}\n`);
+    }
+  }
+
+  return records.every((record) => record.status !== 'failed') ? 0 : 1;
+}

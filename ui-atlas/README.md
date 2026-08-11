@@ -1,0 +1,172 @@
+# UI Atlas
+
+A local-first tool for collecting website UI reference material for
+design-system work. Point at a component on any site, capture it with its
+states, and keep enough metadata to find it again.
+
+No cloud account, no AI service, no browser extension, no database server.
+Everything runs on your machine and writes plain files.
+
+**Current release: the guided inspector (phases 0 and 1).**
+The crawler, the browsable report and animation capture are later phases — see
+[docs/limitations.md](docs/limitations.md).
+
+## Requirements
+
+- Node.js 20.11 or newer
+- The Chromium build that ships with the pinned Playwright version
+  (`npx playwright install chromium`, or set `PLAYWRIGHT_BROWSERS_PATH` to a
+  directory that already has it)
+
+## Install and build
+
+```bash
+cd ui-atlas
+npm install
+npm run build          # compiles the packages and bundles the injected inspector
+```
+
+## Commands
+
+### Guided inspection
+
+```bash
+npm run ui-atlas -- inspect https://example.com
+```
+
+Opens a clean Chromium window with the inspector injected and runs until you
+close the browser.
+
+| Key | Action |
+| --- | --- |
+| `Alt`/`Option` + `I` | toggle inspect mode |
+| `Alt`/`Option` + `C` | capture the selected element |
+| `Alt`/`Option` + `V` | capture the viewport |
+| `Alt`/`Option` + `R` | capture a responsive set *(phase 2)* |
+| `Alt`/`Option` + `A` | animation capture *(phase 4)* |
+| `Escape` | leave inspect mode, then clear the selection |
+| Arrow keys | move the selection to parent / child / sibling |
+| `Alt`/`Option` + click | let the click through to the page instead of selecting |
+
+In the toolbar you get the element's tag, role, accessible name, size and
+chosen locator (with its score and the reasons behind it), state toggles,
+viewport presets and a custom size, capture buttons, and the capture queue.
+
+Useful options:
+
+```
+--project <name>      artifact project directory
+--mode <mode>         clean | profile | storage-state | attach   (default: clean)
+--profile <name>      named auth profile for profile / storage-state
+--width / --height    base viewport size
+--headless            run without a visible window (CI)
+--open-timeout <ms>   stop automatically after this long
+--config <path>       explicit config file
+```
+
+### One-shot capture
+
+```bash
+npm run ui-atlas -- capture https://example.com --kind viewport
+npm run ui-atlas -- capture https://example.com \
+  --kind element --select '[data-testid="save-button"]' \
+  --states default,hover,focus
+```
+
+Non-interactive and headless. `--select` uses exactly the same element probe the
+inspector uses, so a selector-driven capture and a clicked capture produce
+identical identity data.
+
+### Run summary
+
+```bash
+npm run ui-atlas -- report ui-atlas-output/default/<run-id>
+npm run ui-atlas -- report ui-atlas-output/default/<run-id> --json
+```
+
+Counts, warnings, failed and skipped captures, and duplicate images by content
+hash. The browsable HTML report is phase 2.
+
+### Authentication
+
+```bash
+npm run ui-atlas -- auth save my-profile https://example.com/login
+npm run ui-atlas -- inspect https://example.com --mode storage-state --profile my-profile
+npm run ui-atlas -- auth clear my-profile
+```
+
+`auth save` opens a browser and waits for you to sign in **by hand**. It never
+types credentials and never submits a form. The saved state lives in
+`~/.ui-atlas/` with owner-only permissions, never in the artifact tree, and
+every command that uses it warns that session cookies can impersonate you.
+
+## Output
+
+```
+ui-atlas-output/
+  <project>/
+    <run-id>/
+      run.json                                        run manifest
+      captures.jsonl                                  one record per capture
+      pages.jsonl                                     one record per page visit
+      screenshots/<route>/<viewport>/<capture-id>.png
+      screenshots/<route>/<viewport>/<capture-id>.json   metadata beside the image
+```
+
+Every write is atomic: a temporary file in the same directory, fsynced,
+checksummed, then renamed. A capture that failed or was skipped is written as a
+record too — with a stable error code and no image — so nothing disappears
+silently.
+
+Each record carries the URL, route key, viewport (including whether it was real
+mobile emulation), the state and **how it was reached**
+(`observed` / `interacted` / `forced`), the readiness checks and their outcomes,
+the locator candidates with scores and reasons, a structural fingerprint, the
+computed-style delta for state changes, and the image's SHA-256.
+
+## Configuration
+
+`ui-atlas.config.yml` in the project root (or any parent directory) is picked up
+automatically; `--config` overrides it, and CLI flags override the file. The
+checked-in file lists every option with its default.
+
+## Testing
+
+```bash
+npm test                  # builds, then runs unit + integration tests
+npm run test:unit
+npm run test:integration
+npm run typecheck
+npm run fixtures          # serve the fixture site at http://127.0.0.1:4173
+```
+
+Interaction tests run only against the controlled fixture site in
+`tests/fixtures/sites/`, which covers hover menus, focus vs focus-visible,
+pressed state, checked/selected/expanded/disabled, motion, lazy images and
+never-ending requests, SPA route changes and DOM replacement, same- and
+cross-origin iframes, open and closed shadow DOM, hostile global CSS, and
+destructive controls that must never be clicked.
+
+The external-site smoke tests are read-only and skip themselves when the browser
+has no network access.
+
+## How it works
+
+```
+apps/cli          command parsing, session wiring, process lifecycle
+packages/protocol versioned schemas: records, manifests, bridge messages
+packages/config   configuration schema, discovery and validation
+packages/artifacts atomic writes, run manifest, JSONL, path safety, PNG headers
+packages/browser  Playwright launch in clean/profile/storage-state/attach modes
+packages/identity locator candidates, scoring, structural fingerprint, re-resolution
+packages/settle   bounded readiness with a hard deadline
+packages/capture  screenshots, the state controller, computed-style deltas, queue
+packages/overlay  the injected inspector and the host side of its bridge
+```
+
+The Node host owns the browser, the filesystem, the capture queue and policy.
+Page-side code only inspects the DOM, renders the inspector, and sends typed
+requests over a single authenticated, schema-validated binding — see
+[ADR 4](docs/adr/0004-overlay-host-boundary.md).
+
+Design decisions are recorded in [`docs/adr/`](docs/adr/).

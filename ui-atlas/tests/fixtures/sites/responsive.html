@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Responsive — UI Atlas fixture</title>
+    <link rel="stylesheet" href="/base.css" />
+    <style>
+      .layout { display: grid; gap: 12px; grid-template-columns: 1fr; }
+      @media (min-width: 900px) { .layout { grid-template-columns: 1fr 1fr 1fr; } }
+      .panel { border: 1px solid #cbd5e1; border-radius: 8px; padding: 12px; }
+      .only-mobile { display: none; }
+      @media (max-width: 599px) { .only-mobile { display: block; } .only-desktop { display: none; } }
+    </style>
+  </head>
+  <body>
+    <h1>Responsive</h1>
+
+    <p>
+      Layout mode decided <strong>once, at initial load</strong>:
+      <span data-testid="initial-mode">unknown</span>.
+      Resizing without a reload leaves it stale — which is why responsive sets
+      reload the route per viewport.
+    </p>
+
+    <div class="layout">
+      <div class="panel" data-testid="panel-one">Panel one</div>
+      <div class="panel" data-testid="panel-two">Panel two</div>
+      <div class="panel" data-testid="panel-three">Panel three</div>
+    </div>
+
+    <p class="only-mobile" data-testid="mobile-only">Visible only under 600px.</p>
+    <p class="only-desktop" data-testid="desktop-only">Visible only at 600px and up.</p>
+
+    <script>
+      // Deliberately not re-run on resize.
+      const mode = window.innerWidth < 600 ? 'compact' : window.innerWidth < 900 ? 'medium' : 'wide';
+      document.querySelector('[data-testid="initial-mode"]').textContent = mode;
+      document.documentElement.dataset.initialMode = mode;
+    </script>
+  </body>
+</html>

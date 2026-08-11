@@ -1,0 +1,67 @@
+# UI Atlas project configuration.
+# Every value here is optional; these are the defaults, written out so they are
+# easy to find and change. Run `ui-atlas capture <url> --config <path>` to use a
+# different file.
+
+project: default
+outputRoot: ./ui-atlas-output
+
+# Base viewport for `inspect` and `capture`.
+viewport:
+  width: 1440
+  height: 1000
+  deviceScaleFactor: 1
+
+# Presets offered in the inspector. `mode: mobile` means true device emulation
+# (touch, mobile user agent, higher device scale), not just a narrower window.
+viewports:
+  - { name: mobile-sm, width: 375, height: 812, mode: mobile }
+  - { name: mobile-lg, width: 430, height: 932, mode: mobile }
+  - { name: tablet, width: 768, height: 1024, mode: desktop }
+  - { name: laptop, width: 1280, height: 800, mode: desktop }
+  - { name: desktop, width: 1440, height: 1000, mode: desktop }
+
+# Bounded readiness. `networkidle` is deliberately not an option: analytics,
+# streaming and long polling can keep a page busy forever.
+settle:
+  totalTimeoutMs: 12000
+  mutationQuietMs: 500
+  geometryQuietMs: 250
+  fontTimeoutMs: 3000
+  imageTimeoutMs: 3000
+  perImageTimeoutMs: 1500
+  loadState: domcontentloaded
+  animationFrames: 2
+
+capture:
+  # Still captures freeze CSS animations. Motion capture re-enables them.
+  disableAnimations: true
+  fullPageMaxHeightPx: 20000
+  # CSS selectors painted over before capture: clocks, ads, rotating carousels,
+  # user-specific data.
+  masks: []
+  maskColor: '#FF00FF'
+  elementPaddingPx: 0
+  screenshotTimeoutMs: 20000
+  states: [default, hover, focus]
+  keyboardFocusMaxTabs: 60
+  allowForcedStates: true
+
+browser:
+  # clean | profile | storage-state | attach
+  mode: clean
+  headless: false
+  locale: en-US
+  colorScheme: light
+  reducedMotion: no-preference
+  navigationTimeoutMs: 30000
+
+overlay:
+  enabled: true
+  autoInspect: false
+  showBoxModel: false
+
+# Redacted before anything is logged.
+redact:
+  headers: [authorization, cookie, set-cookie, proxy-authorization, x-api-key]
+  fields: [password, token, secret, apiKey, accessToken, refreshToken]

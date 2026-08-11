@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>UI Atlas fixture site</title>
+    <link rel="stylesheet" href="/base.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <h1>UI Atlas fixture site</h1>
+      <p>Controlled pages for inspector, state, settle and identity tests.</p>
+    </header>
+
+    <main>
+      <nav aria-label="Fixture pages">
+        <ul class="page-list">
+          <li><a href="/states.html">States</a> — hover, focus, active, checked, expanded, disabled</li>
+          <li><a href="/identity.html">Identity</a> — locator candidate coverage</li>
+          <li><a href="/settle.html">Settle</a> — lazy images, fonts, endless requests, sticky header</li>
+          <li><a href="/shadow.html">Shadow DOM</a> — open and closed roots</li>
+          <li><a href="/frames.html">Frames</a> — same-origin and cross-origin iframes</li>
+          <li><a href="/hostile.html">Hostile CSS</a> — aggressive globals and high z-index overlays</li>
+          <li><a href="/spa.html">SPA</a> — route changes and DOM replacement</li>
+          <li><a href="/motion.html">Motion</a> — transitions, animations, Web Animations</li>
+          <li><a href="/responsive.html">Responsive</a> — layout decided at initial load</li>
+          <li><a href="/media.html">Media</a> — canvas, WebGL and video limitations</li>
+          <li><a href="/destructive.html">Destructive</a> — controls that must never be auto-clicked</li>
+        </ul>
+      </nav>
+
+      <section aria-labelledby="primary-heading">
+        <h2 id="primary-heading">Primary actions</h2>
+        <button type="button" data-testid="index-primary" class="btn btn--primary">Save changes</button>
+        <button type="button" class="btn">Cancel</button>
+      </section>
+    </main>
+  </body>
+</html>

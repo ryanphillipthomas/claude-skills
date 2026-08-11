@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Frame child — UI Atlas fixture</title>
+    <link rel="stylesheet" href="/base.css" />
+    <style>
+      body { padding: 12px; }
+    </style>
+  </head>
+  <body>
+    <h2>Inside a frame</h2>
+    <button type="button" class="btn" data-testid="frame-button">Frame action</button>
+    <p data-testid="frame-origin"></p>
+    <script>
+      document.querySelector('[data-testid="frame-origin"]').textContent = location.origin;
+    </script>
+  </body>
+</html>

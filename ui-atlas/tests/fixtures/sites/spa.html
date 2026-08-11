@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>SPA — UI Atlas fixture</title>
+    <link rel="stylesheet" href="/base.css" />
+  </head>
+  <body>
+    <h1>Single-page app behaviour</h1>
+
+    <nav aria-label="Routes">
+      <button type="button" class="btn" data-testid="route-home">Home</button>
+      <button type="button" class="btn" data-testid="route-settings">Settings</button>
+    </nav>
+
+    <main id="view" data-testid="view">
+      <h2>Home</h2>
+      <button type="button" class="btn" data-testid="view-action">Home action</button>
+    </main>
+
+    <p>
+      <button type="button" class="btn" data-testid="replace-dom">Replace the view DOM</button>
+    </p>
+
+    <script>
+      const view = document.getElementById('view');
+
+      function render(route) {
+        view.innerHTML =
+          route === 'settings'
+            ? '<h2>Settings</h2><button type="button" class="btn" data-testid="view-action">Settings action</button>'
+            : '<h2>Home</h2><button type="button" class="btn" data-testid="view-action">Home action</button>';
+      }
+
+      document.querySelector('[data-testid="route-home"]').addEventListener('click', () => {
+        history.pushState({}, '', '/spa.html#home');
+        render('home');
+      });
+      document.querySelector('[data-testid="route-settings"]').addEventListener('click', () => {
+        history.pushState({}, '', '/spa.html#settings');
+        render('settings');
+      });
+      document.querySelector('[data-testid="replace-dom"]').addEventListener('click', () => {
+        // Detaches whatever was selected: the inspector must notice and say so.
+        const replacement = view.cloneNode(false);
+        replacement.innerHTML = '<h2>Rebuilt</h2><p>The previous nodes are gone.</p>';
+        view.replaceWith(replacement);
+      });
+    </script>
+  </body>
+</html>

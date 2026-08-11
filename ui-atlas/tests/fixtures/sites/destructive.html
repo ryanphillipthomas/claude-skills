@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Destructive controls — UI Atlas fixture</title>
+    <link rel="stylesheet" href="/base.css" />
+    <style>
+      .danger { border-color: #dc2626; color: #dc2626; }
+      #audit { font-family: ui-monospace, Menlo, monospace; white-space: pre-wrap; }
+    </style>
+  </head>
+  <body>
+    <h1>Controls that must never be clicked automatically</h1>
+    <p>
+      Every control here records itself in <code>window.__uiAtlasDestructiveLog</code>.
+      Any automation that clicks one has a bug, and the tests assert the log stays empty.
+    </p>
+
+    <p>
+      <button type="button" class="btn danger" data-testid="delete-account">Delete account</button>
+      <button type="button" class="btn danger" data-testid="place-order">Place order</button>
+      <button type="button" class="btn danger" data-testid="send-message">Send message</button>
+      <button type="submit" class="btn danger" form="danger-form" data-testid="submit-form">Submit form</button>
+    </p>
+
+    <form id="danger-form" action="/__should-never-be-called" method="post">
+      <label class="field">
+        <span>Confirm</span>
+        <input name="confirm" type="text" />
+      </label>
+    </form>
+
+    <p><a href="/logout" data-testid="logout-link">Sign out</a></p>
+
+    <h2>Audit log</h2>
+    <div id="audit">(empty)</div>
+
+    <script>
+      window.__uiAtlasDestructiveLog = [];
+      const audit = document.getElementById('audit');
+
+      function record(name, event) {
+        event.preventDefault();
+        window.__uiAtlasDestructiveLog.push(name);
+        audit.textContent = window.__uiAtlasDestructiveLog.join('\n');
+      }
+
+      for (const element of document.querySelectorAll('[data-testid], a[href="/logout"]')) {
+        const name = element.getAttribute('data-testid') || element.textContent.trim();
+        element.addEventListener('click', (event) => record(name, event));
+      }
+      document.getElementById('danger-form').addEventListener('submit', (event) => record('form-submit', event));
+    </script>
+  </body>
+</html>

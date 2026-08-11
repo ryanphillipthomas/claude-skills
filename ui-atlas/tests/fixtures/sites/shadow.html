@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Shadow DOM — UI Atlas fixture</title>
+    <link rel="stylesheet" href="/base.css" />
+  </head>
+  <body>
+    <h1>Shadow DOM</h1>
+
+    <section aria-labelledby="open-heading">
+      <h2 id="open-heading">Open shadow root</h2>
+      <open-card data-testid="open-card"></open-card>
+    </section>
+
+    <section aria-labelledby="closed-heading">
+      <h2 id="closed-heading">Closed shadow root</h2>
+      <closed-card data-testid="closed-card"></closed-card>
+      <p>Element-level inspection inside a closed root is not supported and must say so.</p>
+    </section>
+
+    <script>
+      class OpenCard extends HTMLElement {
+        connectedCallback() {
+          const root = this.attachShadow({ mode: 'open' });
+          root.innerHTML = `
+            <style>
+              .card { border: 1px solid #cbd5e1; border-radius: 12px; padding: 16px; max-width: 320px; }
+              button { padding: 8px 14px; border-radius: 6px; border: 1px solid #2563eb; background: #2563eb; color: white; font: inherit; cursor: pointer; }
+              button:hover { background: #1d4ed8; }
+            </style>
+            <div class="card">
+              <h3>Inside an open shadow root</h3>
+              <button type="button" data-testid="open-shadow-button">Shadow action</button>
+            </div>`;
+        }
+      }
+      class ClosedCard extends HTMLElement {
+        connectedCallback() {
+          const root = this.attachShadow({ mode: 'closed' });
+          root.innerHTML = `
+            <div style="border:1px solid #cbd5e1;border-radius:12px;padding:16px;max-width:320px">
+              <h3>Inside a closed shadow root</h3>
+              <button type="button">Unreachable action</button>
+            </div>`;
+        }
+      }
+      customElements.define('open-card', OpenCard);
+      customElements.define('closed-card', ClosedCard);
+    </script>
+  </body>
+</html>

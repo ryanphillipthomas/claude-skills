@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>States — UI Atlas fixture</title>
+    <link rel="stylesheet" href="/base.css" />
+    <style>
+      /* Hover-only menu: the panel does not exist in the DOM until hover. */
+      .menu { position: relative; display: inline-block; }
+      .menu__panel {
+        position: absolute;
+        top: 100%;
+        left: 0;
+        min-width: 200px;
+        padding: 8px;
+        border: 1px solid #cbd5e1;
+        border-radius: 8px;
+        background: #ffffff;
+        box-shadow: 0 8px 24px rgba(15, 23, 42, 0.18);
+        display: none;
+      }
+      .menu:hover .menu__panel,
+      .menu:focus-within .menu__panel { display: block; }
+
+      /* Tooltip driven purely by CSS hover. */
+      .tooltip { position: relative; border-bottom: 1px dotted #64748b; }
+      .tooltip::after {
+        content: attr(data-tip);
+        position: absolute;
+        left: 0;
+        top: calc(100% + 6px);
+        padding: 4px 8px;
+        background: #0f172a;
+        color: #f8fafc;
+        border-radius: 4px;
+        font-size: 12px;
+        white-space: nowrap;
+        opacity: 0;
+        pointer-events: none;
+      }
+      .tooltip:hover::after { opacity: 1; }
+
+      /* Focus vs focus-visible must be visibly different. */
+      .focus-demo:focus { background: #fef9c3; }
+      .focus-demo:focus-visible { outline: 3px solid #dc2626; outline-offset: 2px; }
+
+      .press-target:active { background: #7c3aed; color: #ffffff; }
+
+      [role="tab"][aria-selected="true"] { background: #dbeafe; border-color: #2563eb; }
+      details[open] > summary { font-weight: 600; }
+    </style>
+  </head>
+  <body>
+    <h1>States</h1>
+
+    <section aria-labelledby="hover-heading">
+      <h2 id="hover-heading">Hover</h2>
+      <div class="menu">
+        <button type="button" class="btn" data-testid="menu-trigger">Menu</button>
+        <div class="menu__panel" role="navigation" aria-label="Primary">
+          <a href="/index.html">Home</a>
+          <a href="/identity.html">Identity</a>
+        </div>
+      </div>
+      <p><span class="tooltip" data-tip="Only visible on hover" data-testid="tooltip-target">Hover for a tooltip</span></p>
+    </section>
+
+    <section aria-labelledby="focus-heading">
+      <h2 id="focus-heading">Focus and focus-visible</h2>
+      <button type="button" class="btn focus-demo" data-testid="focus-demo">Focus me</button>
+      <p class="hint">Mouse focus paints yellow; keyboard focus adds a red ring.</p>
+    </section>
+
+    <section aria-labelledby="active-heading">
+      <h2 id="active-heading">Active / pressed</h2>
+      <button type="button" class="btn press-target" data-testid="press-target">Press and hold</button>
+    </section>
+
+    <section aria-labelledby="selection-heading">
+      <h2 id="selection-heading">Checked, selected, expanded, disabled</h2>
+
+      <label class="field">
+        <span>Enable notifications</span>
+        <input type="checkbox" data-testid="checkbox-unchecked" />
+      </label>
+      <label class="field">
+        <span>Already checked</span>
+        <input type="checkbox" data-testid="checkbox-checked" checked />
+      </label>
+
+      <div role="tablist" aria-label="Sections">
+        <button role="tab" class="btn" aria-selected="true" data-testid="tab-one">Overview</button>
+        <button role="tab" class="btn" aria-selected="false" data-testid="tab-two">Details</button>
+      </div>
+
+      <details data-testid="disclosure">
+        <summary>Advanced options</summary>
+        <p>Hidden until the disclosure is expanded.</p>
+      </details>
+
+      <p>
+        <button type="button" class="btn" disabled data-testid="disabled-button">Disabled action</button>
+      </p>
+    </section>
+
+    <section aria-labelledby="text-heading">
+      <h2 id="text-heading">Text selection</h2>
+      <p data-testid="selectable-text">Select this sentence to test text-selection capture.</p>
+    </section>
+  </body>
+</html>

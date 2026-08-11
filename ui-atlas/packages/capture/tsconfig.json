@@ -1,0 +1,17 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    // `src/page-scripts.ts` is serialised into the page by Playwright.
+    "lib": ["ES2022", "DOM", "DOM.Iterable"]
+  },
+  "include": ["src/**/*.ts"],
+  "references": [
+    { "path": "../protocol" },
+    { "path": "../config" },
+    { "path": "../artifacts" },
+    { "path": "../identity" },
+    { "path": "../settle" }
+  ]
+}

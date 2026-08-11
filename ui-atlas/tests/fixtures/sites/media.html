@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Media — UI Atlas fixture</title>
+    <link rel="stylesheet" href="/base.css" />
+  </head>
+  <body>
+    <h1>Canvas, WebGL and video</h1>
+    <p>
+      These are the cases where deterministic capture cannot be promised. The
+      capture method and its uncertainty must be reported rather than hidden.
+    </p>
+
+    <section aria-labelledby="canvas-heading">
+      <h2 id="canvas-heading">2D canvas</h2>
+      <canvas id="canvas2d" data-testid="canvas-2d" width="200" height="120"></canvas>
+    </section>
+
+    <section aria-labelledby="webgl-heading">
+      <h2 id="webgl-heading">WebGL canvas</h2>
+      <canvas id="canvasgl" data-testid="canvas-webgl" width="200" height="120"></canvas>
+      <p data-testid="webgl-status">unknown</p>
+    </section>
+
+    <section aria-labelledby="video-heading">
+      <h2 id="video-heading">Video element</h2>
+      <video data-testid="video" width="240" height="135" controls muted playsinline></video>
+      <p>No source is attached: remote video is explicitly out of scope.</p>
+    </section>
+
+    <script>
+      const ctx = document.getElementById('canvas2d').getContext('2d');
+      ctx.fillStyle = '#2563eb';
+      ctx.fillRect(0, 0, 200, 120);
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '16px system-ui';
+      ctx.fillText('canvas', 12, 64);
+
+      const gl = document.getElementById('canvasgl').getContext('webgl');
+      const status = document.querySelector('[data-testid="webgl-status"]');
+      if (gl) {
+        gl.clearColor(0.1, 0.5, 0.3, 1);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+        status.textContent = 'webgl available';
+      } else {
+        status.textContent = 'webgl unavailable in this browser';
+      }
+    </script>
+  </body>
+</html>
