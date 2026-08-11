@@ -1,8 +1,8 @@
 # Implementation checklist
 
 Phases 0 through 3 are complete. Phase 4 is in progress: the animation
-inventory, deterministic frame sampling and provoked (hover/focus) motion are
-all done. What is still unbuilt is listed in
+inventory, deterministic frame sampling, provoked (hover/focus) motion and the
+screencast fallback are all done. What is still unbuilt is listed in
 [docs/limitations.md](docs/limitations.md).
 
 ## Phase 0 — foundation
@@ -274,9 +274,29 @@ is still empty and no non-`GET` request was issued.
 - [x] Only the provoked group is frozen; the page's own animations keep running
 - [x] The provoked animations are written to `animations.jsonl`
 
+## Phase 4 — the screencast fallback (fourth slice)
+
+- [x] `animations <url> --video` records the motion no seek can reproduce:
+      `infinite` and `indeterminate` animations, and canvas/WebGL/video elements
+- [x] **A recording carries no `progress`.** An `animation-video` record has no
+      `AnimationSample` at all, because there is no honest progress for motion
+      that never ends
+- [x] Scroll-driven animations are refused with their reason: nothing scrolls
+      during a recording, so the video would be a still that looks like a failure
+- [x] Its own short-lived browser context, because Playwright records a context
+      and only writes the file on close; `leadInMs` reports what that costs
+- [x] Hard bounds: `maxDurationMs` with `truncated` when it bites, and `maxBytes`
+      checked by `stat` before the file is read
+- [x] Over budget is a `skipped` record with `capture.over-budget`, never a
+      silent absence
+- [x] No frame rate is written, because Playwright does not expose one
+- [x] The scratch directory lives inside the run and is removed either way
+- [x] Metadata sidecar beside the recording, as beside a screenshot
+- [x] The report plays it where a thumbnail would go, with controls only in the
+      detail panel
+
 ### Still to build in phase 4
 
-- [ ] Optional video/screencast fallback for motion that is not keyframable
 - [ ] The toolbar's Animation button, still disabled
 - [ ] First-pass design-token extraction and duplicate component grouping
 - [ ] Wiring the animation inventory into `crawl`

@@ -235,6 +235,52 @@ describe('generated report', () => {
     }
   });
 
+  it('plays a recording where a screenshot would go, rather than calling it missing', async () => {
+    await harness.session.navigate(harness.url('/motion.html'));
+    const writer = harness.session.writer;
+    const captureId = 'cap-recording';
+    const screencast = await writer.writeVideo(
+      { routeKey: 'motion', viewportLabel: 'base', captureId },
+      Buffer.from('a recording stands in for itself here'),
+      {
+        width: 800,
+        height: 600,
+        durationMs: 3_000,
+        leadInMs: 700,
+        truncated: true,
+        subjects: ['drift on [data-testid="infinite-swatch"]'],
+        limitations: ['a recording is not a deterministic sample'],
+      },
+    );
+    await harness.session.captures.captureVideo({ captureId, screencast, durationMs: 3_700 });
+    await harness.session.close();
+
+    const report = await openReport(writer.paths.runDir);
+    try {
+      await report.page.getByRole('tab', { name: 'Gallery' }).click();
+
+      // A capture with no image is not automatically a failure. This one has a
+      // recording, and the report shows it instead of "nothing was captured".
+      const video = report.page.locator('.card .shot video').first();
+      await video.waitFor();
+      expect(await video.getAttribute('src')).toBe(
+        '../animations/motion/base/cap-recording.webm',
+      );
+      expect(await report.page.locator('.shot--empty').count()).toBe(0);
+
+      await report.page.locator('.card').first().click();
+      const detail = report.page.locator('.detail');
+      await detail.waitFor();
+      const panel = (await detail.textContent()) ?? '';
+      expect(panel).toContain('cut short by the budget');
+      expect(panel).toContain('700 ms in');
+      expect(panel).toContain('not a deterministic sample');
+      expect(report.errors).toEqual([]);
+    } finally {
+      await report.close();
+    }
+  });
+
   it('reports failed and skipped captures as first-class rows', async () => {
     await harness.session.navigate(harness.url('/identity.html'));
     const probe = await probeSelector(harness.session.page, '[data-testid="save-button"]');

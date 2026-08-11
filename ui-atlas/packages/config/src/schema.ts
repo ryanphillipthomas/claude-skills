@@ -55,6 +55,26 @@ export type SettleConfig = z.infer<typeof SettleConfigSchema>;
 /* Animation sampling                                                          */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * The fallback for motion with no keyframes to sample: an animation that
+ * repeats forever, one whose duration is `auto`, or a canvas the Web Animations
+ * API cannot see at all.
+ *
+ * Off by default. A recording is not a deterministic sample — re-recording
+ * gives a different file — and it costs a second page load in a browser context
+ * of its own, because Playwright records a context rather than a page.
+ */
+export const AnimationVideoConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  /** Hard cap on the observation window. An infinite animation has no end. */
+  maxDurationMs: z.number().int().min(250).max(60_000).default(5_000),
+  /** A recording over the budget is discarded rather than kept. */
+  maxBytes: z.number().int().min(1024).default(10_000_000),
+  /** Loops of a repeating animation to try to include in the window. */
+  iterations: z.number().int().min(1).max(20).default(3),
+});
+export type AnimationVideoConfig = z.infer<typeof AnimationVideoConfigSchema>;
+
 export const AnimationSamplingConfigSchema = z.object({
   /**
    * Points within **one iteration** to photograph, 0..1. One iteration is the
@@ -70,6 +90,8 @@ export const AnimationSamplingConfigSchema = z.object({
   maxAnimations: z.number().int().min(1).max(200).default(10),
   /** What to photograph for each frame. */
   kind: z.enum(['element', 'viewport']).default('element'),
+  /** The fallback for motion no seek can reproduce. */
+  video: AnimationVideoConfigSchema.prefault({}),
 });
 export type AnimationSamplingConfig = z.infer<typeof AnimationSamplingConfigSchema>;
 

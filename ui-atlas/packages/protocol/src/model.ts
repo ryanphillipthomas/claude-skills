@@ -265,6 +265,38 @@ export type AnimationSample = z.infer<typeof AnimationSampleSchema>;
 /* Capture record                                                              */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * A recorded video, for motion that cannot be represented as keyframes.
+ *
+ * Deliberately **not** an `AnimationSample`. A sample carries a `progress`, and
+ * there is no honest progress to give a recording of an animation that repeats
+ * forever — inventing one would be exactly the quiet dishonesty sampling exists
+ * to avoid. A screencast says what it is *of* and what it does not promise
+ * instead.
+ */
+export const ScreencastSchema = z.object({
+  relativePath: z.string(),
+  sha256: z.string().length(64),
+  byteLength: z.number().int().nonnegative(),
+  format: z.literal('webm'),
+  /** The size recording was requested at. The file is not decoded to check. */
+  width: z.number().int().positive(),
+  height: z.number().int().positive(),
+  /** How long the page was observed for, in wall-clock time. */
+  durationMs: z.number().nonnegative(),
+  /**
+   * How far into the file the observation window starts. A video is recorded
+   * per browser *context*, so the file also holds the page load before it.
+   */
+  leadInMs: z.number().nonnegative(),
+  /** True when a budget cut the window short of what was wanted. */
+  truncated: z.boolean(),
+  /** What the recording is of, in words. */
+  subjects: z.array(z.string()),
+  limitations: z.array(z.string()),
+});
+export type Screencast = z.infer<typeof ScreencastSchema>;
+
 export const ImageRefSchema = z.object({
   relativePath: z.string(),
   sha256: z.string().length(64),
@@ -308,8 +340,10 @@ export const CaptureRecordSchema = z.object({
   styleDelta: StyleDeltaSchema.optional(),
   animation: AnimationSampleSchema.optional(),
   set: CaptureSetSchema.optional(),
-  /** Absent for `failed`/`skipped` records. */
+  /** Absent for `failed`/`skipped` records, and for `animation-video`. */
   image: ImageRefSchema.optional(),
+  /** Present only on `animation-video`, which has no still to show. */
+  video: ScreencastSchema.optional(),
   durationMs: z.number().nonnegative(),
   warnings: z.array(z.string()),
   error: StructuredErrorSchema.optional(),

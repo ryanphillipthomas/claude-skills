@@ -3,7 +3,7 @@
 Running log for the build. Updated after each milestone so an interrupted
 session is recoverable.
 
-**Last updated:** 2026-08-11, after provoked (hover/focus) motion landed.
+**Last updated:** 2026-08-11, after the screencast fallback landed.
 
 ## Status
 
@@ -13,9 +13,9 @@ frontier, declarative interaction recipes, the suggested-interaction inventory,
 worker concurrency with per-origin throttling, retry with status-aware backoff,
 and trace-on-failure. The repository is buildable, tested and documented.
 
-Phase 4 is under way: the animation inventory, deterministic frame sampling and
-provoked hover/focus motion are all done. The screencast fallback and
-design-system extraction are still to come.
+Phase 4 is under way: the animation inventory, deterministic frame sampling,
+provoked hover/focus motion and the screencast fallback are all done.
+Design-system extraction is what remains.
 
 ```
 npm install
@@ -28,9 +28,9 @@ npm test
 `npm test` (builds, then Vitest — unit and browser integration):
 
 ```
-Test Files  33 passed (33)
-     Tests  372 passed | 3 skipped (375)
-  Duration  ~238s
+Test Files  35 passed (35)
+     Tests  393 passed | 3 skipped (396)
+  Duration  ~249s
 ```
 
 On a networked machine the three external smoke tests run instead of skipping:
@@ -52,8 +52,8 @@ the phase 1 exit criterion. Nothing is unverified now.
 | `integration/faults` | 6 | detachment, navigation mid-capture, write failure, dead browser, destructive controls |
 | `integration/frames-shadow` | 5 | same- and cross-origin iframes, open and closed shadow DOM |
 | `integration/responsive` | 8 | five-viewport matrix, real mobile emulation, per-viewport reload, hidden/not-present outcomes |
-| `integration/report` | 7 | **phase 2 exit criterion**: the generated report driven in a real browser, including script injection |
-| `unit/reporter` | 13 | escaping, view model, matrix grouping, duplicate grouping |
+| `integration/report` | 8 | **phase 2 exit criterion**: the generated report driven in a real browser, including script injection |
+| `unit/reporter` | 14 | escaping, view model, matrix grouping, duplicate grouping, recordings in the allowlist |
 | `integration/state-preview` | 10 | live state preview: apply, hold, release, swap, forced undo, capture isolation |
 | `unit/crawl` | 43 | canonicalisation, path globs, link policy, frontier, budgets, in-flight vs committed, resume round-trip |
 | `integration/crawl` | 12 | **phase 3, first slice**: the fixture link graph, the empty click log, budgets, redirects on and off origin, dry run, concurrent and resumed runs through the CLI |
@@ -71,6 +71,8 @@ the phase 1 exit criterion. Nothing is unverified now.
 | `integration/animation-sampling` | 8 | **phase 4, second slice**: only sampleable animations sampled, seek arithmetic, restoration after a full pass and after a thrown capture, the right animation of two sharing a name, the element really moving, real frames through the CLI |
 | `unit/animation-diff` | 10 | what an interaction started: index-independence, multiset counting, per-element and per-frame separation |
 | `integration/provoked-animation` | 13 | **phase 4, third slice**: the two transitions one hover starts, the group on one clock, the page's own animations left running, restore then release, no reverse frame, ascending seeks, an interaction that starts nothing, release after a thrown capture, and the step's inability to click |
+| `unit/screencast` | 12 | what a recording would be of, how long it needs, and everything it refuses |
+| `integration/screencast` | 7 | **phase 4, fourth slice**: a real webm of the infinite animation, the record refusing to look like a sample, the sidecar, canvas and video as subjects, a page that needs no recording, an over-budget discard, and no scratch left behind |
 | `integration/external-smoke` | 3 skipped | read-only public-site checks; skip without network |
 
 `npm run typecheck` passes for all twelve packages and for the test sources.
@@ -787,26 +789,83 @@ cannot pass vacuously.
 injected because it was one function; this is a whole capability, and injecting
 it would have scattered the interesting logic across the wiring.
 
+## The screencast fallback (phase 4, fourth slice)
+
+Done and covered by `tests/unit/screencast.test.ts` and
+`tests/integration/screencast.test.ts`. See
+[ADR 23](docs/adr/0023-a-recording-is-a-fallback-not-a-sample.md).
+
+`ui-atlas animations <url> --video` records the motion the previous three slices
+could describe and never show. `animation-video` was a stub throwing "not
+implemented yet" since phase 0 defined the capture kinds.
+
+The plan's four points, and how each turned out:
+
+1. **What it records.** `infinite` and `indeterminate` animations plus canvas,
+   WebGL and video elements — but **not** `scroll-driven`, which was in the plan
+   and should not have been. Nothing scrolls during a recording, so the video
+   would be a still, and a still that looks exactly like a recording that failed
+   is worse than an honest absence. It is refused with that reason.
+2. **Its own context.** Playwright records a browser context rather than a page
+   and only writes the file when the context closes, exactly as the plan said. So
+   a recording opens a short-lived context and loads the page again. The cost is
+   reported rather than hidden: the file begins with that second page load, and
+   `leadInMs` says how far in the part you asked about starts. A persistent
+   profile cannot create a sibling context, so it warns and skips.
+3. **Hard bounds.** `maxDurationMs` caps the window and sets `truncated` when it
+   bites; `maxBytes` is checked by `stat` before the file is read, so a runaway
+   recording cannot become a runaway allocation on its way to being rejected.
+   Over budget is a `skipped` record with a new `capture.over-budget` code —
+   a budget doing its job is not a broken run, and a silent absence would look
+   identical to never having tried.
+4. **Not a sample.** Carried through, more strictly than planned — see below.
+
+### Two corrections to the plan
+
+**`AnimationSample.method: 'screencast'` is not what a recording needs.** The
+plan assumed the enum member was waiting for this. It is not: an
+`AnimationSample` requires a `progress` and a `currentTimeMs`, and there is no
+honest value for either when the subject repeats forever. So an
+`animation-video` record carries **no `animation` field at all** — a `Screencast`
+instead, saying what the recording is of and what it does not promise. A test
+asserts the absence directly. The enum member stays unused.
+
+**The frame rate cannot be "recorded rather than assumed".** Playwright does not
+expose the rate it recorded at, and decoding the WebM to find out is a bigger
+dependency than this slice earns. So none is written, and a limitation says
+times read off the file are approximate. A plausible `fps: 25` would be a number
+that reads like a measurement and is not one.
+
+### One defect, found by a test that could no longer click
+
+A `<video controls>` inside a gallery card swallowed the click that opens the
+detail panel — a card and a matrix cell are both `<button>`s. Player controls now
+appear only in the detail panel, backed by `pointer-events: none` on the preview.
+It looked like a broken test and was a broken UI.
+
+### One test premise that was wrong
+
+The first assertion required the recording's subjects not to mention
+`finite-swatch`, to prove the infinite `drift` was recorded and the finite one
+was not. But `"infinite-swatch"` *contains* `"finite-swatch"`. The subject list
+was right all along; the assertion now compares the whole list exactly.
+
 ## Next smallest milestone
 
-**The bounded screencast fallback** — `animation-video` is still a stub that
-throws.
+**First-pass design-token extraction**, which is what closes phase 4.
 
-1. It is for exactly the motion the last three slices cannot represent as
-   keyframes: `infinite`, `scroll-driven` and `indeterminate` animations, plus
-   the canvas/WebGL/`requestAnimationFrame` motion `getAnimations` never sees at
-   all. Those are named today with a reason and no artifact.
-2. Playwright records video per **context**, not per page, and only writes the
-   file on `context.close()`. So this cannot reuse the crawl's context: it needs
-   a short-lived one, which makes it a natural fit for the `animations` command
-   before it is one for `crawl`.
-3. Hard bounds from the start, like every other budget here: a maximum duration,
-   a maximum file size, and a frame rate that is recorded rather than assumed.
-   An infinite animation has no natural end, so the tool must supply one and say
-   it did.
-4. The honest framing to preserve: a video is **not** a deterministic sample. It
-   should never be labelled with a `progress`, and `AnimationSample.method`
-   already has `screencast` waiting for exactly this.
-
-After that: first-pass design-token extraction and duplicate component grouping,
-which closes phase 4.
+1. The raw material is already collected. `styleDelta` on every capture records
+   computed values either side of a state change, and `ElementIdentity` carries a
+   structural fingerprint the report already groups by.
+2. The shape: read computed styles for a small, fixed property set — colour,
+   background, border, radius, spacing, font family/size/weight, shadow —
+   across every captured element, cluster the values, and write `tokens.json`.
+3. The honest framing to preserve, and the reason to keep it a *first pass*: an
+   extracted value is an observation, not a token. "#2563EB appears on 34
+   elements" is a fact; "this is your primary colour" is a guess. The artifact
+   should report frequency and where each value was seen, and let a person name
+   things.
+4. Duplicate component grouping is the other half and mostly exists: the report
+   groups by structural fingerprint and by image hash already. What is missing is
+   grouping *across* routes, which is a matter of what the key is rather than new
+   machinery.

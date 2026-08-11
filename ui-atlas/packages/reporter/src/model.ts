@@ -28,6 +28,18 @@ export interface ReportImage {
   byteLength: number;
 }
 
+/** A recording, for motion with no keyframes to sample. */
+export interface ReportVideo {
+  src: string;
+  durationMs: number;
+  /** How far into the file the observation window starts. */
+  leadInMs: number;
+  byteLength: number;
+  truncated: boolean;
+  subjects: string[];
+  limitations: string[];
+}
+
 export interface ReportLocator {
   type: string;
   value: string;
@@ -69,6 +81,7 @@ export interface ReportCapture {
   capturedAt: string;
   durationMs: number;
   image?: ReportImage;
+  video?: ReportVideo;
   element?: ReportElement;
   readiness: ReadinessResult;
   styleDelta?: StyleDelta;
@@ -228,6 +241,19 @@ function toCapture(record: CaptureRecord): ReportCapture {
       height: record.image.height,
       sha256: record.image.sha256,
       byteLength: record.image.byteLength,
+    };
+  }
+
+  if (record.video !== undefined) {
+    capture.video = {
+      // The report lives in `<run>/report/`, the recordings in `<run>/animations/`.
+      src: `../${record.video.relativePath}`,
+      durationMs: record.video.durationMs,
+      leadInMs: record.video.leadInMs,
+      byteLength: record.video.byteLength,
+      truncated: record.video.truncated,
+      subjects: record.video.subjects,
+      limitations: record.video.limitations,
     };
   }
 

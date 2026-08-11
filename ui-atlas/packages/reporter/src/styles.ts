@@ -193,6 +193,10 @@ a { color: var(--accent); }
   background-position: 0 0, 0 8px, 8px -8px, -8px 0;
 }
 .shot img { max-width: 100%; max-height: 100%; object-fit: contain; display: block; }
+/* Inert inside a card or a cell, which are buttons: a click there opens the
+   detail panel, and only the detail panel's player takes clicks of its own. */
+.shot video { max-width: 100%; max-height: 100%; display: block; background: #000; pointer-events: none; }
+.detail__shot video { pointer-events: auto; }
 .shot--empty { flex-direction: column; gap: 6px; color: var(--fg-faint); font-size: 12px; text-align: center; padding: 10px; }
 .shot--empty code { font-family: var(--mono); font-size: 11px; }
 

@@ -216,10 +216,36 @@ See [ADR 21](adr/0021-frame-sampling-restores-what-it-moves.md).
 - **A resumed animation continues from where it was paused.** The `startTime` is
   restored so it goes back on the same clock, but wall-clock time spent
   sampling is not replayed.
-- **`animation-video` is not implemented.** A screencast fallback is for motion
-  that cannot be represented as keyframes; nothing here needs it yet.
 - **CDP animation control is not used.** The Web Animations API answers both the
   inventory and the sampling question on its own.
+
+## Boundaries of the screencast fallback (`--video`)
+
+See [ADR 23](adr/0023-a-recording-is-a-fallback-not-a-sample.md).
+
+- **A recording is not a sample.** It carries no `progress` and no
+  `currentTimeMs`, because there is no honest one for an animation that never
+  ends. Recording again gives a different file.
+- **Scroll-driven animations are refused.** Nothing scrolls during a recording,
+  so the video would be a still — indistinguishable from a recording that
+  failed, which is worse than an honest absence.
+- **`sampleable` and `instant` animations are refused too**, the first because
+  exact frames say more, the second because there is nothing in between to show.
+- **The file begins with a page load.** Playwright records a browser *context*
+  and only writes the file when it closes, so a recording needs a context of its
+  own and a second navigation. `leadInMs` says how far in the window starts.
+- **A persistent profile cannot record**, because it owns its only context. That
+  is a warning and a skip, like single-worker fallback in a crawl.
+- **The frame rate is unknown and is not written.** Playwright does not expose
+  it, and decoding the WebM to find out is out of scope. Times read off the file
+  are approximate.
+- **An over-budget recording is discarded**, and recorded as `skipped` with
+  `capture.over-budget`. The bytes are checked by `stat` before the file is
+  read, so a runaway recording does not become a runaway allocation.
+- **It is a one-shot `animations` feature**, not a crawl feature. Recording every
+  page of a crawl is a different budget conversation.
+- **Nothing trims the file.** The lead-in is reported, not removed; trimming
+  would mean decoding and re-encoding.
 
 ## Boundaries of provoked motion (`captureAnimation`)
 

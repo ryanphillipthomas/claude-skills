@@ -424,6 +424,43 @@ The animations it provoked are written to `animations.jsonl` like any others, so
 "what does this card do when you point at it" is answerable without opening an
 image.
 
+### Recording what cannot be sampled
+
+```bash
+npm run ui-atlas -- animations https://example.com --video
+npm run ui-atlas -- animations https://example.com --video --video-ms 3000
+```
+
+Three slices of animation work all refuse to photograph motion they cannot
+photograph honestly, which leaves a list of things the tool can describe and
+never show: an animation that repeats forever, one whose duration is `auto`, and
+the canvas, WebGL and `requestAnimationFrame` motion no animation list can see.
+`--video` records those, for a bounded window.
+
+**A recording is not a sample**, and the record does not let it pass as one. It
+carries no `progress` — there is no honest progress for something that never
+ends — only what the recording is *of*, how long it ran, and what it does not
+promise. Recording again gives a different file.
+
+- **Scroll-driven animations are deliberately left out.** Nothing scrolls during
+  a recording, so the video would be a still — which looks exactly like a
+  recording that failed, and a broken-looking artifact is worse than an honest
+  absence.
+- **It needs a browser context of its own**, because Playwright records a
+  context rather than a page and only writes the file when that context closes.
+  So the file begins with a second page load, and `leadInMs` says how far in the
+  part you asked about starts.
+- **Every bound is hard.** `maxDurationMs` caps the window, and a window cut
+  short says `truncated`. A file over `maxBytes` is discarded and recorded as
+  *skipped* with `capture.over-budget` — a budget doing its job is not a broken
+  run, and a silent absence would look identical to never having tried.
+- **The frame rate is not recorded**, because Playwright does not expose it.
+  Times read off the file are approximate, and the record says so rather than
+  printing a plausible number nobody measured.
+
+The report plays the recording where a thumbnail would go, with the player
+controls in the detail panel.
+
 ### Authentication
 
 ```bash
@@ -450,9 +487,11 @@ ui-atlas-output/
       interactions.jsonl                              inventoried controls, classified
       suggested-recipes.yml                           a recipe skeleton to review
       traces/<page-id>.zip                            failures only; can contain cookies
-      animations.jsonl                                described animations, never sampled
+      animations.jsonl                                described animations, sampled or not
       screenshots/<route>/<viewport>/<capture-id>.png
       screenshots/<route>/<viewport>/<capture-id>.json   metadata beside the image
+      animations/<route>/<viewport>/<capture-id>.webm    recordings, when --video asked for one
+      animations/<route>/<viewport>/<capture-id>.json    metadata beside the recording
       report/index.html                                  browsable report
 ```
 

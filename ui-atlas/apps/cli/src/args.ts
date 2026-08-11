@@ -22,6 +22,7 @@ const KNOWN_BOOLEAN_FLAGS = new Set([
   'inventory',
   'trace-on-failure',
   'sample',
+  'video',
 ]);
 
 /**

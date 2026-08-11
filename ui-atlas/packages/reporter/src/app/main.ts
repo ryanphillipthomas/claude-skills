@@ -110,7 +110,7 @@ function statusBadges(capture: ReportCapture): HTMLElement[] {
 }
 
 /** A thumbnail, or an honest explanation of why there is no image. */
-function shot(capture: ReportCapture, className: string): HTMLElement {
+function shot(capture: ReportCapture, className: string, playable = false): HTMLElement {
   if (capture.image !== undefined) {
     const image = el('img', {
       attrs: {
@@ -121,6 +121,22 @@ function shot(capture: ReportCapture, className: string): HTMLElement {
       },
     });
     return el('div', { className, children: [image] });
+  }
+
+  // A recording has no still to show, and is not a failure for lacking one.
+  if (capture.video !== undefined) {
+    const video = el('video', {
+      attrs: {
+        src: capture.video.src,
+        muted: '',
+        loop: '',
+        // A card and a matrix cell are both buttons that open the detail panel.
+        // Player controls inside one would swallow that click, so they only
+        // appear where the video is the thing you came to look at.
+        ...(playable ? { controls: '', preload: 'metadata' } : { preload: 'metadata' }),
+      },
+    });
+    return el('div', { className, children: [video] });
   }
 
   const reason = capture.error?.code ?? 'no image';
@@ -461,7 +477,7 @@ function renderDetail(capture: ReportCapture): HTMLElement {
     }),
   );
 
-  const image = shot(capture, 'shot detail__shot');
+  const image = shot(capture, 'shot detail__shot', true);
   const img = image.querySelector('img');
   if (img !== null) {
     img.addEventListener('click', () => {
@@ -499,7 +515,33 @@ function renderDetail(capture: ReportCapture): HTMLElement {
     );
     overview.append(pair('sha256', capture.image.sha256, true));
   }
+  if (capture.video !== undefined) {
+    overview.append(
+      pair(
+        'recording',
+        `${String(Math.round(capture.video.durationMs))} ms · ` +
+          `${formatBytes(capture.video.byteLength)}` +
+          (capture.video.truncated ? ' · cut short by the budget' : ''),
+      ),
+    );
+    // The file holds the page load the recording needed, so the moment the
+    // motion starts is not the start of the file.
+    overview.append(pair('starts at', `${String(Math.round(capture.video.leadInMs))} ms in`));
+    overview.append(pair('of', capture.video.subjects.join('; '), true));
+  }
   panel.append(section('Overview', overview));
+
+  if (capture.video !== undefined && capture.video.limitations.length > 0) {
+    panel.append(
+      section(
+        'What this recording does not promise',
+        el('ul', {
+          className: 'notelist',
+          children: capture.video.limitations.map((text) => el('li', { text })),
+        }),
+      ),
+    );
+  }
 
   /* --- error / warnings -------------------------------------------------- */
   if (capture.error !== undefined) {

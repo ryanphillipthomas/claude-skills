@@ -55,6 +55,29 @@ capture:
     offsets: [0, 0.25, 0.5, 0.75, 1]
     maxAnimations: 10
     kind: element # element | viewport
+    # The fallback for motion no seek can reproduce: an animation that repeats
+    # forever, one whose duration is `auto`, and canvas/WebGL/video elements.
+    # `--video` switches it on for one run.
+    #
+    # A recording is NOT a sample. It carries no progress, because there is no
+    # honest progress for something that never ends, and re-recording gives a
+    # different file. Scroll-driven animations are deliberately left out: nothing
+    # scrolls during a recording, so the video would be a still that looks
+    # exactly like a recording that failed.
+    #
+    # It needs a browser context of its own, because Playwright records a context
+    # rather than a page and only writes the file when that context closes. So
+    # the file starts with a second page load, and `leadInMs` on the record says
+    # how far in the part you asked about begins.
+    video:
+      enabled: false
+      # An infinite animation has no end, so the tool supplies one and says so.
+      maxDurationMs: 5000
+      # Checked on disk before the file is read. Over budget it is discarded and
+      # the capture is recorded as skipped, never silently absent.
+      maxBytes: 10000000
+      # Loops of a repeating animation to try to fit in the window.
+      iterations: 3
 
 browser:
   # clean | profile | storage-state | attach

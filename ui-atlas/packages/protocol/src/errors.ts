@@ -14,6 +14,8 @@ export const ERROR_CODES = [
   'locator.hidden',
   'capture.failed',
   'capture.timeout',
+  /** Produced, then discarded for exceeding a budget. Not a failure. */
+  'capture.over-budget',
   'capture.navigation-during-capture',
   'state.unsupported',
   'state.verification-failed',

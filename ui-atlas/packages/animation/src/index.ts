@@ -6,3 +6,4 @@ export * from './inventory.js';
 export * from './page-scripts.js';
 export * from './sample-scripts.js';
 export * from './sampler.js';
+export * from './screencast.js';
