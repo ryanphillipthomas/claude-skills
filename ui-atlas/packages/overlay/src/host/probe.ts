@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import type { Frame, Page } from 'playwright';
+import type { Frame, Locator, Page } from 'playwright';
 import { UiAtlasError, type ElementProbe } from '@ui-atlas/protocol';
 import { probeWithInstalledProbe } from './page-scripts.js';
 
@@ -24,21 +24,31 @@ export async function loadProbeBundle(): Promise<string> {
 }
 
 /**
- * Describe the first element matching `selector`, using exactly the same probe
- * the inspector uses, so a selector-driven capture and a clicked capture
- * produce identical identity data.
+ * Describe the first element a locator matches, using exactly the same probe the
+ * inspector uses, so a clicked capture, a selector-driven capture and a
+ * recipe-driven capture all produce identical identity data.
+ *
+ * `label` names the locator in the error when nothing matches; a Playwright
+ * locator has no stable string form worth putting in front of a user.
  */
+export async function probeLocator(
+  locator: Locator,
+  label: string,
+  timeoutMs = 10_000,
+): Promise<ElementProbe> {
+  const count = await locator.count();
+  if (count === 0) {
+    throw new UiAtlasError('locator.not-found', `matched nothing: ${label}`, {
+      detail: { locator: label },
+    });
+  }
+  return locator.first().evaluate(probeWithInstalledProbe, undefined, { timeout: timeoutMs });
+}
+
 export async function probeSelector(
   root: Page | Frame,
   selector: string,
   timeoutMs = 10_000,
 ): Promise<ElementProbe> {
-  const locator = root.locator(selector);
-  const count = await locator.count();
-  if (count === 0) {
-    throw new UiAtlasError('locator.not-found', `selector matched nothing: ${selector}`, {
-      detail: { selector },
-    });
-  }
-  return locator.first().evaluate(probeWithInstalledProbe, undefined, { timeout: timeoutMs });
+  return probeLocator(root.locator(selector), selector, timeoutMs);
 }

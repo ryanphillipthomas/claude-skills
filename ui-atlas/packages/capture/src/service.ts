@@ -7,6 +7,7 @@ import {
   SCHEMA_VERSION,
   toStructuredError,
   UiAtlasError,
+  type AnimationSample,
   type CaptureKind,
   type CaptureRecord,
   type CaptureSet,
@@ -54,6 +55,11 @@ export interface CaptureOnceOptions {
   set?: CaptureSet | undefined;
   /** URL the user asked for, when it differs from the page's current URL. */
   sourceUrl?: string | undefined;
+  /**
+   * Provenance for an `animation-frame`: which animation, seeked to what, and
+   * what could not be promised about it.
+   */
+  animation?: AnimationSample | undefined;
   /**
    * What it means for the element to be missing, ambiguous or invisible.
    *
@@ -295,9 +301,15 @@ export class CaptureService {
     warnings: string[],
   ): Promise<Buffer> {
     const { config, page } = this.options;
+    // Playwright's `animations: 'disabled'` fast-forwards finite animations to
+    // completion and cancels infinite ones. That is exactly right for a still
+    // capture and exactly wrong for an animation frame, where the animation has
+    // already been paused and seeked to the moment we want: disabling would
+    // throw that away and photograph the end state instead.
+    const freeze = config.capture.disableAnimations && kind !== 'animation-frame';
     const common = {
       type: 'png' as const,
-      animations: config.capture.disableAnimations ? ('disabled' as const) : ('allow' as const),
+      animations: freeze ? ('disabled' as const) : ('allow' as const),
       caret: 'hide' as const,
       timeout: config.capture.screenshotTimeoutMs,
       mask: config.capture.masks.map((selector) => page.locator(selector)),
@@ -342,7 +354,15 @@ export class CaptureService {
         return page.screenshot({ ...common, fullPage: true });
       }
 
+      // The animation has already been paused and seeked by the sampler; this
+      // is an ordinary still of whatever is on screen right now. It photographs
+      // the element when one was resolved and the viewport otherwise, so a
+      // frame is still produced when the animated element cannot be located.
       case 'animation-frame':
+        return locator === undefined
+          ? page.screenshot({ ...common, fullPage: false })
+          : locator.screenshot(common);
+
       case 'animation-video':
         throw new UiAtlasError('capture.failed', `${kind} capture is not implemented yet`);
 
@@ -391,6 +411,7 @@ export class CaptureService {
     if (input.steps.length > 0) record.interactionRecipe = input.steps;
     if (input.styleDelta !== undefined) record.styleDelta = input.styleDelta;
     if (input.request.set !== undefined) record.set = input.request.set;
+    if (input.request.animation !== undefined) record.animation = input.request.animation;
     if (input.image !== undefined) record.image = input.image;
     if (input.error !== undefined) record.error = input.error;
 

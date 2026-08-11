@@ -29,6 +29,12 @@
       "path": "packages/reporter"
     },
     {
+      "path": "packages/crawler"
+    },
+    {
+      "path": "packages/animation"
+    },
+    {
       "path": "apps/cli"
     }
   ]

@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Link variety — UI Atlas fixture</title>
+    <link rel="stylesheet" href="/base.css" />
+  </head>
+  <body>
+    <h1>Every kind of href a crawler meets</h1>
+    <p>
+      Not linked from the index, so the ordinary crawl graph stays stable. Crawl
+      tests seed this page directly.
+    </p>
+
+    <h2>Should be followed</h2>
+    <ul>
+      <li><a href="/states.html">absolute path</a></li>
+      <li><a href="identity.html">relative path</a></li>
+      <li><a href="/settle.html#section">same page, different fragment</a></li>
+      <li><a href="/settle.html">the same page again, no fragment</a></li>
+      <li><a href="/shadow.html?utm_source=fixture&amp;utm_campaign=x">tracking parameters only</a></li>
+      <li><a href="/shadow.html">the same page again, untracked</a></li>
+      <li><a href="/hostile.html/">trailing slash</a></li>
+    </ul>
+
+    <h2>Should never be followed</h2>
+    <ul>
+      <li><a href="mailto:someone@example.test">mailto</a></li>
+      <li><a href="tel:+15550100">tel</a></li>
+      <li><a href="javascript:void(0)">javascript</a></li>
+      <li><a href="/whitepaper.pdf">a download</a></li>
+      <li><a href="/archive.zip">another download</a></li>
+      <li><a href="/logout">sign out</a></li>
+      <li><a href="/account/sign-out">sign out, nested</a></li>
+      <li><a href="https://crawler-must-not-visit.invalid/page">another origin</a></li>
+      <li><a href="/motion.html" rel="nofollow">nofollow</a></li>
+    </ul>
+  </body>
+</html>

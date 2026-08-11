@@ -2,6 +2,7 @@ import { toStructuredError, UiAtlasError } from '@ui-atlas/protocol';
 import { flagBoolean, parseArgs } from './args.js';
 import { TOOL_VERSION } from './config.js';
 import { createLogger, type Logger } from './logger.js';
+import { ANIMATIONS_HELP, runAnimations } from './commands/animations.js';
 import { AUTH_HELP, runAuth } from './commands/auth.js';
 import { CAPTURE_HELP, runCapture } from './commands/capture.js';
 import { CRAWL_HELP, runCrawl } from './commands/crawl.js';
@@ -17,7 +18,8 @@ Commands
   report  <run-directory>       summarise a run
   auth save <profile> <url>     sign in by hand and store the session
   auth clear <profile>          delete a stored session and profile
-  crawl <site-config.yml>       phase 3, not implemented yet
+  crawl <site-config.yml|url>   visit same-origin pages and record them
+  animations <url>              list the page's animations and how samplable each is
 
 Global options
   --help          show help for a command
@@ -34,6 +36,7 @@ const COMMAND_HELP: Record<string, string> = {
   report: REPORT_HELP,
   auth: AUTH_HELP,
   crawl: CRAWL_HELP,
+  animations: ANIMATIONS_HELP,
 };
 
 export interface RunOptions {
@@ -79,7 +82,9 @@ export async function run(options: RunOptions): Promise<number> {
       case 'auth':
         return await runAuth(args, logger);
       case 'crawl':
-        return runCrawl(args, logger);
+        return await runCrawl(args, logger);
+      case 'animations':
+        return await runAnimations(args, logger);
       default:
         logger.error(`unknown command "${command}"`);
         process.stdout.write(`${TOP_LEVEL_HELP}\n`);

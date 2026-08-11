@@ -330,6 +330,15 @@ export const PageRecordSchema = z.object({
   title: z.string().optional(),
   visitedAt: IsoDateTimeSchema,
   httpStatus: z.number().int().optional(),
+  /** Present only when the page took more than one: absent means it worked. */
+  attempts: z.number().int().min(1).optional(),
+  /**
+   * Run-relative path to a Playwright trace, written only for a page that
+   * failed. A trace records network traffic including request headers, so it
+   * can carry session cookies — which is why it is never written for a page
+   * that worked, and why the report does not surface it.
+   */
+  tracePath: z.string().optional(),
   readiness: ReadinessResultSchema.optional(),
   warnings: z.array(z.string()),
   error: StructuredErrorSchema.optional(),
@@ -368,3 +377,189 @@ export const RunManifestSchema = z.object({
   warnings: z.array(z.string()),
 });
 export type RunManifest = z.infer<typeof RunManifestSchema>;
+
+/* -------------------------------------------------------------------------- */
+/* Interaction inventory                                                       */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * What a control is likely to *do*, not whether the tool may touch it. Nothing
+ * in the inventory is ever clicked; this is what a human reads to decide which
+ * controls deserve a recipe.
+ */
+export const INTERACTION_CLASSES = [
+  /** Goes somewhere: an `<a href>`, a `role="link"`. */
+  'navigation',
+  /** Changes the page's own presentation: a disclosure, a tab, a menu toggle. */
+  'inert',
+  /** Might change data, spend money, send something, or end the session. */
+  'mutation',
+  /** Nothing said either way. Treat exactly like `mutation` until reviewed. */
+  'unknown',
+] as const;
+export const InteractionClassSchema = z.enum(INTERACTION_CLASSES);
+export type InteractionClass = z.infer<typeof InteractionClassSchema>;
+
+export const InteractionCandidateSchema = z.object({
+  schemaVersion: SchemaVersionSchema,
+  id: z.string(),
+  runId: z.string(),
+  /** The page record this control was found on. */
+  pageId: z.string(),
+  url: z.string(),
+  routeKey: z.string(),
+  foundAt: IsoDateTimeSchema,
+  tagName: z.string(),
+  role: z.string().optional(),
+  accessibleName: z.string().optional(),
+  textExcerpt: z.string().optional(),
+  classification: InteractionClassSchema,
+  /** Why it was classified that way, in the order the rules fired. */
+  reasons: z.array(z.string()),
+  /** Best locator for this element, ready to paste into a recipe. */
+  locator: LocatorCandidateSchema.optional(),
+  boundingBox: BoxSchema,
+  /** Recorded rather than used to reclassify: disabled today, enabled tomorrow. */
+  disabled: z.boolean(),
+  /** Resolved `href`, for a navigation candidate. */
+  href: z.string().optional(),
+});
+export type InteractionCandidate = z.infer<typeof InteractionCandidateSchema>;
+
+/* -------------------------------------------------------------------------- */
+/* Animation inventory                                                         */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Whether an animation can be sampled at a chosen point and produce the same
+ * frame every time. Only `sampleable` can; the rest are named with a reason
+ * rather than sampled anyway and presented as if they were deterministic.
+ */
+export const ANIMATION_SAMPLEABILITY = [
+  /** Finite, time-driven, with a known duration. Frame sampling can be honest. */
+  'sampleable',
+  /** Repeats forever, so there is no 100% to sample at. */
+  'infinite',
+  /** Progresses with the scroll position, not the clock. */
+  'scroll-driven',
+  /** Duration is `auto`, or the timeline could not be identified. */
+  'indeterminate',
+  /** Zero duration or zero iterations: no intermediate frames exist. */
+  'instant',
+] as const;
+export const AnimationSampleabilitySchema = z.enum(ANIMATION_SAMPLEABILITY);
+export type AnimationSampleability = z.infer<typeof AnimationSampleabilitySchema>;
+
+export const ANIMATION_KINDS = ['css-animation', 'css-transition', 'web-animation'] as const;
+export const AnimationKindSchema = z.enum(ANIMATION_KINDS);
+export type AnimationKind = z.infer<typeof AnimationKindSchema>;
+
+export const AnimationRecordSchema = z.object({
+  schemaVersion: SchemaVersionSchema,
+  id: z.string(),
+  runId: z.string(),
+  url: z.string(),
+  routeKey: z.string(),
+  foundAt: IsoDateTimeSchema,
+  /** Frame the animation lives in, outermost first. Empty for the top document. */
+  framePath: z.array(FrameIdentitySchema),
+  kind: AnimationKindSchema,
+  /**
+   * Position in its document's `getAnimations()` list. Two elements sharing a
+   * keyframe name is ordinary, so this is what addresses an animation again.
+   */
+  index: z.number().int().nonnegative(),
+  /** The animation's own id, or a position-based label when it has none. */
+  animationId: z.string(),
+  animationName: z.string().optional(),
+  transitionProperty: z.string().optional(),
+  playState: z.string(),
+  timeline: z.enum(['document', 'scroll', 'view', 'unknown']),
+  playbackRate: z.number(),
+  /** Absent for a duration of `auto`, which has no number to sample within. */
+  durationMs: z.number().nonnegative().optional(),
+  delayMs: z.number(),
+  endDelayMs: z.number(),
+  /** Absent when the animation repeats forever. */
+  iterations: z.number().nonnegative().optional(),
+  iterationStart: z.number(),
+  direction: z.string(),
+  fill: z.string(),
+  easing: z.string(),
+  offsets: z.array(z.number()),
+  properties: z.array(z.string()),
+  pseudoElement: z.string().optional(),
+  target: z
+    .object({
+      tagName: z.string(),
+      id: z.string().optional(),
+      testId: z.string().optional(),
+      selectorHint: z.string(),
+      boundingBox: BoxSchema,
+    })
+    .optional(),
+  sampleability: AnimationSampleabilitySchema,
+  reasons: z.array(z.string()),
+  /** Present when there is a length to seek within. */
+  iterationDurationMs: z.number().nonnegative().optional(),
+  activeDurationMs: z.number().nonnegative().optional(),
+});
+export type AnimationRecord = z.infer<typeof AnimationRecordSchema>;
+
+/* -------------------------------------------------------------------------- */
+/* Crawl state                                                                 */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Why a discovered URL was not queued. Stable codes, so a report can count them
+ * without matching on prose.
+ */
+export const CRAWL_SKIP_REASONS = [
+  'unparseable',
+  'unsupported-scheme',
+  'cross-origin',
+  'download',
+  'denied-path',
+  'excluded',
+  'not-included',
+  'nofollow',
+  'depth-exceeded',
+  'duplicate',
+  'queue-full',
+] as const;
+export const CrawlSkipReasonSchema = z.enum(CRAWL_SKIP_REASONS);
+export type CrawlSkipReason = z.infer<typeof CrawlSkipReasonSchema>;
+
+export const FrontierItemSchema = z.object({
+  /**
+   * Deterministic function of the canonical URL alone. The same page yields the
+   * same key on every run, which is what makes a resumed crawl idempotent.
+   */
+  key: z.string(),
+  url: z.string(),
+  depth: z.number().int().nonnegative(),
+  discoveredFrom: z.string().optional(),
+});
+export type FrontierItem = z.infer<typeof FrontierItemSchema>;
+
+/**
+ * Everything needed to restart an interrupted crawl exactly where it stopped.
+ * Written next to the run's other artifacts after every page.
+ */
+export const CrawlStateSchema = z.object({
+  schemaVersion: SchemaVersionSchema,
+  runId: z.string(),
+  seeds: z.array(z.string()),
+  /** Canonical URLs already fetched. Re-adding one is a `duplicate` skip. */
+  visited: z.array(z.string()),
+  /**
+   * Navigations performed, which is what `maxPages` caps. Lower than
+   * `visited.length` when a redirect landed on a URL that cost no navigation of
+   * its own.
+   */
+  navigations: z.number().int().nonnegative(),
+  pending: z.array(FrontierItemSchema),
+  skipCounts: z.record(CrawlSkipReasonSchema, z.number().int().nonnegative()),
+  updatedAt: IsoDateTimeSchema,
+});
+export type CrawlState = z.infer<typeof CrawlStateSchema>;

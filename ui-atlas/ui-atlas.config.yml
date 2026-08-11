@@ -46,6 +46,15 @@ capture:
   states: [default, hover, focus]
   keyboardFocusMaxTabs: 60
   allowForcedStates: true
+  # Where `ui-atlas animations <url> --sample` photographs each sampleable
+  # animation. Offsets are within ONE iteration, because that is the keyframe
+  # progression a design reference is for; "50% of three iterations" is a
+  # moment nobody asked about. Anything the inventory could not call sampleable
+  # is skipped with its reason, never seeked anyway.
+  animation:
+    offsets: [0, 0.25, 0.5, 0.75, 1]
+    maxAnimations: 10
+    kind: element # element | viewport
 
 browser:
   # clean | profile | storage-state | attach
@@ -60,6 +69,98 @@ overlay:
   enabled: true
   autoInspect: false
   showBoxModel: false
+
+# `ui-atlas crawl <this file>`. The crawler follows <a href> links and clicks
+# nothing at all — no buttons, no forms, no interaction of any kind.
+crawl:
+  # Where the crawl starts. Each seed's origin is in scope automatically.
+  seeds: []
+  # Extra in-scope origins, e.g. a separate docs host.
+  allowOrigins: []
+  # `**` crosses `/`, `*` does not, and a trailing `/**` also matches the parent,
+  # so '/checkout/**' excludes '/checkout' too.
+  include: ['/**']
+  exclude: []
+  # Checked before `exclude` and reported separately. Following a sign-out link
+  # would end the session the rest of the crawl depends on.
+  denyPaths:
+    ['**/logout', '**/logout/**', '**/log-out', '**/logoff', '**/signout', '**/signout/**', '**/sign-out', '**/sign_out']
+  # `strip` makes /docs and /docs/ one page. The root `/` is never stripped.
+  trailingSlash: strip
+  query:
+    # These say how someone arrived, never which page they arrived at.
+    drop: ['utm_*', gclid, gbraid, wbraid, fbclid, msclkid, mc_cid, mc_eid, igshid, _hsenc, _hsmi]
+    keep: [] # non-empty turns this into an allowlist
+    sort: true # so ?b=2&a=1 and ?a=1&b=2 are one page
+    dropAll: false
+  # Hard limits, every one of them.
+  budgets:
+    maxPages: 50
+    maxDepth: 3 # seeds are depth 0
+    perPageTimeoutMs: 30000
+    maxRunMinutes: 30
+    maxQueued: 10000 # memory bound on the pending queue
+  respectNofollow: true
+  # Minimum gap between navigations *to one origin*, enforced across every
+  # worker rather than per worker — so raising concurrency never raises the rate
+  # one host sees. Crawling flat out is the fastest way to be mistaken for
+  # something worth blocking; 0 removes the gap.
+  perPageDelayMs: 750
+  # Isolated workers, each with its own browser context seeded from the live
+  # session. Scale comes from separate workers, not many tabs sharing one
+  # mutable session. `browser.mode: profile` cannot create extra contexts and
+  # stays at 1 with a warning.
+  concurrency: 1
+  # Bounded retries for the failures worth retrying. A 429 or 503 additionally
+  # holds the whole origin back — it is the host asking for less traffic, not
+  # one page going wrong — honouring Retry-After up to maxRetryAfterMs.
+  # Retries cost attempts, never pages, and every wait is clamped by the run
+  # budget. maxAttempts: 1 turns retrying off.
+  retry:
+    maxAttempts: 3
+    baseDelayMs: 500 # doubles each attempt
+    maxDelayMs: 15000
+    jitter: 0.3 # so workers that failed together do not retry together
+    retryStatuses: [408, 425, 429, 500, 502, 503, 504]
+    backoffStatuses: [429, 503]
+    maxRetryAfterMs: 120000
+  # A Playwright trace for the pages that failed, and only those. Off by
+  # default on purpose: a trace records network traffic including request
+  # headers, so one taken during an authenticated crawl contains the session
+  # cookie that authenticated it. Nothing is written for a page that worked, an
+  # error status does not count as a failure, and the report never links them.
+  trace:
+    enabled: false
+    maxTraces: 20
+    screenshots: true
+    snapshots: true
+  # The only way the crawler interacts with a page. Without a matching recipe it
+  # navigates, reads links and touches nothing. Writing a recipe is what approves
+  # the interaction, so `--dry-run` prints every control one would click.
+  #
+  # There is deliberately no step that types text: no fill, no type, no evaluate.
+  # Sign in by hand with `ui-atlas auth save <profile> <url>`, then crawl with
+  # `--mode storage-state --profile <profile>`.
+  #
+  #   recipes:
+  #     - name: open-primary-navigation
+  #       match: '/**'
+  #       steps:
+  #         - hover: { role: button, name: Menu }
+  #         - waitFor: { role: navigation }
+  #         - capture: { kind: viewport, label: nav-open }
+  recipes: []
+  # Lists each page's interactive controls and classifies what each is likely to
+  # do — navigation, inert, mutation or unknown. It reads and nothing else: no
+  # clicking, no hovering. Writes interactions.jsonl plus a suggested-recipes.yml
+  # you can review and edit. `--inventory` switches it on for one run.
+  inventory:
+    enabled: false
+    # Added to the built-in list (delete, buy, send, save, sign out, ...), not
+    # replacing it. Matched against the accessible name and visible text.
+    mutationWords: []
+    maxPerPage: 200
+    writeSuggestions: true
 
 # Redacted before anything is logged.
 redact:
