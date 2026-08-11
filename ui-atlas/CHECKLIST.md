@@ -55,7 +55,27 @@ appearing in screenshots or the page remaining altered.**
   tests are written and read-only; run `npm run test:integration` on a networked
   machine to close this.
 
-## Explicitly out of scope for this pass
+## Phase 2 — responsive replay (authorised separately)
+
+- [x] `ResponsiveRunner`: fresh context, own navigation, own settle and own
+      re-resolution per configured viewport
+- [x] Real device emulation for mobile presets (touch, user agent, device scale),
+      not a resized window
+- [x] New contexts seeded from the live session's storage state, so a signed-in
+      replay stays signed in
+- [x] `not-present`, `hidden` and `locator-ambiguous` recorded per viewport as
+      `skipped` with a reason, never failing the set
+- [x] Records grouped by `set: { kind: 'responsive', member: <viewport> }`
+- [x] Enabled in the inspector toolbar and exposed as `capture --responsive`
+- [x] Five-viewport matrix test over `responsive.html`, proving the reload from
+      the artifacts themselves
+
+**Exit criterion — a selected component produces a five-viewport matrix,
+including honest hidden/missing outcomes.** Met for the matrix and the outcomes.
+Browsing it in the report is still open: the HTML report is the remaining half
+of phase 2.
+
+## Still out of scope
 
 Crawler, recipes, extension packaging, distributed workers, AI control,
-CDP animation, responsive replay, HTML report.
+CDP animation, the browsable HTML report.

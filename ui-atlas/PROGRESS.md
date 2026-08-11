@@ -1,15 +1,16 @@
 # Progress
 
-Running log for the phase 0 / phase 1 build. Updated after each milestone so an
-interrupted session is recoverable.
+Running log for the build. Updated after each milestone so an interrupted
+session is recoverable.
 
-**Last updated:** 2026-08-11, after the full suite passed.
+**Last updated:** 2026-08-11, after responsive replay landed.
 
 ## Status
 
-Phase 0 and phase 1 are complete and their exit criteria pass, with one
-environment-bound gap recorded below. The repository is buildable, tested and
-documented.
+Phases 0 and 1 are complete and their exit criteria pass, with one
+environment-bound gap recorded below. **Responsive replay** — the first slice of
+phase 2, authorised separately — is also done. The repository is buildable,
+tested and documented.
 
 ```
 npm install
@@ -22,9 +23,9 @@ npm test
 `npm test` (builds, then Vitest — unit and browser integration):
 
 ```
-Test Files  13 passed (13)
-     Tests  132 passed | 3 skipped (135)
-  Duration  ~60s
+Test Files  14 passed (14)
+     Tests  140 passed | 3 skipped (143)
+  Duration  ~90s
 ```
 
 | Suite | Tests | What it proves |
@@ -41,6 +42,7 @@ Test Files  13 passed (13)
 | `integration/states` | 11 | hover/focus/focus-visible/active/checked/selected/disabled and cleanup |
 | `integration/faults` | 6 | detachment, navigation mid-capture, write failure, dead browser, destructive controls |
 | `integration/frames-shadow` | 5 | same- and cross-origin iframes, open and closed shadow DOM |
+| `integration/responsive` | 8 | five-viewport matrix, real mobile emulation, per-viewport reload, hidden/not-present outcomes |
 | `integration/external-smoke` | 3 skipped | read-only public-site checks; skip without network |
 
 `npm run typecheck` passes for all nine packages and for the test sources.
@@ -113,6 +115,7 @@ Consequential ones are in [`docs/adr/`](docs/adr/):
 8. A unique locator beats a better-typed ambiguous one
 9. Undo the DOM changes screenshotting itself causes
 10. Browser modes and where authentication material lives
+11. Responsive sets replay the route in a fresh context per viewport
 
 Smaller assumptions, not worth an ADR:
 
@@ -121,9 +124,35 @@ Smaller assumptions, not worth an ADR:
   the phase 0 exit criterion a single command, and it is the CLI's smoke test.
 - `ui-atlas report` prints a terminal summary now; the browsable report is
   phase 2 and will read the same artifacts.
-- Mobile viewport *presets* are shown in the inspector but a resize is not
-  device emulation; selecting one warns and the record's `viewport.mobile` stays
-  false. Real emulation needs a fresh context (phase 2).
+- The inspector's viewport preset buttons resize the current page; that is not
+  device emulation, so selecting a mobile preset warns and the record's
+  `viewport.mobile` stays false. Real emulation comes from a responsive set,
+  which builds a fresh context per viewport.
+
+## Responsive replay (phase 2, first slice)
+
+Done and covered by `tests/integration/responsive.test.ts`. Each configured
+preset gets a fresh browser context — with real touch, user agent and device
+scale for mobile presets — its own navigation, its own settle pass and its own
+re-resolution. Contexts are seeded from the live session's storage state, so a
+signed-in replay stays signed in, and the session's own page is never touched.
+
+Absent, hidden and ambiguous elements are recorded per viewport as `skipped`
+with a stable error code, never failing the set. See
+[ADR 11](docs/adr/0011-responsive-replay.md).
+
+The reload is proved from the artifacts rather than asserted: the fixture writes
+its layout mode once at load, and the captured images for the two "wide" presets
+are byte-identical while the "medium" one differs. A resize-only implementation
+would produce three identical images.
+
+Two honest caveats, both recorded in `docs/limitations.md`:
+
+- A persistent `profile` context cannot create sibling contexts, so replay there
+  degrades to a resize and every mobile preset carries a warning naming the modes
+  that do support emulation.
+- The toolbar's viewport presets still only resize the current page. The
+  responsive set is the path to real emulation.
 
 ## Known failures
 
@@ -133,20 +162,21 @@ criterion, which is an environment limitation, not a failure — see above and
 
 ## Next smallest milestone
 
-**Responsive capture with fresh-context replay** (the first half of phase 2):
+**The static HTML report** — the remaining half of phase 2, and the thing that
+makes a responsive matrix legible instead of a folder of PNGs:
 
-1. Add a `ResponsiveRunner` that, for each configured viewport preset, creates a
-   fresh context with that preset's emulation, reloads the route, re-runs the
-   settle policy, re-resolves the element, and captures.
-2. Record `not-present`, `hidden` and `locator-ambiguous` as valid per-viewport
-   outcomes rather than failing the set — the record shape already supports this
-   through `status` and `set`.
-3. Enable the `responsive` capability in `AtlasSession.describeSession()` so the
-   toolbar's Responsive-set button turns on.
-4. Extend `tests/integration/` with a five-viewport matrix over
-   `tests/fixtures/sites/responsive.html`, asserting that the initial-load-only
-   layout mode differs per viewport (which is what proves the reload happened)
-   and that `mobile-only` / `desktop-only` elements produce honest hidden and
-   not-present outcomes.
+1. Generate `report/index.html` into the run directory from `captures.jsonl` and
+   `pages.jsonl`, self-contained and read-only, with images referenced by their
+   relative paths.
+2. A state matrix and a responsive matrix for a selected component, driven by
+   `set.id` / `set.member` / `state.name` — the grouping is already on every
+   record.
+3. Failed and skipped rows shown as first-class cells, carrying their error code
+   and reason, so a hidden-at-tablet outcome reads as a result rather than a gap.
+4. Filters for route, viewport, role, state, provenance and warnings; duplicate
+   grouping by image SHA-256 (`summariseCaptures` already computes it).
+5. Nothing about authentication in the output: no storage state, no request
+   headers, no secrets.
 
-That is a self-contained slice; nothing else in phase 2 depends on it.
+`ui-atlas report <run-dir>` already reads exactly these artifacts for its
+terminal summary, so the data layer is proven; this is the presentation.

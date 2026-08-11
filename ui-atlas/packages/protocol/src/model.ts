@@ -37,6 +37,11 @@ export const CAPTURE_KINDS = [
 export const CaptureKindSchema = z.enum(CAPTURE_KINDS);
 export type CaptureKind = z.infer<typeof CaptureKindSchema>;
 
+export const STILL_CAPTURE_KINDS = ['element', 'viewport', 'full-page'] as const;
+export const StillCaptureKindSchema = z.enum(STILL_CAPTURE_KINDS);
+/** The kinds that produce a single image. Animation kinds land in phase 4. */
+export type StillCaptureKind = z.infer<typeof StillCaptureKindSchema>;
+
 export const STATE_NAMES = [
   'default',
   'hover',

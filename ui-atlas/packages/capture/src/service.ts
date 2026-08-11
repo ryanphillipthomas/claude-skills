@@ -54,6 +54,15 @@ export interface CaptureOnceOptions {
   set?: CaptureSet | undefined;
   /** URL the user asked for, when it differs from the page's current URL. */
   sourceUrl?: string | undefined;
+  /**
+   * What it means for the element to be missing, ambiguous or invisible.
+   *
+   * `fail` (default) treats it as a defect: you asked for a specific element
+   * and it was not there. `skip` treats it as an observation, which is what a
+   * responsive set needs — a component that is legitimately absent or hidden at
+   * one breakpoint is a result, not a broken run.
+   */
+  elementAbsentOutcome?: 'fail' | 'skip' | undefined;
 }
 
 const NO_OVERLAY: OverlayControl = { hide: async () => undefined, show: async () => undefined };
@@ -103,9 +112,34 @@ export class CaptureService {
 
     try {
       if (request.identity !== undefined) {
-        const resolution = await resolveElement(request.frame ?? page, request.identity, {
-          expectedBox: request.identity.boundingBox,
-        });
+        const skipOnAbsent = request.elementAbsentOutcome === 'skip';
+
+        let resolution;
+        try {
+          resolution = await resolveElement(request.frame ?? page, request.identity, {
+            expectedBox: request.identity.boundingBox,
+          });
+        } catch (error) {
+          // `locator.not-found` and `locator.ambiguous` are honest outcomes for
+          // a responsive replay: the component simply is not there, or cannot be
+          // told apart, at this viewport.
+          if (!skipOnAbsent) throw error;
+          const structured = toStructuredError(error, 'locator.not-found');
+          warnings.push(structured.message);
+          return await this.writeRecord({
+            captureId,
+            request,
+            status: 'skipped',
+            state: unverifiedState(request.state, 'the element was not resolvable here'),
+            identity: request.identity,
+            readiness,
+            steps,
+            warnings,
+            durationMs: Date.now() - startedAt,
+            error: structured,
+          });
+        }
+
         locator = resolution.locator;
         warnings.push(...resolution.warnings);
         if (resolution.fellBack) {
@@ -115,6 +149,30 @@ export class CaptureService {
         }
         resolvedIdentity = { ...request.identity, chosenLocator: resolution.candidate };
         steps.push({ action: 'select', target: describeCandidate(resolution.candidate) });
+
+        // An element that exists but is not rendered cannot be photographed.
+        // Callers running a responsive set want that recorded, not retried.
+        const visible = await locator.isVisible().catch(() => false);
+        if (!visible) {
+          const message = 'element is present but not visible';
+          if (!skipOnAbsent) {
+            warnings.push(`${message}; the capture will probably fail`);
+          } else {
+            warnings.push(message);
+            return await this.writeRecord({
+              captureId,
+              request,
+              status: 'skipped',
+              state: unverifiedState(request.state, message),
+              identity: resolvedIdentity,
+              readiness,
+              steps,
+              warnings,
+              durationMs: Date.now() - startedAt,
+              error: { code: 'locator.hidden', message },
+            });
+          }
+        }
       }
 
       readiness = await settlePage(page, { config: config.settle, target: locator });
@@ -340,6 +398,11 @@ export class CaptureService {
   }
 }
 
+/** State stub for a record where the state was never actually applied. */
+function unverifiedState(name: StateName, verification: string): CaptureRecord['state'] {
+  return { name, provenance: 'observed', verified: false, verification };
+}
+
 function safeUrl(page: Page): string {
   try {
     return page.url();
@@ -359,6 +422,6 @@ function emptyReadiness(): ReadinessResult {
     deadlineMs: 0,
     deadlineExceeded: false,
     checks: [],
-    warnings: ['readiness was never evaluated because the capture failed early'],
+    warnings: ['readiness was not evaluated for this record'],
   };
 }

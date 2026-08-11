@@ -8,7 +8,7 @@ in its `warnings` or its `error`.
 
 | Area | Status |
 | --- | --- |
-| Responsive capture sets | The toolbar control exists and is disabled. Correct responsive replay needs a fresh context and a reload per viewport (so responsive JS that only runs at load initialises properly); that is phase 2. `viewport/set` resizes the current page and warns that a mobile *preset* is not real device emulation. |
+| Responsive capture sets | **Built.** Each preset gets a fresh context, its own reload and its own re-resolution; absent, hidden and ambiguous elements are recorded per viewport. Two caveats: a persistent `profile` context cannot create sibling contexts, so replay there degrades to a resize with a warning on every mobile preset; and the toolbar's `viewport/set` control still only resizes the current page (it warns that a mobile preset is not real emulation) — use the responsive set for true emulation. |
 | Static HTML report | `ui-atlas report <run-dir>` prints a terminal summary of the same artifacts the browsable report will be generated from. The HTML report is phase 2. |
 | Crawler and recipes | `ui-atlas crawl` exits with a message. URL frontier, budgets, declarative recipes and the suggested-interaction inventory are phase 3. |
 | Animation capture | The motion fixture exists; discovery and deterministic frame sampling are phase 4. The toolbar's Animation button is disabled. |

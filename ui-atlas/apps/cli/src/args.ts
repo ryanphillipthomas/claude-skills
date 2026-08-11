@@ -16,6 +16,7 @@ const KNOWN_BOOLEAN_FLAGS = new Set([
   'json',
   'full-page',
   'quiet',
+  'responsive',
 ]);
 
 /**

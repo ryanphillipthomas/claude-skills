@@ -8,13 +8,20 @@ import {
   RunWriter,
 } from '@ui-atlas/artifacts';
 import {
+  emulationOptions,
   launchSession,
   resolveViewport,
   viewportLabel,
   type BrowserSession,
 } from '@ui-atlas/browser';
-import { CaptureQueue, CaptureService } from '@ui-atlas/capture';
-import type { UiAtlasConfig } from '@ui-atlas/config';
+import {
+  CaptureQueue,
+  CaptureService,
+  ResponsiveRunner,
+  type ResponsiveRunResult,
+  type ViewportTarget,
+} from '@ui-atlas/capture';
+import type { UiAtlasConfig, ViewportPreset } from '@ui-atlas/config';
 import { buildElementIdentity, buildFramePath, resolveElement } from '@ui-atlas/identity';
 import {
   buildBootstrapScript,
@@ -37,6 +44,7 @@ import {
   type QueueJob,
   type RunManifest,
   type StateName,
+  type StillCaptureKind,
   type Viewport,
 } from '@ui-atlas/protocol';
 import type { Logger } from './logger.js';
@@ -290,9 +298,7 @@ export class AtlasSession {
       shortcuts: config.overlay.shortcuts,
       capabilities: {
         fullPage: true,
-        // Responsive replay needs a fresh context per viewport; that lands in
-        // phase 2, so the control stays visibly disabled rather than lying.
-        responsive: false,
+        responsive: true,
         animation: false,
         states: ['default', 'hover', 'focus', 'focus-visible', 'active', 'checked', 'selected', 'expanded', 'disabled'],
       },
@@ -346,12 +352,6 @@ export class AtlasSession {
       probe?: ElementProbe | undefined;
     },
   ): Promise<QueueJob[]> {
-    if (request.responsive) {
-      throw new UiAtlasError(
-        'state.unsupported',
-        'Responsive sets need a fresh context per viewport; that lands in phase 2.',
-      );
-    }
     if (request.kind === 'animation-frame' || request.kind === 'animation-video') {
       throw new UiAtlasError('state.unsupported', 'Animation capture lands in phase 4.');
     }
@@ -373,6 +373,10 @@ export class AtlasSession {
 
     const states = request.states.length > 0 ? request.states : (['default'] as StateName[]);
     const label = request.label ?? `${request.kind} · ${states.join(', ')}`;
+
+    if (request.responsive) {
+      return [this.enqueueResponsive({ kind: request.kind, states, identity, label })];
+    }
 
     const job = this.queue.enqueue({
       kind: request.kind,
@@ -404,6 +408,130 @@ export class AtlasSession {
     });
 
     return [job];
+  }
+
+  /**
+   * Queue a responsive set. It replays the current route in a fresh context per
+   * viewport, so responsive JavaScript that only runs at load initialises
+   * properly — a resized window would show a layout the site never produces.
+   */
+  private enqueueResponsive(input: {
+    kind: StillCaptureKind;
+    states: StateName[];
+    identity: ElementIdentity | undefined;
+    label: string;
+  }): QueueJob {
+    const url = this.page.url();
+
+    return this.queue.enqueue({
+      kind: input.kind,
+      states: input.states,
+      label: `${input.label} · ${String(this.options.config.viewports.length)} viewports`,
+      run: async (report) => {
+        const result = await this.runResponsive({
+          url,
+          kind: input.kind,
+          states: input.states,
+          identity: input.identity,
+          onProgress: report,
+        });
+        const warnings = [...result.warnings];
+        for (const record of result.records) {
+          warnings.push(...record.warnings);
+          if (record.status !== 'captured' && record.error !== undefined) {
+            const viewport = record.set?.member ?? 'viewport';
+            warnings.push(`${viewport}: ${record.error.code} — ${record.error.message}`);
+          }
+        }
+        return { captureIds: result.records.map((record) => record.id), warnings };
+      },
+    });
+  }
+
+  /**
+   * Replay a route across every configured viewport, one fresh context each.
+   * Public so the CLI can await a set directly instead of going through the
+   * inspector's queue.
+   */
+  async runResponsive(input: {
+    kind: StillCaptureKind;
+    states: StateName[];
+    identity?: ElementIdentity | undefined;
+    url?: string | undefined;
+    onProgress?: ((message: string) => void) | undefined;
+  }): Promise<ResponsiveRunResult> {
+    const runner = new ResponsiveRunner({
+      config: this.options.config,
+      writer: this.writer,
+      runId: this.runId,
+      project: this.options.config.project,
+      createTarget: (preset) => this.createViewportTarget(preset),
+    });
+    return runner.run({
+      url: input.url ?? this.page.url(),
+      kind: input.kind,
+      states: input.states,
+      identity: input.identity,
+      setId: `responsive-${this.runId}-${String(Date.now())}`,
+      onProgress: input.onProgress,
+    });
+  }
+
+  /**
+   * A fresh context for one preset, seeded with the live session's cookies so a
+   * signed-in replay stays signed in. The session's own page is never touched.
+   */
+  private async createViewportTarget(preset: ViewportPreset): Promise<ViewportTarget> {
+    const viewport = resolveViewport(preset);
+    const label = viewportLabel(viewport);
+    const browser = this.browser.browser;
+    const { config } = this.options;
+
+    // A persistent profile owns its only context, so real device emulation is
+    // unavailable there. Degrade to a resized page and say so on every record.
+    if (browser === undefined) {
+      const page = await this.browser.context.newPage();
+      await page.setViewportSize({ width: viewport.width, height: viewport.height });
+      const degraded: Viewport = { ...viewport, mobile: false, hasTouch: false, userAgentClass: 'desktop' };
+      return {
+        page,
+        viewport: degraded,
+        viewportLabel: label,
+        warnings:
+          preset.mode === 'mobile'
+            ? [
+                `${preset.name} was resized rather than emulated: browser.mode "${config.browser.mode}" ` +
+                  'owns a single persistent context. Use clean or storage-state mode for true mobile emulation.',
+              ]
+            : [],
+        close: async () => {
+          await page.close().catch(() => undefined);
+        },
+      };
+    }
+
+    const storageState = await this.browser.context.storageState().catch(() => undefined);
+    const context = await browser.newContext({
+      ...emulationOptions(viewport, this.browser.browserVersion),
+      locale: config.browser.locale,
+      colorScheme: config.browser.colorScheme,
+      reducedMotion: config.browser.reducedMotion,
+      ignoreHTTPSErrors: config.browser.ignoreHttpsErrors,
+      ...(config.browser.timezoneId === undefined ? {} : { timezoneId: config.browser.timezoneId }),
+      ...(storageState === undefined ? {} : { storageState }),
+    });
+    context.setDefaultNavigationTimeout(config.browser.navigationTimeoutMs);
+    const page = await context.newPage();
+
+    return {
+      page,
+      viewport,
+      viewportLabel: label,
+      warnings: [],
+      close: async () => {
+        await context.close().catch(() => undefined);
+      },
+    };
   }
 
   async applyViewport(width: number, height: number, presetName?: string): Promise<Viewport> {

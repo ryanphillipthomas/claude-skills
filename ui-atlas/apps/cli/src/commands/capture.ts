@@ -2,11 +2,12 @@ import { buildElementIdentity, buildFramePath } from '@ui-atlas/identity';
 import { probeSelector } from '@ui-atlas/overlay';
 import {
   UiAtlasError,
-  type CaptureKind,
   type CaptureRecord,
   type ElementIdentity,
   type StateName,
+  type StillCaptureKind,
   STATE_NAMES,
+  STILL_CAPTURE_KINDS,
 } from '@ui-atlas/protocol';
 import { flagString, requireHttpUrl, type ParsedArgs } from '../args.js';
 import { loadCliConfig, TOOL_VERSION } from '../config.js';
@@ -21,6 +22,8 @@ ui-atlas capture <url> [options]
   --kind <kind>       viewport | full-page | element (default: viewport)
   --select <css>      CSS selector for --kind element
   --states <list>     comma separated, e.g. default,hover,focus (default: default)
+  --responsive        replay the route once per configured viewport, each in a
+                      fresh context with its own reload
   --project <name>    artifact project directory
   --output <dir>      artifact root
   --width/--height    base viewport size
@@ -28,14 +31,12 @@ ui-atlas capture <url> [options]
   --json              print the capture records as JSON on stdout
 `.trim();
 
-const CAPTURE_KINDS: CaptureKind[] = ['element', 'viewport', 'full-page'];
-
-function parseKind(value: string | undefined): CaptureKind {
+function parseKind(value: string | undefined): StillCaptureKind {
   if (value === undefined) return 'viewport';
-  if ((CAPTURE_KINDS as string[]).includes(value)) return value as CaptureKind;
+  if ((STILL_CAPTURE_KINDS as readonly string[]).includes(value)) return value as StillCaptureKind;
   throw new UiAtlasError(
     'config.invalid',
-    `--kind must be one of ${CAPTURE_KINDS.join(', ')} (got "${value}")`,
+    `--kind must be one of ${STILL_CAPTURE_KINDS.join(', ')} (got "${value}")`,
   );
 }
 
@@ -69,6 +70,7 @@ export async function runCapture(args: ParsedArgs, logger: Logger): Promise<numb
     throw new UiAtlasError('config.invalid', '--kind element also needs --select <css>');
   }
 
+  const responsive = args.flags.get('responsive') === true;
   const loaded = await loadCliConfig(args, { browser: { headless: true } });
   const session = await AtlasSession.start({
     config: loaded.config,
@@ -92,6 +94,27 @@ export async function runCapture(args: ParsedArgs, logger: Logger): Promise<numb
       const probe = await probeSelector(session.page, selector);
       identity = buildElementIdentity(probe, await buildFramePath(session.page.mainFrame()));
       logger.info(`selected ${identity.tagName} via ${identity.chosenLocator.type}`);
+    }
+
+    if (responsive) {
+      const result = await session.runResponsive({
+        kind,
+        states,
+        identity,
+        url,
+        onProgress: (message) => logger.info(`capturing ${message}`),
+      });
+      records.push(...result.records);
+      for (const warning of result.warnings) logger.warn(warning);
+      for (const record of result.records) {
+        const viewport = record.set?.member ?? 'viewport';
+        if (record.status === 'captured') {
+          logger.info(`${viewport}: captured → ${record.image?.relativePath ?? ''}`);
+        } else {
+          logger.warn(`${viewport}: ${record.status} — ${record.error?.message ?? 'no detail'}`);
+        }
+      }
+      return records.every((record) => record.status !== 'failed') ? 0 : 1;
     }
 
     const setId = states.length > 1 ? `set-${session.runId}` : undefined;

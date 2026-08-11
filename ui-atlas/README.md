@@ -7,7 +7,7 @@ states, and keep enough metadata to find it again.
 No cloud account, no AI service, no browser extension, no database server.
 Everything runs on your machine and writes plain files.
 
-**Current release: the guided inspector (phases 0 and 1).**
+**Current release: the guided inspector, plus responsive replay.**
 The crawler, the browsable report and animation capture are later phases — see
 [docs/limitations.md](docs/limitations.md).
 
@@ -42,7 +42,7 @@ close the browser.
 | `Alt`/`Option` + `I` | toggle inspect mode |
 | `Alt`/`Option` + `C` | capture the selected element |
 | `Alt`/`Option` + `V` | capture the viewport |
-| `Alt`/`Option` + `R` | capture a responsive set *(phase 2)* |
+| `Alt`/`Option` + `R` | capture a responsive set |
 | `Alt`/`Option` + `A` | animation capture *(phase 4)* |
 | `Escape` | leave inspect mode, then clear the selection |
 | Arrow keys | move the selection to parent / child / sibling |
@@ -71,11 +71,20 @@ npm run ui-atlas -- capture https://example.com --kind viewport
 npm run ui-atlas -- capture https://example.com \
   --kind element --select '[data-testid="save-button"]' \
   --states default,hover,focus
+npm run ui-atlas -- capture https://example.com \
+  --kind element --select '[data-testid="save-button"]' --responsive
 ```
 
 Non-interactive and headless. `--select` uses exactly the same element probe the
 inspector uses, so a selector-driven capture and a clicked capture produce
 identical identity data.
+
+`--responsive` replays the route once per configured viewport, each in a fresh
+context with its own reload — so responsive JavaScript that only runs at load
+initialises properly, and mobile presets get real emulation (touch, user agent,
+device scale) rather than a narrow window. A component that is absent or hidden
+at one breakpoint is recorded there as `skipped` with a reason, not as a
+failure.
 
 ### Run summary
 
