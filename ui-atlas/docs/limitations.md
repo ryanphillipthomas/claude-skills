@@ -12,7 +12,8 @@ in its `warnings` or its `error`.
 | Static HTML report | **Built.** `ui-atlas report <run-dir>` writes `report/index.html`. It references screenshots by relative path, so the report travels with its run directory rather than as a lone file. |
 | Bounded crawler | **Built.** URL canonicalisation, a same-origin frontier, hard budgets and a resumable queue. It follows `<a href>` and, on its own, clicks nothing. Details below. |
 | Interaction recipes | **Built.** Declarative steps validated before execution, plus `--dry-run`. A recipe is the only thing that may touch a crawled page. Details below. |
-| Interaction inventory and scale | The suggested-interaction inventory, worker concurrency, per-origin throttling, retry/backoff and trace-on-failure are the rest of phase 3. |
+| Interaction inventory | **Built.** `crawl --inventory` lists each page's interactive controls, classifies what each is likely to do, and writes a reviewable recipe skeleton. It reads and nothing else. Details below. |
+| Scale | Worker concurrency, per-origin throttling, retry/backoff and trace-on-failure are the rest of phase 3. |
 | Animation capture | The motion fixture exists; discovery and deterministic frame sampling are phase 4. The toolbar's Animation button is disabled. |
 | CDP forced pseudo-states | Not implemented. `focus-visible` is reached with a real keyboard interaction or reported as `skipped` — never faked. |
 | Chrome extension packaging | Not required and not built. |
@@ -101,6 +102,28 @@ See [ADR 15](adr/0015-recipes-are-the-only-way-to-interact.md).
 - **A recipe that navigates leaves the page it was capturing.** Later steps
   capture the new page. The outcome carries a warning naming both URLs, but
   nothing stops it.
+
+## Boundaries of the interaction inventory
+
+See [ADR 16](adr/0016-interaction-inventory-suggests-never-acts.md).
+
+- **It only sees what is visible without interacting.** A menu whose items are
+  `display: none` until hover hides them: the trigger is inventoried, its items
+  are not. That is the direct cost of never touching anything. On the fixture
+  site, `states.html`'s hover menu links never appear in the inventory, and a
+  test asserts exactly that.
+- **Classification is a heuristic over words and markup**, so it will be wrong
+  about some site's vocabulary. Every candidate carries the reason its rule
+  fired, and `crawl.inventory.mutationWords` extends the word list rather than
+  replacing it.
+- **It is biased towards false positives.** "Save", "Cancel" and "Apply" are all
+  treated as mutations. A wrongly flagged control costs a human ten seconds of
+  review; a missed "Delete account" costs them an account.
+- **`unknown` is not a milder `mutation`.** It means nothing in the markup said
+  either way, and it is treated identically by the recipe skeleton.
+- **Top document only.** Controls inside iframes are not inventoried, for the
+  same reason recipes cannot name them.
+- **It costs one page evaluation per page**, which is why it is off by default.
 
 ## Things the tool reports that surprise people
 

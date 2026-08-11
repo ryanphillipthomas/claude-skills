@@ -214,6 +214,37 @@ A misspelled step name or an unknown option is a validation error, never a
 silent skip: for a config that can click things, "I did not understand that
 line" must not quietly become "I ignored that line".
 
+### Interaction inventory
+
+```bash
+npm run ui-atlas -- crawl site.yml --inventory
+```
+
+To write a recipe you have to know what is on the site and what it is called.
+The inventory answers that: on each page it lists the visible interactive
+controls and classifies what each is *likely to do* — `navigation`, `inert`
+(changes presentation only), `mutation` (might change data, spend money, send
+something, or end the session), or `unknown`.
+
+**It reads and nothing else.** No clicking, no hovering, no focusing. Each
+control is described by the same probe the inspector uses, so a control named
+here and the same control captured by a recipe mean the same thing.
+
+Output is `interactions.jsonl`, plus a reviewable `suggested-recipes.yml`:
+
+- Only `navigation` and `inert` candidates become steps. `mutation` and
+  `unknown` appear in comments so you know they exist, never as something the
+  file would execute.
+- The generated steps only ever `select` and `captureStates`, which do not
+  click. Controls that look safe to click are *named in a comment* for you to
+  decide. A generated file that clicked things would be exactly the automatic
+  traversal this design rules out.
+
+`unknown` is not "probably fine" — a `<button type="button">` labelled "Go" is
+genuinely unclassifiable, and it is treated exactly like `mutation`. Mutation
+wording wins over every other signal, so a disclosure labelled "Delete options"
+is a mutation. Extend the word list with `crawl.inventory.mutationWords`.
+
 ### Dry run
 
 ```bash
@@ -250,6 +281,8 @@ ui-atlas-output/
       captures.jsonl                                  one record per capture
       pages.jsonl                                     one record per page visit
       crawl-state.json                                resumable crawl frontier
+      interactions.jsonl                              inventoried controls, classified
+      suggested-recipes.yml                           a recipe skeleton to review
       screenshots/<route>/<viewport>/<capture-id>.png
       screenshots/<route>/<viewport>/<capture-id>.json   metadata beside the image
       report/index.html                                  browsable report

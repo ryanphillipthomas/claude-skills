@@ -26,6 +26,10 @@ export function newPageId(date = new Date()): string {
   return `page-${compactTimestamp(date)}-${shortToken(3)}`;
 }
 
+export function newInteractionId(date = new Date()): string {
+  return `int-${compactTimestamp(date)}-${shortToken(4)}`;
+}
+
 export function newJobId(): string {
   return `job-${shortToken(6)}`;
 }

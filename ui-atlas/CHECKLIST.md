@@ -141,9 +141,24 @@ no-clicking guarantee are all covered by `tests/integration/crawl.test.ts` and
 clicking recipe active on one route, after which `destructive.html`'s audit log
 is still empty and no non-`GET` request was issued.
 
+## Phase 3 — suggested-interaction inventory (third slice)
+
+- [x] `crawl --inventory` lists each page's visible interactive controls
+- [x] Each described by the same probe the inspector uses, so a control named
+      here and one captured by a recipe mean the same thing
+- [x] Classified `navigation` / `inert` / `mutation` / `unknown`, with the reason
+      each rule fired recorded on the candidate
+- [x] Mutation rules win over every other signal, and the word list is biased
+      towards false positives; `unknown` is treated exactly like `mutation`
+- [x] `disabled` recorded, never used to reclassify
+- [x] Written to `interactions.jsonl`, one record per control
+- [x] `suggested-recipes.yml`: only `navigation`/`inert` become steps, only
+      `select` and `captureStates`, and no `click` step is ever generated
+- [x] **It reads and nothing else.** Inventorying `destructive.html` leaves its
+      audit log empty and issues no non-`GET` request
+
 ### Still to build in phase 3
 
-- [ ] Suggested-interaction inventory
 - [ ] Worker concurrency and per-origin throttling
 - [ ] Retry with jitter, and status-aware backoff for 429/503
 - [ ] Trace-on-failure

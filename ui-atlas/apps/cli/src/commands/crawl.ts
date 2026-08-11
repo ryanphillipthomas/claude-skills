@@ -8,10 +8,13 @@ import {
   CrawlPolicy,
   describeTarget,
   formatPlan,
+  InteractionInventory,
   locatorFor,
   planCrawl,
   planProblems,
   RecipeRunner,
+  suggestRecipes,
+  summariseInventory,
   type CrawlResult,
 } from '@ui-atlas/crawler';
 import { loadProbeBundle, probeLocator } from '@ui-atlas/overlay';
@@ -52,6 +55,9 @@ ui-atlas crawl <site-config.yml | url> [options]
 
   --dry-run           validate the config and print what would run, then exit.
                       Launches no browser and visits nothing.
+  --inventory         list each page's interactive controls and what each is
+                      likely to do, into interactions.jsonl, and write a
+                      reviewable suggested-recipes.yml. Nothing is clicked.
   --seed <url>        add a seed (repeatable via config); overrides crawl.seeds
   --max-pages <n>     hard cap on pages visited
   --max-depth <n>     seeds are depth 0
@@ -109,6 +115,8 @@ export async function runCrawl(args: ParsedArgs, logger: Logger): Promise<number
   const maxMinutes = flagNumber(args, 'max-minutes');
   if (maxMinutes !== undefined) budgetOverrides['maxRunMinutes'] = maxMinutes;
   if (Object.keys(budgetOverrides).length > 0) crawlOverrides['budgets'] = budgetOverrides;
+
+  if (args.flags.get('inventory') === true) crawlOverrides['inventory'] = { enabled: true };
 
   const seedFlag = flagString(args, 'seed');
   const seeds: string[] = [];
@@ -195,14 +203,14 @@ export async function runCrawl(args: ParsedArgs, logger: Logger): Promise<number
     }
   }
 
-  // A crawl with no recipes injects nothing into the pages it visits: no
-  // overlay, no probe. Recipes need the probe, because an element capture must
-  // describe its element exactly the way the inspector does.
-  const hasRecipes = config.crawl.recipes.length > 0;
+  // A plain crawl injects nothing into the pages it visits: no overlay, no
+  // probe. Recipes and the inventory both need the probe, because both must
+  // describe an element exactly the way the inspector does.
+  const needsProbe = config.crawl.recipes.length > 0 || config.crawl.inventory.enabled;
   const browser = await launchSession({
     config: config.browser,
     viewport,
-    ...(hasRecipes ? { initScripts: [{ content: await loadProbeBundle() }] } : {}),
+    ...(needsProbe ? { initScripts: [{ content: await loadProbeBundle() }] } : {}),
   });
   for (const warning of browser.warnings) {
     logger.warn(warning);
@@ -237,6 +245,15 @@ export async function runCrawl(args: ParsedArgs, logger: Logger): Promise<number
     onProgress: (message) => logger.info(message),
   });
 
+  const policy = new CrawlPolicy(config.crawl, seedsForRun);
+  const inventory = new InteractionInventory({
+    config: config.crawl.inventory,
+    runId,
+    extraMutationWords: config.crawl.inventory.mutationWords,
+    denyPaths: config.crawl.denyPaths,
+    origins: policy.origins,
+  });
+
   let result: CrawlResult;
   try {
     const crawler = new Crawler({
@@ -246,6 +263,7 @@ export async function runCrawl(args: ParsedArgs, logger: Logger): Promise<number
       config,
       seeds: seedsForRun,
       recipes,
+      inventory,
       ...(resumeState === undefined ? {} : { resume: resumeState }),
       onProgress: (message) => logger.info(`visiting ${message}`),
     });
@@ -253,6 +271,11 @@ export async function runCrawl(args: ParsedArgs, logger: Logger): Promise<number
     result = await crawler.run();
   } finally {
     await browser.close().catch(() => undefined);
+  }
+
+  if (config.crawl.inventory.enabled && config.crawl.inventory.writeSuggestions) {
+    const path = await writer.writeSuggestedRecipes(suggestRecipes(result.interactions));
+    logger.info(`suggested recipes: ${path}`);
   }
 
   const manifest = await writer.finalize({
@@ -287,6 +310,7 @@ function summarise(result: CrawlResult): Record<string, unknown> {
     pendingAtStop: result.pendingAtStop,
     clicks: result.clicks,
     recipes: result.recipes,
+    inventory: summariseInventory(result.interactions),
     skipCounts: Object.fromEntries(
       Object.entries(result.skipCounts).filter(([, count]) => count > 0),
     ),
@@ -306,6 +330,16 @@ function report(result: CrawlResult, logger: Logger): void {
   logger.info(`${STOP_TEXT[result.stopped]}: ${String(result.visited.length)} pages visited`);
   if (result.pendingAtStop > 0) {
     logger.info(`${String(result.pendingAtStop)} URLs were still queued`);
+  }
+
+  if (result.interactions.length > 0) {
+    const summary = summariseInventory(result.interactions);
+    logger.info(
+      `inventory: ${String(summary.total)} control(s) across ${String(summary.routes)} route(s) — ` +
+        `${String(summary.byClass.navigation)} navigation, ${String(summary.byClass.inert)} inert, ` +
+        `${String(summary.byClass.mutation)} may change something, ` +
+        `${String(summary.byClass.unknown)} unclear (none were clicked)`,
+    );
   }
 
   if (result.recipes.length > 0) {

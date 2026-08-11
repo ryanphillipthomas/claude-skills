@@ -169,6 +169,36 @@ export const QueryRulesSchema = z.object({
 });
 export type QueryRules = z.infer<typeof QueryRulesSchema>;
 
+/**
+ * Words that mark a control as likely to change something. Matched
+ * case-insensitively against the accessible name and the visible text.
+ *
+ * The list is biased towards false positives on purpose: a wrongly flagged
+ * "Save" costs a human ten seconds of review, while a missed "Delete account"
+ * costs them an account.
+ */
+export const DEFAULT_MUTATION_WORDS = [
+  'delete', 'remove', 'destroy', 'erase', 'discard', 'trash', 'archive', 'clear', 'reset',
+  'buy', 'purchase', 'order', 'checkout', 'pay', 'subscribe', 'unsubscribe', 'donate',
+  'send', 'submit', 'post', 'publish', 'deploy', 'share', 'invite', 'transfer', 'withdraw',
+  'save', 'confirm', 'apply', 'approve', 'reject', 'merge', 'cancel',
+  'block', 'ban', 'report', 'flag', 'mute',
+  'sign out', 'signout', 'log out', 'logout', 'log off',
+  'sign up', 'signup', 'register', 'create account', 'upgrade', 'downgrade',
+];
+
+export const InventoryConfigSchema = z.object({
+  /** Off by default: it costs one extra page evaluation per page. */
+  enabled: z.boolean().default(false),
+  /** Added to {@link DEFAULT_MUTATION_WORDS} rather than replacing them. */
+  mutationWords: z.array(z.string()).default([]),
+  /** Cap per page, so one enormous page cannot dominate a run. */
+  maxPerPage: z.number().int().min(1).max(2_000).default(200),
+  /** Write `suggested-recipes.yml` alongside the inventory. */
+  writeSuggestions: z.boolean().default(true),
+});
+export type InventoryConfig = z.infer<typeof InventoryConfigSchema>;
+
 export const CrawlBudgetsSchema = z.object({
   /** Hard cap on pages *visited*. Reaching it ends the crawl. */
   maxPages: z.number().int().min(1).max(100_000).default(50),
@@ -298,6 +328,11 @@ export const CrawlConfigSchema = z.object({
    * matching recipe it navigates, reads links and touches nothing.
    */
   recipes: z.array(RecipeSchema).default([]),
+  /**
+   * Inventory the interactive controls on each page and classify what they are
+   * likely to do. Observation only: nothing here is ever clicked.
+   */
+  inventory: InventoryConfigSchema.prefault({}),
 });
 export type CrawlConfig = z.infer<typeof CrawlConfigSchema>;
 

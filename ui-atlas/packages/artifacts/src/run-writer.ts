@@ -1,12 +1,14 @@
 import {
   CaptureRecordSchema,
   CrawlStateSchema,
+  InteractionCandidateSchema,
   PageRecordSchema,
   RunManifestSchema,
   SCHEMA_VERSION,
   UiAtlasError,
   type CaptureRecord,
   type CrawlState,
+  type InteractionCandidate,
   type PageRecord,
   type RunManifest,
 } from '@ui-atlas/protocol';
@@ -31,6 +33,8 @@ export interface RunPaths {
   tracesDir: string;
   reportDir: string;
   crawlState: string;
+  interactionsJsonl: string;
+  suggestedRecipes: string;
 }
 
 export function runPaths(outputRoot: string, project: string, runId: string): RunPaths {
@@ -48,6 +52,8 @@ export function runPaths(outputRoot: string, project: string, runId: string): Ru
     tracesDir: resolveWithinRoot(runDir, 'traces'),
     reportDir: resolveWithinRoot(runDir, 'report'),
     crawlState: resolveWithinRoot(runDir, 'crawl-state.json'),
+    interactionsJsonl: resolveWithinRoot(runDir, 'interactions.jsonl'),
+    suggestedRecipes: resolveWithinRoot(runDir, 'suggested-recipes.yml'),
   };
 }
 
@@ -221,6 +227,29 @@ export class RunWriter {
     await appendJsonLine(this.paths.pagesJsonl, parsed.data);
     this.counts.pages += 1;
     return parsed.data;
+  }
+
+  /**
+   * Append an inventoried control. These are observations, never instructions:
+   * nothing in `interactions.jsonl` has been or will be clicked.
+   */
+  async addInteraction(record: InteractionCandidate): Promise<InteractionCandidate> {
+    this.assertReady();
+    const parsed = InteractionCandidateSchema.safeParse(record);
+    if (!parsed.success) {
+      throw new UiAtlasError('artifact.write-failed', 'invalid interaction candidate', {
+        detail: { interactionId: record.id, issues: formatIssues(parsed.error) },
+      });
+    }
+    await appendJsonLine(this.paths.interactionsJsonl, parsed.data);
+    return parsed.data;
+  }
+
+  /** The reviewable recipe skeleton. Plain text, written whole. */
+  async writeSuggestedRecipes(text: string): Promise<string> {
+    this.assertReady();
+    await atomicWriteFile(this.paths.suggestedRecipes, text.endsWith('\n') ? text : `${text}\n`);
+    return this.paths.suggestedRecipes;
   }
 
   /**

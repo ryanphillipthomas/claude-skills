@@ -8,11 +8,13 @@ import {
   type CrawlSkipReason,
   type CrawlState,
   type FrontierItem,
+  type InteractionCandidate,
   type PageRecord,
 } from '@ui-atlas/protocol';
 import { Deadline, settlePage, sleep, TIMED_OUT, withTimeout } from '@ui-atlas/settle';
 import { Frontier } from './frontier.js';
 import { collectLinks, type DiscoveredLink } from './page-scripts.js';
+import type { InteractionInventory } from './inventory.js';
 import { CrawlPolicy } from './policy.js';
 import type { RecipeOutcome, RecipeRunner } from './recipes.js';
 
@@ -37,6 +39,8 @@ export interface CrawlResult {
   pendingAtStop: number;
   /** One entry per recipe run, in visit order. Empty when no recipes matched. */
   recipes: RecipeOutcome[];
+  /** Interactive controls found, classified by what they would likely do. */
+  interactions: InteractionCandidate[];
   /** Controls clicked across the whole crawl. Zero unless a recipe said to. */
   clicks: number;
   warnings: string[];
@@ -59,6 +63,11 @@ export interface CrawlerOptions {
    * navigates and reads, and nothing else.
    */
   recipes?: RecipeRunner | undefined;
+  /**
+   * Inventories each page's interactive controls and says what each is likely
+   * to do. Read-only: it activates nothing, ever.
+   */
+  inventory?: InteractionInventory | undefined;
   /**
    * Called after a page has settled and its recipes have run, while it is still
    * the current document. Used by tests to inspect the live page.
@@ -85,6 +94,7 @@ export class Crawler {
   private readonly skipSamples: CrawlSkipSample[] = [];
   private readonly recipeOutcomes: RecipeOutcome[] = [];
   private readonly failedRecipes = new Set<string>();
+  private readonly interactions: InteractionCandidate[] = [];
 
   constructor(private readonly options: CrawlerOptions) {
     const crawl = options.config.crawl;
@@ -203,6 +213,7 @@ export class Crawler {
       skipSamples: this.skipSamples,
       pendingAtStop: this.frontier.pendingCount,
       recipes: this.recipeOutcomes,
+      interactions: this.interactions,
       clicks: this.recipeOutcomes.reduce((total, outcome) => total + outcome.clicks, 0),
       warnings: this.warnings,
       state,
@@ -306,9 +317,26 @@ export class Crawler {
     }
 
     await this.discover(item, finalUrl, warnings, pageDeadline);
+    // Before recipes: the inventory describes the page as served, not whatever
+    // a recipe left it looking like.
+    await this.runInventory(record, warnings);
     await this.runRecipes(record, warnings);
     await this.runPageHook(record);
     return record;
+  }
+
+  private async runInventory(record: PageRecord, warnings: string[]): Promise<void> {
+    const inventory = this.options.inventory;
+    if (inventory === undefined || !inventory.enabled) return;
+
+    try {
+      const found = await inventory.collect(this.options.page, record);
+      for (const candidate of found) {
+        this.interactions.push(await this.options.writer.addInteraction(candidate));
+      }
+    } catch (error) {
+      warnings.push(`interaction inventory failed: ${describe(error)}`);
+    }
   }
 
   /**

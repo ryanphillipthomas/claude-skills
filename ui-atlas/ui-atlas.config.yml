@@ -111,6 +111,17 @@ crawl:
   #         - waitFor: { role: navigation }
   #         - capture: { kind: viewport, label: nav-open }
   recipes: []
+  # Lists each page's interactive controls and classifies what each is likely to
+  # do — navigation, inert, mutation or unknown. It reads and nothing else: no
+  # clicking, no hovering. Writes interactions.jsonl plus a suggested-recipes.yml
+  # you can review and edit. `--inventory` switches it on for one run.
+  inventory:
+    enabled: false
+    # Added to the built-in list (delete, buy, send, save, sign out, ...), not
+    # replacing it. Matched against the accessible name and visible text.
+    mutationWords: []
+    maxPerPage: 200
+    writeSuggestions: true
 
 # Redacted before anything is logged.
 redact:

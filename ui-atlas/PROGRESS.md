@@ -3,15 +3,16 @@
 Running log for the build. Updated after each milestone so an interrupted
 session is recoverable.
 
-**Last updated:** 2026-08-11, after interaction recipes landed.
+**Last updated:** 2026-08-11, after the interaction inventory landed.
 
 ## Status
 
 Phases 0, 1 and 2 are complete and their exit criteria pass, with one
-environment-bound gap recorded below. Phase 3 is most of the way there: the
-bounded frontier and declarative interaction recipes are both done, and its exit
-criterion passes on the fixture graph. The repository is buildable, tested and
-documented.
+environment-bound gap recorded below. Phase 3 is nearly complete: the bounded
+frontier, declarative interaction recipes and the suggested-interaction
+inventory are all done, and its exit criterion passes on the fixture graph. Only
+worker concurrency, retry/backoff and trace-on-failure remain. The repository is
+buildable, tested and documented.
 
 ```
 npm install
@@ -24,9 +25,9 @@ npm test
 `npm test` (builds, then Vitest — unit and browser integration):
 
 ```
-Test Files  21 passed (21)
-     Tests  244 passed | 3 skipped (247)
-  Duration  ~195s
+Test Files  23 passed (23)
+     Tests  270 passed | 3 skipped (273)
+  Duration  ~183s
 ```
 
 On a networked machine the three external smoke tests run instead of skipping:
@@ -55,6 +56,8 @@ the phase 1 exit criterion. Nothing is unverified now.
 | `integration/crawl` | 11 | **phase 3, first slice**: the fixture link graph, the empty click log, budgets, redirects on and off origin, dry run, resume through the CLI |
 | `unit/recipes` | 16 | step validation, rejected `fill`/`type`/`evaluate`, target rules, dry-run problem detection |
 | `integration/recipes` | 8 | **phase 3, second slice**: recipe-approved clicking, match scoping, state sets, hover menus, failure isolation, discovery ordering |
+| `unit/inventory` | 19 | classification rules, recipe-target mapping, the skeleton's refusal to emit a click |
+| `integration/inventory` | 7 | **phase 3, third slice**: destructive controls all classified `mutation` with an empty click log, safe controls on the states fixture, `maxPerPage`, the generated skeleton |
 | `integration/external-smoke` | 3 skipped | read-only public-site checks; skip without network |
 
 `npm run typecheck` passes for all eleven packages and for the test sources.
@@ -132,6 +135,7 @@ Consequential ones are in [`docs/adr/`](docs/adr/):
 13. State chips apply the state to the live page
 14. The crawler follows links and clicks nothing
 15. A recipe is the only thing that may touch a crawled page
+16. The interaction inventory suggests; it never acts
 
 Smaller assumptions, not worth an ADR:
 
@@ -356,23 +360,74 @@ Building it surfaced three things worth knowing:
    does. A crawl with no recipes still injects nothing, which is the ADR 14
    property that mattered.
 
+## Suggested-interaction inventory (phase 3, third slice)
+
+Done and covered by `tests/unit/inventory.test.ts` and
+`tests/integration/inventory.test.ts`. See
+[ADR 16](docs/adr/0016-interaction-inventory-suggests-never-acts.md).
+
+`crawl --inventory` lists each page's visible interactive controls and says what
+each is likely to *do*, so a user has something to edit instead of a blank page
+when writing recipes. It reads and nothing else — no clicking, no hovering, no
+focusing.
+
+All four points of the plan this replaced are done:
+
+1. Inventories buttons, links, inputs, tabs, disclosures, menus and anything
+   with an interactive ARIA role, describing each with the **same probe the
+   inspector uses**, so a control named here and one captured by a recipe mean
+   the same thing.
+2. Classifies each `navigation` / `inert` / `mutation` / `unknown` from role,
+   accessible name, element type, form membership and href, recording which rule
+   fired. Mutation rules run first and win over every other signal.
+3. Surfaces them. `interactions.jsonl` plus a reviewable
+   `suggested-recipes.yml`, in which only `navigation` and `inert` candidates
+   become steps, the steps are only ever `select` and `captureStates`, and **no
+   `click` step is ever generated** — a machine writing the recipe would not
+   make the click any more approved.
+4. `destructive.html` is the fixture: all five of its controls land in
+   `mutation` (the sign-out link by name, naming the deny rule), the audit log
+   is still empty afterwards, and no non-`GET` request was issued.
+
+`unknown` is deliberately not a milder `mutation`. A `<button type="button">`
+labelled "Go" is genuinely unclassifiable, its recorded reason says to treat it
+as unsafe until reviewed, and the skeleton treats it exactly like `mutation`.
+
+Building it surfaced three things worth knowing:
+
+1. **Nearly repeated ADR 5's defect.** The page-side collector referenced a
+   module-level selector constant. Playwright serialises the function alone, so
+   it would have arrived as `undefined` — the same class of bug as the original
+   string-page-function crash. Caught by re-reading against ADR 5 before running
+   it; the selector is now declared inside the function.
+2. **Two CLI flags were not registered as boolean.** `--dry-run` and
+   `--inventory` were not in `KNOWN_BOOLEAN_FLAGS`, so `crawl --dry-run site.yml`
+   would have swallowed the path as the flag's value. Both are registered now.
+3. **A test helper passed for the wrong reason.** The `facts()` builder spread
+   its overrides over the whole `probe` object, so the `role: 'tab'` case was
+   testing an element with no accessible name at all. Fixed, and the helper now
+   lifts `name`/`role`/`text` explicitly.
+
+The inventory only sees what is visible without interacting: `states.html`'s
+hover menu hides its links from it, and a test asserts exactly that. It is the
+direct cost of never touching anything, recorded in `docs/limitations.md`.
+
 ## Next smallest milestone
 
-Recipes made the crawl produce artifacts. The next slice makes it tell you what
-it found without you having to guess what to write:
+Phase 3's remaining work is throughput and resilience, not new capability:
 
-**The suggested-interaction inventory.**
+**Worker concurrency with per-origin throttling.**
 
-1. On each crawled page, inventory the visible interactive elements: buttons,
-   links, inputs, tabs, disclosures, menus.
-2. Classify each as likely-navigation, likely-inert or likely-mutation, from
-   accessible role and name, element type, form membership and href scheme.
-   Wording like "delete", "remove", "buy", "send" pushes towards mutation.
-3. **Surface them, never click them.** The output is a report the user reads to
-   decide what deserves a recipe, and a generated recipe skeleton they can paste
-   and edit.
-4. `destructive.html` is the fixture: every control on it must land in the
-   likely-mutation bucket, and the audit log must still be empty afterwards.
+1. Several isolated workers, each with its own context, pulling from one
+   frontier — the brief is explicit that scale comes from isolated workers, not
+   many tabs sharing one mutable session.
+2. A per-origin token bucket, so `perPageDelayMs` becomes a floor enforced
+   across workers rather than per worker.
+3. The frontier is already the synchronisation point and its keys are already
+   deterministic; `next()` needs to become safe to call from several workers.
+4. `crawl-state.json` must stay correct when several pages are in flight: write
+   it on a settled snapshot, not mid-batch.
 
-After that: worker concurrency with per-origin throttling, then retry with
-jitter and status-aware backoff for 429/503, then trace-on-failure.
+After that: retry with jitter and status-aware backoff for 429/503, then
+trace-on-failure. Both are small next to concurrency and neither changes the
+data model.

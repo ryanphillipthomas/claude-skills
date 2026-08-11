@@ -370,6 +370,54 @@ export const RunManifestSchema = z.object({
 export type RunManifest = z.infer<typeof RunManifestSchema>;
 
 /* -------------------------------------------------------------------------- */
+/* Interaction inventory                                                       */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * What a control is likely to *do*, not whether the tool may touch it. Nothing
+ * in the inventory is ever clicked; this is what a human reads to decide which
+ * controls deserve a recipe.
+ */
+export const INTERACTION_CLASSES = [
+  /** Goes somewhere: an `<a href>`, a `role="link"`. */
+  'navigation',
+  /** Changes the page's own presentation: a disclosure, a tab, a menu toggle. */
+  'inert',
+  /** Might change data, spend money, send something, or end the session. */
+  'mutation',
+  /** Nothing said either way. Treat exactly like `mutation` until reviewed. */
+  'unknown',
+] as const;
+export const InteractionClassSchema = z.enum(INTERACTION_CLASSES);
+export type InteractionClass = z.infer<typeof InteractionClassSchema>;
+
+export const InteractionCandidateSchema = z.object({
+  schemaVersion: SchemaVersionSchema,
+  id: z.string(),
+  runId: z.string(),
+  /** The page record this control was found on. */
+  pageId: z.string(),
+  url: z.string(),
+  routeKey: z.string(),
+  foundAt: IsoDateTimeSchema,
+  tagName: z.string(),
+  role: z.string().optional(),
+  accessibleName: z.string().optional(),
+  textExcerpt: z.string().optional(),
+  classification: InteractionClassSchema,
+  /** Why it was classified that way, in the order the rules fired. */
+  reasons: z.array(z.string()),
+  /** Best locator for this element, ready to paste into a recipe. */
+  locator: LocatorCandidateSchema.optional(),
+  boundingBox: BoxSchema,
+  /** Recorded rather than used to reclassify: disabled today, enabled tomorrow. */
+  disabled: z.boolean(),
+  /** Resolved `href`, for a navigation candidate. */
+  href: z.string().optional(),
+});
+export type InteractionCandidate = z.infer<typeof InteractionCandidateSchema>;
+
+/* -------------------------------------------------------------------------- */
 /* Crawl state                                                                 */
 /* -------------------------------------------------------------------------- */
 
