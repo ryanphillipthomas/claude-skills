@@ -227,6 +227,7 @@ export const RECIPE_ACTIONS = [
   'press',
   'mouse-down',
   'mouse-up',
+  'move-pointer',
   'scroll',
   'set-viewport',
   'force-pseudo-state',

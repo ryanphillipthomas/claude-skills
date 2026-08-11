@@ -3,7 +3,7 @@
 Running log for the build. Updated after each milestone so an interrupted
 session is recoverable.
 
-**Last updated:** 2026-08-11, after the static report landed.
+**Last updated:** 2026-08-11, after live state preview landed.
 
 ## Status
 
@@ -22,10 +22,14 @@ npm test
 `npm test` (builds, then Vitest — unit and browser integration):
 
 ```
-Test Files  16 passed (16)
-     Tests  160 passed | 3 skipped (163)
-  Duration  ~105s
+Test Files  17 passed (17)
+     Tests  170 passed | 3 skipped (173)
+  Duration  ~110s
 ```
+
+On a networked machine the three external smoke tests run instead of skipping:
+the user confirmed **163/163 with zero skips** on macOS, which closes the last
+open item on the phase 1 exit criterion. Nothing is unverified now.
 
 | Suite | Tests | What it proves |
 | --- | --- | --- |
@@ -44,6 +48,7 @@ Test Files  16 passed (16)
 | `integration/responsive` | 8 | five-viewport matrix, real mobile emulation, per-viewport reload, hidden/not-present outcomes |
 | `integration/report` | 7 | **phase 2 exit criterion**: the generated report driven in a real browser, including script injection |
 | `unit/reporter` | 13 | escaping, view model, matrix grouping, duplicate grouping |
+| `integration/state-preview` | 10 | live state preview: apply, hold, release, swap, forced undo, capture isolation |
 | `integration/external-smoke` | 3 skipped | read-only public-site checks; skip without network |
 
 `npm run typecheck` passes for all ten packages and for the test sources.
@@ -118,6 +123,7 @@ Consequential ones are in [`docs/adr/`](docs/adr/):
 10. Browser modes and where authentication material lives
 11. Responsive sets replay the route in a fresh context per viewport
 12. The report is one static file, and it treats capture data as hostile
+13. State chips apply the state to the live page
 
 Smaller assumptions, not worth an ADR:
 
@@ -181,6 +187,23 @@ Building it surfaced two things worth knowing:
    That is Chromium's focus-ring heuristic, not a capture fault — both records
    state how they were verified, and the report's Duplicates tab is what makes
    the sameness visible. Recorded in `docs/limitations.md`.
+
+## Live state preview (UX fix)
+
+Reported from real use: toggling a state chip on grok.com appeared to do
+nothing. It was doing nothing — the chips only selected what to capture, and
+"Element" silently captured `default` regardless. Both are fixed; see
+[ADR 13](docs/adr/0013-live-state-preview.md).
+
+Building it caught two real defects:
+
+1. **A `default` capture could photograph a hover.** Selecting an element by
+   clicking it leaves the pointer parked on it, so `default` quietly included
+   the hover style. `applyState('default')` now moves the pointer off the
+   element first, and records that it did.
+2. **Re-selecting the same element dropped the preview.** Every element capture
+   re-sends its probe; releasing on any selection call yanked the preview away
+   mid-capture. Selection now only releases on a genuinely different element.
 
 ## Known failures
 

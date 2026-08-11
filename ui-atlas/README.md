@@ -49,8 +49,17 @@ close the browser.
 | `Alt`/`Option` + click | let the click through to the page instead of selecting |
 
 In the toolbar you get the element's tag, role, accessible name, size and
-chosen locator (with its score and the reasons behind it), state toggles,
-viewport presets and a custom size, capture buttons, and the capture queue.
+chosen locator (with its score and the reasons behind it), viewport presets and
+a custom size, capture buttons, and the capture queue.
+
+**The state chips are live.** Clicking `hover` both adds it to the capture set
+and applies it to the page in front of you, held until you click it off. The
+capture button names exactly what it will do — "Capture 3 states" — and captures
+exactly that. A capture releases any held preview first, so photographing
+`default` while previewing `hover` gives you a real default image.
+
+`active` is captured but never held: keeping a mouse button down would take the
+pointer away from you.
 
 Useful options:
 

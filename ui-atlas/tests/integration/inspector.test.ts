@@ -158,9 +158,10 @@ describe('injected inspector', () => {
     await page.keyboard.press('Escape');
 
     // Turn on hover and focus alongside the default state, then run the set.
+    // The chips also preview live, and the capture button names what it will do.
     await page.getByRole('button', { name: 'hover', exact: true }).click();
     await page.getByRole('button', { name: 'focus', exact: true }).click();
-    await page.getByRole('button', { name: 'State set', exact: true }).click();
+    await page.getByRole('button', { name: 'Capture 3 states', exact: true }).click();
     // The request crosses the bridge asynchronously, so wait for the job to
     // exist before draining the queue.
     await expect.poll(() => harness.session.queue.list().length, { timeout: 5_000 }).toBe(1);
@@ -194,8 +195,17 @@ describe('injected inspector', () => {
     const hashes = new Set(records.map((record) => record.image?.sha256));
     expect(hashes.size).toBe(3);
 
-    // The page is unchanged and nothing is left hovered, focused or pressed.
+    // The DOM is untouched throughout.
     expect(await bodyWithoutOverlay(harness)).toBe(beforeBody);
+
+    // The chips also hold their state on the live page, so focus is still on
+    // the element — deliberately, and visible in the toolbar. Turning the chips
+    // off releases it, and then nothing at all is left behind.
+    await page.getByRole('button', { name: 'focus', exact: true }).click();
+    await page.getByRole('button', { name: 'hover', exact: true }).click();
+    await expect.poll(() => harness.session.previewedState, { timeout: 5_000 }).toBeUndefined();
+    await page.mouse.move(2, 2);
+
     const residue = await page.evaluate(() => {
       const button = document.querySelector('[data-testid="focus-demo"]');
       return {

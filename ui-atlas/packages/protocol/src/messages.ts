@@ -156,6 +156,21 @@ export const SetViewportParamsSchema = z.object({
 });
 export const SetViewportResultSchema = z.object({ viewport: ViewportSchema });
 
+/**
+ * Apply a state to the selected element and *hold* it, so the user can see it
+ * on the live page. `null` releases whatever is held.
+ */
+export const StatePreviewParamsSchema = z.object({
+  state: StateNameSchema.nullable(),
+});
+export const StatePreviewResultSchema = z.object({
+  applied: StateNameSchema.nullable(),
+  provenance: z.string().optional(),
+  verified: z.boolean().optional(),
+  verification: z.string().optional(),
+  notice: z.string().optional(),
+});
+
 export const InspectModeParamsSchema = z.object({ active: z.boolean() });
 export const InspectModeResultSchema = z.object({ active: z.boolean() });
 
@@ -173,6 +188,7 @@ export const BRIDGE_METHODS = {
   'queue/list': { params: QueueListParamsSchema, result: QueueListResultSchema },
   'viewport/set': { params: SetViewportParamsSchema, result: SetViewportResultSchema },
   'inspect/mode': { params: InspectModeParamsSchema, result: InspectModeResultSchema },
+  'state/preview': { params: StatePreviewParamsSchema, result: StatePreviewResultSchema },
   log: { params: LogParamsSchema, result: z.object({}) },
 } as const;
 

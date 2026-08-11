@@ -54,6 +54,29 @@ function observed(name: StateName, verification: string, label?: string): Captur
   return state;
 }
 
+/**
+ * A point inside the viewport but outside `box`, used to release the mouse
+ * button somewhere the press cannot turn into a click.
+ */
+async function pointOutside(
+  ctx: StateContext,
+  box: { x: number; y: number; width: number; height: number },
+): Promise<{ x: number; y: number }> {
+  const viewport = ctx.page.viewportSize() ?? { width: 1280, height: 800 };
+  const inside = (point: { x: number; y: number }): boolean =>
+    point.x >= box.x && point.x <= box.x + box.width && point.y >= box.y && point.y <= box.y + box.height;
+  const inViewport = (point: { x: number; y: number }): boolean =>
+    point.x >= 0 && point.y >= 0 && point.x < viewport.width && point.y < viewport.height;
+
+  const candidates = [
+    { x: box.x - 6, y: box.y - 6 },
+    { x: box.x + box.width + 6, y: box.y + box.height + 6 },
+    { x: viewport.width - 1, y: viewport.height - 1 },
+    { x: 0, y: 0 },
+  ];
+  return candidates.find((point) => inViewport(point) && !inside(point)) ?? { x: 0, y: 0 };
+}
+
 const NOOP = async (): Promise<void> => undefined;
 
 /**
@@ -72,8 +95,29 @@ export async function applyState(
     case 'default':
     case 'custom': {
       const before = ctx.locator === undefined ? undefined : await safeProbe(ctx.locator, ctx.timeoutMs);
+
+      // Selecting an element by clicking it leaves the pointer sitting on it,
+      // so without this a "default" capture would quietly photograph a hover.
+      // Undoing our own artefact is what keeps `observed` honest.
+      let movedPointer = false;
+      if (ctx.locator !== undefined) {
+        const box = await ctx.locator.boundingBox({ timeout: ctx.timeoutMs }).catch(() => null);
+        if (box !== null) {
+          const away = await pointOutside(ctx, box);
+          await ctx.page.mouse.move(away.x, away.y).catch(() => undefined);
+          movedPointer = true;
+          steps.push({ action: 'move-pointer', target: 'off the element' });
+        }
+      }
+
       const application: StateApplication = {
-        state: observed(name, 'page captured as found', label),
+        state: observed(
+          name,
+          movedPointer
+            ? 'page captured as found, with the pointer moved off the element'
+            : 'page captured as found',
+          label,
+        ),
         steps,
         cleanup: NOOP,
       };
@@ -251,29 +295,6 @@ async function tabWalkTo(ctx: StateContext, locator: Locator, steps: RecipeStep[
     if (flags?.focused === true) return true;
   }
   return false;
-}
-
-/**
- * A point inside the viewport but outside `box`, used to release the mouse
- * button somewhere the press cannot turn into a click.
- */
-async function pointOutside(
-  ctx: StateContext,
-  box: { x: number; y: number; width: number; height: number },
-): Promise<{ x: number; y: number }> {
-  const viewport = ctx.page.viewportSize() ?? { width: 1280, height: 800 };
-  const inside = (point: { x: number; y: number }): boolean =>
-    point.x >= box.x && point.x <= box.x + box.width && point.y >= box.y && point.y <= box.y + box.height;
-  const inViewport = (point: { x: number; y: number }): boolean =>
-    point.x >= 0 && point.y >= 0 && point.x < viewport.width && point.y < viewport.height;
-
-  const candidates = [
-    { x: box.x - 6, y: box.y - 6 },
-    { x: box.x + box.width + 6, y: box.y + box.height + 6 },
-    { x: viewport.width - 1, y: viewport.height - 1 },
-    { x: 0, y: 0 },
-  ];
-  return candidates.find((point) => inViewport(point) && !inside(point)) ?? { x: 0, y: 0 };
 }
 
 async function applyActive(ctx: StateContext, steps: RecipeStep[]): Promise<StateApplication> {

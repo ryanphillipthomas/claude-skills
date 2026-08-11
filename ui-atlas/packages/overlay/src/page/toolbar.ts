@@ -19,6 +19,8 @@ export interface ToolbarCallbacks {
   onSetViewport(width: number, height: number, presetName?: string): void;
   onClearSelection(): void;
   onToggleBoxModel(next: boolean): void;
+  /** Apply a state to the live page, or release it with `undefined`. */
+  onPreviewState(state: StateName | undefined): void;
 }
 
 export interface SelectionView {
@@ -58,6 +60,8 @@ export class Toolbar {
   private readonly boxModelButton: HTMLButtonElement;
   private readonly detailsHost: HTMLDivElement;
   private readonly stateRow: HTMLDivElement;
+  private readonly stateNote: HTMLDivElement;
+  private previewing: StateName | undefined;
   private readonly viewportRow: HTMLDivElement;
   private readonly captureRow: HTMLDivElement;
   private readonly jobList: HTMLUListElement;
@@ -103,9 +107,10 @@ export class Toolbar {
     elementSection.append(this.detailsHost);
 
     // --- States -----------------------------------------------------------
-    const stateSection = section('States');
+    const stateSection = section('States to capture');
     this.stateRow = div('ua-row');
-    stateSection.append(this.stateRow);
+    this.stateNote = div('ua-hint');
+    stateSection.append(this.stateRow, this.stateNote);
 
     // --- Viewport ---------------------------------------------------------
     const viewportSection = section('Viewport');
@@ -176,7 +181,9 @@ export class Toolbar {
 
   setSelection(selection: SelectionView | undefined): void {
     this.selection = selection;
+    this.previewing = undefined;
     this.renderSelection();
+    this.renderStates();
     this.renderCaptureButtons();
   }
 
@@ -221,18 +228,54 @@ export class Toolbar {
     return ordered.length > 0 ? ordered : ['default'];
   }
 
+  /**
+   * Each chip does two things at once: it adds the state to the capture set and
+   * applies it to the live page so you can see it. Selecting a state that does
+   * nothing visible is the single most confusing thing this panel could do.
+   */
   private renderStates(): void {
     this.stateRow.textContent = '';
     for (const state of CAPTURABLE_STATES) {
+      const selected = this.selectedStates.has(state);
       const control = button(state, () => {
-        if (this.selectedStates.has(state)) this.selectedStates.delete(state);
-        else this.selectedStates.add(state);
-        if (this.selectedStates.size === 0) this.selectedStates.add('default');
+        if (selected) {
+          this.selectedStates.delete(state);
+          if (this.selectedStates.size === 0) this.selectedStates.add('default');
+          if (this.previewing === state) this.setPreviewing(undefined);
+          this.callbacks.onPreviewState(undefined);
+        } else {
+          this.selectedStates.add(state);
+          this.callbacks.onPreviewState(state === 'default' ? undefined : state);
+        }
         this.renderStates();
+        this.renderCaptureButtons();
       });
-      control.setAttribute('aria-pressed', String(this.selectedStates.has(state)));
+      control.setAttribute('aria-pressed', String(selected));
+      if (this.previewing === state) control.classList.add('ua-btn--previewing');
+      control.title = selected
+        ? `Included in the capture. Click to remove.`
+        : `Capture this state, and show it on the page now.`;
       this.stateRow.append(control);
     }
+    this.renderStateNote();
+  }
+
+  private renderStateNote(): void {
+    this.stateNote.textContent = '';
+    if (this.selection === undefined) {
+      this.stateNote.textContent = 'Select an element to preview its states.';
+      return;
+    }
+    this.stateNote.textContent =
+      this.previewing === undefined
+        ? `Capturing: ${this.states.join(', ')}`
+        : `Showing "${this.previewing}" on the page · capturing: ${this.states.join(', ')}`;
+  }
+
+  /** Reflect what the host actually managed to apply, not what we asked for. */
+  setPreviewing(state: StateName | undefined): void {
+    this.previewing = state;
+    this.renderStates();
   }
 
   private renderViewportPresets(): void {
@@ -252,27 +295,26 @@ export class Toolbar {
     this.captureRow.textContent = '';
     const hasSelection = this.selection !== undefined;
 
-    const element = button('Element', () =>
+    // One element button, and it captures exactly what the chips say. The old
+    // pair — an "Element" button that silently captured only `default` next to
+    // a "State set" that honoured the chips — was a trap.
+    const states = this.states;
+    const elementLabel =
+      states.length === 1 ? `Capture ${states[0] ?? 'default'}` : `Capture ${String(states.length)} states`;
+    const element = button(elementLabel, () =>
       this.callbacks.onCapture({
         kind: 'element',
-        states: ['default'],
+        states,
         responsive: false,
         includeOverlay: false,
+        label: `element · ${states.join(', ')}`,
       }),
     );
     element.className = 'ua-btn ua-btn--primary';
     element.disabled = !hasSelection;
-
-    const stateSet = button('State set', () =>
-      this.callbacks.onCapture({
-        kind: 'element',
-        states: this.states,
-        responsive: false,
-        includeOverlay: false,
-        label: `states: ${this.states.join(', ')}`,
-      }),
-    );
-    stateSet.disabled = !hasSelection;
+    element.title = hasSelection
+      ? `Captures ${states.join(', ')} for the selected element.`
+      : 'Select an element first.';
 
     const responsive = button('Responsive set', () =>
       this.callbacks.onCapture({
@@ -316,7 +358,7 @@ export class Toolbar {
     animation.disabled = this.session?.capabilities.animation !== true;
     animation.title = 'Animation capture lands in a later phase.';
 
-    this.captureRow.append(element, stateSet, viewport, fullPage, responsive, animation);
+    this.captureRow.append(element, viewport, fullPage, responsive, animation);
   }
 
   private renderSelection(): void {

@@ -129,6 +129,8 @@ button.ua-btn:hover { background: #27364f; }
 button.ua-btn:focus-visible { outline: 2px solid #38bdf8; outline-offset: 1px; }
 button.ua-btn[aria-pressed="true"] { background: #2563eb; border-color: #3b82f6; }
 button.ua-btn[disabled] { opacity: 0.45; cursor: not-allowed; }
+/* The state currently applied to the live page. */
+button.ua-btn--previewing { background: #db2777; border-color: #ec4899; color: #ffffff; }
 button.ua-btn--primary { background: #db2777; border-color: #ec4899; }
 button.ua-btn--primary:hover { background: #be185d; }
 
@@ -137,6 +139,7 @@ button.ua-btn--primary:hover { background: #be185d; }
 .ua-kv dd { margin: 0; word-break: break-word; font-family: ui-monospace, Menlo, monospace; }
 
 .ua-empty { color: #7c8aa5; font-style: italic; }
+.ua-hint { color: #94a3b8; font-size: 11px; line-height: 1.4; }
 
 .ua-locator {
   background: #111c33;

@@ -10,6 +10,7 @@ import type {
   OverlayBootstrap,
   OverlaySession,
   QueueJob,
+  StateName,
 } from '@ui-atlas/protocol';
 import { BridgeError, createBridge, type Bridge } from './bridge.js';
 import { Highlight } from './highlight.js';
@@ -87,6 +88,7 @@ class OverlayApp {
             void this.setViewport(width, height, presetName),
           onClearSelection: () => this.clearSelection(),
           onToggleBoxModel: (next) => this.highlight.setOptions({ showBoxModel: next }),
+          onPreviewState: (state) => void this.previewState(state),
         })
       : undefined;
   }
@@ -176,6 +178,7 @@ class OverlayApp {
   }
 
   private clearSelection(): void {
+    this.toolbar?.setPreviewing(undefined);
     this.selectedElement = undefined;
     this.selectedProbe = undefined;
     this.highlight.hideSelected();
@@ -219,6 +222,26 @@ class OverlayApp {
       for (const job of result.jobs) this.jobs.set(job.id, job);
       this.toolbar?.renderJobs([...this.jobs.values()]);
     } catch (error) {
+      this.toolbar?.notice('error', describe(error));
+    }
+  }
+
+  /**
+   * Ask the host to hold a state on the live page. The toolbar only shows a
+   * state as previewing once the host confirms it actually applied.
+   */
+  private async previewState(state: StateName | undefined): Promise<void> {
+    try {
+      const result = await this.bridge.call<{
+        applied: StateName | null;
+        notice?: string;
+      }>('state/preview', { state: state ?? null });
+
+      this.toolbar?.setPreviewing(result.applied ?? undefined);
+      if (result.notice !== undefined) this.toolbar?.notice('info', result.notice);
+      else this.toolbar?.clearNotice();
+    } catch (error) {
+      this.toolbar?.setPreviewing(undefined);
       this.toolbar?.notice('error', describe(error));
     }
   }

@@ -15,8 +15,10 @@ import {
   type BrowserSession,
 } from '@ui-atlas/browser';
 import {
+  applyState,
   CaptureQueue,
   CaptureService,
+  PointerTracker,
   ResponsiveRunner,
   type ResponsiveRunResult,
   type ViewportTarget,
@@ -64,12 +66,24 @@ interface Selection {
   frame: Frame;
 }
 
+interface HeldPreview {
+  state: StateName;
+  release: () => Promise<void>;
+}
+
+/**
+ * Holding a mouse button down indefinitely would take the pointer away from the
+ * user, who needs it to reach the toolbar. `active` is captured, never held.
+ */
+const UNHOLDABLE_STATES: StateName[] = ['active'];
+
 /**
  * One live UI Atlas run: a browser, one page, the artifact writer, the capture
  * service, and (for `inspect`) the injected overlay wired to the host bridge.
  */
 export class AtlasSession {
   private selection: Selection | undefined;
+  private preview: HeldPreview | undefined;
 
   private constructor(
     readonly runId: string,
@@ -159,6 +173,10 @@ export class AtlasSession {
             const session = requireSession(holder);
             return { viewport: await session.applyViewport(params.width, params.height, params.presetName) };
           },
+          'state/preview': async (_source, params) => {
+            const session = requireSession(holder);
+            return session.previewState(params.state);
+          },
           'inspect/mode': async (_source, params) => {
             const session = requireSession(holder);
             await session.overlay.broadcast({ type: 'inspect/mode', active: params.active });
@@ -222,6 +240,7 @@ export class AtlasSession {
 
     page.on('framenavigated', (frame) => {
       if (frame !== page.mainFrame()) return;
+      void session.releasePreview();
       if (session.selection !== undefined) {
         session.selection = undefined;
         void overlay.dispatch({
@@ -316,6 +335,16 @@ export class AtlasSession {
     const framePath = await buildFramePath(source.frame);
     const identity = buildElementIdentity(probe, framePath);
 
+    // A held preview belongs to the element it was applied to. Every element
+    // capture re-sends its probe, so releasing on *any* selection call would
+    // drop the preview the user is looking at; only a genuinely different
+    // element should.
+    const isSameElement =
+      this.selection !== undefined &&
+      this.selection.frame === source.frame &&
+      this.selection.identity.structuralFingerprint === identity.structuralFingerprint;
+    if (!isSameElement) await this.releasePreview();
+
     const resolution = await resolveElement(source.frame, identity, {
       expectedBox: identity.boundingBox,
     });
@@ -334,7 +363,111 @@ export class AtlasSession {
   }
 
   clearSelection(): void {
+    void this.releasePreview();
     this.selection = undefined;
+  }
+
+  /* ---------------------------------------------------------------------- */
+  /* Live state preview                                                      */
+  /* ---------------------------------------------------------------------- */
+
+  /**
+   * Apply a state to the selected element and leave it applied, so the user can
+   * look at it. Exactly one state is held at a time; asking for `null` (or for
+   * `default`) puts the page back.
+   */
+  async previewState(state: StateName | null): Promise<{
+    applied: StateName | null;
+    provenance?: string;
+    verified?: boolean;
+    verification?: string;
+    notice?: string;
+  }> {
+    await this.releasePreview();
+    if (state === null || state === 'default') return { applied: null };
+
+    const selection = this.selection;
+    if (selection === undefined) {
+      throw new UiAtlasError('locator.not-found', 'select an element before previewing a state');
+    }
+    if (UNHOLDABLE_STATES.includes(state)) {
+      return {
+        applied: null,
+        notice: `"${state}" needs the mouse button held down, which would take the pointer away from you. It is still captured normally.`,
+      };
+    }
+
+    const resolution = await resolveElement(selection.frame, selection.identity, {
+      expectedBox: selection.identity.boundingBox,
+    });
+
+    const application = await applyState(
+      {
+        page: this.page,
+        locator: resolution.locator,
+        config: this.options.config.capture,
+        pointer: new PointerTracker(),
+        timeoutMs: this.options.config.capture.screenshotTimeoutMs,
+      },
+      state,
+    );
+
+    if (application.skipped !== undefined) {
+      await application.cleanup().catch(() => undefined);
+      return { applied: null, notice: application.skipped };
+    }
+
+    this.preview = { state, release: application.cleanup };
+
+    const result: {
+      applied: StateName | null;
+      provenance?: string;
+      verified?: boolean;
+      verification?: string;
+      notice?: string;
+    } = {
+      applied: state,
+      provenance: application.state.provenance,
+      verified: application.state.verified,
+    };
+    if (application.state.verification !== undefined) {
+      result.verification = application.state.verification;
+    }
+    if (state === 'hover') {
+      // The virtual pointer and the user's real pointer are the same device in
+      // a headed browser, so the first physical mouse move ends the hover.
+      result.notice = 'Hover preview ends as soon as you move your own mouse.';
+    }
+    if (application.state.provenance === 'forced') {
+      result.notice = 'This state is synthesised, not observed on the site. It is undone when you turn it off.';
+    }
+    return result;
+  }
+
+  /** Put the page back. Safe to call when nothing is held. */
+  async releasePreview(): Promise<StateName | undefined> {
+    const held = this.preview;
+    if (held === undefined) return undefined;
+    this.preview = undefined;
+    await held.release().catch(() => undefined);
+    return held.state;
+  }
+
+  get previewedState(): StateName | undefined {
+    return this.preview?.state;
+  }
+
+  /**
+   * Run `work` with no preview held, then put the preview back. A capture
+   * applies its own state; a held one would contaminate it.
+   */
+  private async withoutPreview<T>(work: () => Promise<T>): Promise<T> {
+    const held = await this.releasePreview();
+    try {
+      return await work();
+    } finally {
+      if (held !== undefined) await this.previewState(held).catch(() => undefined);
+    }
   }
 
   get selectedIdentity(): ElementIdentity | undefined {
@@ -382,29 +515,31 @@ export class AtlasSession {
       kind: request.kind,
       states,
       label,
-      run: async (report) => {
-        const captureIds: string[] = [];
-        const warnings: string[] = [];
-        const setId = states.length > 1 ? `set-${this.runId}-${String(Date.now())}` : undefined;
+      // A capture applies its own state; a held preview would contaminate it.
+      run: async (report) =>
+        this.withoutPreview(async () => {
+          const captureIds: string[] = [];
+          const warnings: string[] = [];
+          const setId = states.length > 1 ? `set-${this.runId}-${String(Date.now())}` : undefined;
 
-        for (const state of states) {
-          report(`${state} (${String(captureIds.length + 1)}/${String(states.length)})`);
-          const record = await this.captures.capture({
-            kind: request.kind,
-            state,
-            identity,
-            frame,
-            includeOverlay: request.includeOverlay,
-            ...(setId === undefined ? {} : { set: { id: setId, kind: 'state' as const, member: state } }),
-          });
-          captureIds.push(record.id);
-          warnings.push(...record.warnings);
-          if (record.status === 'failed' && record.error !== undefined) {
-            warnings.push(`${state}: ${record.error.code} — ${record.error.message}`);
+          for (const state of states) {
+            report(`${state} (${String(captureIds.length + 1)}/${String(states.length)})`);
+            const record = await this.captures.capture({
+              kind: request.kind,
+              state,
+              identity,
+              frame,
+              includeOverlay: request.includeOverlay,
+              ...(setId === undefined ? {} : { set: { id: setId, kind: 'state' as const, member: state } }),
+            });
+            captureIds.push(record.id);
+            warnings.push(...record.warnings);
+            if (record.status === 'failed' && record.error !== undefined) {
+              warnings.push(`${state}: ${record.error.code} — ${record.error.message}`);
+            }
           }
-        }
-        return { captureIds, warnings };
-      },
+          return { captureIds, warnings };
+        }),
     });
 
     return [job];
@@ -427,7 +562,8 @@ export class AtlasSession {
       kind: input.kind,
       states: input.states,
       label: `${input.label} · ${String(this.options.config.viewports.length)} viewports`,
-      run: async (report) => {
+      run: async (report) =>
+        this.withoutPreview(async () => {
         const result = await this.runResponsive({
           url,
           kind: input.kind,
@@ -444,7 +580,7 @@ export class AtlasSession {
           }
         }
         return { captureIds: result.records.map((record) => record.id), warnings };
-      },
+        }),
     });
   }
 
@@ -577,6 +713,7 @@ export class AtlasSession {
 
   async close(): Promise<RunManifest> {
     await this.queue.drain().catch(() => undefined);
+    await this.releasePreview();
     const manifest = await this.writer.finalize({
       ...(this.browser.browserVersion === undefined
         ? {}
