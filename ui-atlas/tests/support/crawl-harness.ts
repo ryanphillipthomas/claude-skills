@@ -2,10 +2,28 @@ import type { Page, Request } from 'playwright';
 import { emptyManifest, newRunId, RunWriter } from '@ui-atlas/artifacts';
 import { launchSession, resolveViewport, viewportLabel, type BrowserSession } from '@ui-atlas/browser';
 import { CaptureService } from '@ui-atlas/capture';
-import { describeTarget, locatorFor, RecipeRunner } from '@ui-atlas/crawler';
+import {
+  describeTarget,
+  locatorFor,
+  RecipeRunner,
+  type CrawlWorker,
+} from '@ui-atlas/crawler';
 import { loadProbeBundle, probeLocator } from '@ui-atlas/overlay';
 import type { UiAtlasConfig } from '@ui-atlas/config';
 import { makeOutputDir, startFixtureServer, testConfig, type FixtureServer } from './harness.js';
+
+export interface CrawlRequestLog {
+  method: string;
+  url: string;
+  /** Playwright's classification: `document`, `stylesheet`, `image`, … */
+  resourceType: string;
+  /**
+   * False for a subresource *and* for an iframe's own document, so a top-level
+   * navigation can be told apart from `frames.html` loading its child.
+   */
+  mainFrame: boolean;
+  at: number;
+}
 
 export const CRAWL_VIEWPORT = resolveViewport({
   name: 'base',
@@ -27,7 +45,16 @@ export interface CrawlHarness {
   writer: RunWriter;
   runId: string;
   /** Every request the browser made, so "it never clicked" can be proved. */
-  requests: Array<{ method: string; url: string }>;
+  requests: CrawlRequestLog[];
+  /**
+   * A worker factory backed by fresh browser contexts, wired the way the CLI
+   * wires it. Records which worker index handled which page.
+   */
+  workerFactory(options?: { probe?: boolean }): {
+    create: (index: number) => Promise<CrawlWorker>;
+    /** Worker index that fetched each URL, by the page that fetched it. */
+    ownerOf(page: Page): number;
+  };
   url(path: string): string;
   /** A runner wired the same way the CLI wires it. */
   recipeRunner(config: UiAtlasConfig): RecipeRunner;
@@ -72,10 +99,22 @@ export async function startCrawlHarness(options: CrawlHarnessOptions = {}): Prom
   });
   const page = browser.context.pages()[0] ?? (await browser.context.newPage());
 
-  const requests: Array<{ method: string; url: string }> = [];
-  page.on('request', (request: Request) => {
-    requests.push({ method: request.method(), url: request.url() });
-  });
+  const requests: CrawlRequestLog[] = [];
+  const watch = (target: Page): void => {
+    target.on('request', (request: Request) => {
+      requests.push({
+        method: request.method(),
+        url: request.url(),
+        resourceType: request.resourceType(),
+        mainFrame: request.frame() === target.mainFrame(),
+        at: Date.now(),
+      });
+    });
+  };
+  watch(page);
+
+  const owners = new Map<Page, number>([[page, 0]]);
+  const extraContexts: Array<() => Promise<void>> = [];
 
   return {
     server,
@@ -100,7 +139,33 @@ export async function startCrawlHarness(options: CrawlHarnessOptions = {}): Prom
         }),
         probe: (target, spec) => probeLocator(locatorFor(target, spec), describeTarget(spec)),
       }),
+    workerFactory: (factoryOptions = {}) => ({
+      create: async (index: number): Promise<CrawlWorker> => {
+        const parent = browser.browser;
+        if (parent === undefined) throw new Error('this browser mode cannot create contexts');
+        const context = await parent.newContext({
+          viewport: { width: CRAWL_VIEWPORT.width, height: CRAWL_VIEWPORT.height },
+        });
+        if (factoryOptions.probe === true) {
+          await context.addInitScript({ content: await loadProbeBundle() });
+        }
+        const workerPage = await context.newPage();
+        watch(workerPage);
+        owners.set(workerPage, index);
+        extraContexts.push(async () => {
+          await context.close().catch(() => undefined);
+        });
+        return {
+          page: workerPage,
+          close: async () => {
+            await context.close().catch(() => undefined);
+          },
+        };
+      },
+      ownerOf: (target: Page) => owners.get(target) ?? -1,
+    }),
     dispose: async () => {
+      for (const close of extraContexts.splice(0)) await close();
       await browser.close().catch(() => undefined);
       if (options.server === undefined) await server.close();
     },

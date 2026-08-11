@@ -157,9 +157,24 @@ is still empty and no non-`GET` request was issued.
 - [x] **It reads and nothing else.** Inventorying `destructive.html` leaves its
       audit log empty and issues no non-`GET` request
 
-### Still to build in phase 3
+## Phase 3 — worker concurrency and throttling (fourth slice)
 
-- [ ] Worker concurrency and per-origin throttling
+- [x] `crawl --concurrency <n>`: isolated workers, each with its own browser
+      context seeded from the live session's storage state
+- [x] `perPageDelayMs` is a minimum gap **per origin across all workers**, not a
+      per-worker pause; the slot is claimed before the wait, so workers stagger
+- [x] The frontier separates handed-out from committed work, so a crawl killed
+      with pages in flight resumes them instead of losing them
+- [x] `maxPages` counts in-flight navigations, so workers cannot collectively
+      overshoot the budget
+- [x] Workers exit only on a drained frontier — queue empty *and* nothing in
+      flight — never merely because the queue was momentarily empty
+- [x] A worker that throws releases its page back to the queue
+- [x] `browser.mode: profile` cannot create sibling contexts: warns and stays at
+      one worker, matching ADR 11's degradation
+- [x] Politeness waits are clamped by the run budget
+
+### Still to build in phase 3
 - [ ] Retry with jitter, and status-aware backoff for 429/503
 - [ ] Trace-on-failure
 - [ ] Sitemap seeding, and optional dedup by page structural fingerprint

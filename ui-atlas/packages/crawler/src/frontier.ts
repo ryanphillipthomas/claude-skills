@@ -45,13 +45,22 @@ function emptyCounts(): Record<CrawlSkipReason, number> {
 export class Frontier {
   private readonly pending: FrontierItem[] = [];
   private readonly queued = new Set<string>();
-  private readonly visited = new Set<string>();
+  /**
+   * Handed to a worker but not yet recorded. Kept apart from `committed`
+   * because a crawl killed with pages in flight must resume as if they were
+   * never started: a snapshot that called them visited would lose them.
+   */
+  private readonly inFlight = new Map<string, FrontierItem>();
+  /** Pages whose record is on disk. This is what a snapshot calls visited. */
+  private readonly committed = new Set<string>();
+  /** Every URL in any of the above. The one set deduplication consults. */
+  private readonly seen = new Set<string>();
   private readonly counts = emptyCounts();
   private queueFullReported = false;
   /**
-   * Navigations performed, which is what `maxPages` bounds. Distinct from
-   * `visited.size`: a redirect destination is marked visited so it is never
-   * queued again, but it cost no navigation of its own.
+   * Committed navigations, which is what `maxPages` bounds. Distinct from
+   * `committed.size`: a redirect destination is recorded so it is never queued
+   * again, but it cost no navigation of its own.
    */
   private navigations = 0;
 
@@ -59,10 +68,16 @@ export class Frontier {
     const { resume } = options;
     if (resume === undefined) return;
 
-    for (const url of resume.visited) this.visited.add(url);
+    for (const url of resume.visited) {
+      this.committed.add(url);
+      this.seen.add(url);
+    }
     this.navigations = resume.navigations;
+    // A resumed snapshot's `pending` already contains anything that was in
+    // flight when the previous run stopped.
     for (const item of resume.pending) {
-      if (this.visited.has(item.url) || this.queued.has(item.url)) continue;
+      if (this.seen.has(item.url)) continue;
+      this.seen.add(item.url);
       this.queued.add(item.url);
       this.pending.push(item);
     }
@@ -71,26 +86,41 @@ export class Frontier {
     }
   }
 
-  /** Navigations performed. This is the number `maxPages` caps. */
+  /**
+   * Navigations spent: committed, plus the ones currently in flight. Counting
+   * in-flight work is what keeps concurrent workers from collectively
+   * overshooting `maxPages`.
+   */
   get visitedCount(): number {
-    return this.navigations;
+    return this.navigations + this.inFlight.size;
   }
 
   get pendingCount(): number {
     return this.pending.length;
   }
 
+  /** Pages handed to a worker and not yet recorded. */
+  get inFlightCount(): number {
+    return this.inFlight.size;
+  }
+
+  /** True when the queue is empty and no worker is still holding a page. */
+  get isDrained(): boolean {
+    return this.pending.length === 0 && this.inFlight.size === 0;
+  }
+
   get skipCounts(): Readonly<Record<CrawlSkipReason, number>> {
     return this.counts;
   }
 
+  /** Committed URLs. In-flight work is deliberately not counted as visited. */
   visitedUrls(): string[] {
-    return [...this.visited];
+    return [...this.committed];
   }
 
   /** True once the page budget is spent. `next()` stops handing out work here. */
   get pageBudgetSpent(): boolean {
-    return this.navigations >= this.options.budgets.maxPages;
+    return this.visitedCount >= this.options.budgets.maxPages;
   }
 
   /**
@@ -99,13 +129,39 @@ export class Frontier {
    * later link to it is a duplicate rather than new work.
    */
   markVisited(url: string): void {
-    this.visited.add(url);
+    this.seen.add(url);
+    this.committed.add(url);
     // If it was already queued, drop it: visiting it again would fetch a page
     // this run has already fetched.
     if (this.queued.delete(url)) {
       const index = this.pending.findIndex((item) => item.url === url);
       if (index >= 0) this.pending.splice(index, 1);
     }
+  }
+
+  /**
+   * The page's record is on disk. Until this is called the item stays in
+   * flight, and a snapshot puts it back in the queue — so a crash re-crawls it
+   * rather than losing it.
+   */
+  commit(url: string): void {
+    this.inFlight.delete(url);
+    if (this.committed.has(url)) return;
+    this.committed.add(url);
+    this.navigations += 1;
+  }
+
+  /**
+   * Hand an item back unrecorded, so another worker (or another run) picks it
+   * up. Used when a worker is stopped mid-page by a budget.
+   */
+  release(url: string): void {
+    const item = this.inFlight.get(url);
+    if (item === undefined) return;
+    this.inFlight.delete(url);
+    if (this.queued.has(url)) return;
+    this.queued.add(url);
+    this.pending.unshift(item);
   }
 
   /**
@@ -127,7 +183,7 @@ export class Frontier {
 
     const { url } = decision;
 
-    if (this.visited.has(url) || this.queued.has(url)) {
+    if (this.seen.has(url)) {
       this.counts.duplicate += 1;
       return { admitted: false, reason: 'duplicate', detail: 'already seen this run', url };
     }
@@ -154,6 +210,7 @@ export class Frontier {
 
     const item: FrontierItem = { key: frontierKey(url), url, depth: context.depth };
     if (context.base !== undefined) item.discoveredFrom = context.base;
+    this.seen.add(url);
     this.queued.add(url);
     this.pending.push(item);
     return { admitted: true, item };
@@ -161,16 +218,19 @@ export class Frontier {
 
   /**
    * The next page to visit, or `undefined` when the queue is empty or the page
-   * budget is spent. Marks the page visited: a URL handed out once is never
-   * handed out again, even if the visit itself fails.
+   * budget is spent. Moves the page in-flight: a URL handed out once is never
+   * handed out again in this run, even if the visit itself fails.
+   *
+   * Safe to call from several workers. Nothing here awaits, so the whole method
+   * runs to completion before another worker can enter it, and two workers can
+   * never be given the same page.
    */
   next(): FrontierItem | undefined {
     if (this.pageBudgetSpent) return undefined;
     const item = this.pending.shift();
     if (item === undefined) return undefined;
     this.queued.delete(item.url);
-    this.visited.add(item.url);
-    this.navigations += 1;
+    this.inFlight.set(item.url, item);
     return item;
   }
 
@@ -181,14 +241,20 @@ export class Frontier {
     return true;
   }
 
+  /**
+   * A snapshot that can be resumed from safely at any moment, including with
+   * workers mid-page. In-flight items are serialised as *pending*, so a crawl
+   * killed while four pages were being fetched re-fetches those four rather
+   * than skipping them as already visited.
+   */
   toState(input: { runId: string; seeds: string[]; updatedAt: string }): CrawlState {
     return {
       schemaVersion: SCHEMA_VERSION,
       runId: input.runId,
       seeds: input.seeds,
-      visited: [...this.visited],
+      visited: [...this.committed],
       navigations: this.navigations,
-      pending: [...this.pending],
+      pending: [...this.pending, ...this.inFlight.values()],
       skipCounts: { ...this.counts },
       updatedAt: input.updatedAt,
     };

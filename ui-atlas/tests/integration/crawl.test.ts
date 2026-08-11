@@ -259,6 +259,37 @@ describe('bounded crawler', () => {
     }
   });
 
+  it('runs concurrently through the CLI without duplicating a page', async () => {
+    const server = await startFixtureServer();
+    const outputRoot = await makeOutputDir('crawl-parallel');
+    const quiet = createLogger({ level: 'error', write: () => undefined });
+    try {
+      const code = await run({
+        argv: [
+          'crawl', server.url('/'),
+          '--project', 'fixture',
+          '--output', outputRoot,
+          '--concurrency', '3',
+          '--delay-ms', '0',
+          '--headless',
+        ],
+        logger: quiet,
+      });
+      expect(code).toBe(0);
+
+      const runDir = findRunDir(outputRoot);
+      const { records } = await readPages(join(runDir, 'pages.jsonl'));
+      expect(records).toHaveLength(13);
+      expect(new Set(records.map((record) => record.requestedUrl)).size).toBe(13);
+
+      const manifest = await readRunManifest(join(runDir, 'run.json'));
+      expect(manifest.counts?.pages).toBe(13);
+    } finally {
+      await removeDir(outputRoot);
+      await server.close();
+    }
+  });
+
   it('runs end to end through the CLI, then resumes through it', async () => {
     const server = await startFixtureServer();
     const outputRoot = await makeOutputDir('crawl-cli');

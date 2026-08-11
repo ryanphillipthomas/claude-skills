@@ -155,6 +155,26 @@ Every budget is a hard limit — `maxPages`, `maxDepth`, `perPageTimeoutMs`,
 `maxRunMinutes` and a bound on the pending queue. Stopping on one is a result,
 not an error: the run says which budget stopped it and how much was left queued.
 
+### Concurrency and politeness
+
+```bash
+npm run ui-atlas -- crawl site.yml --concurrency 4 --delay-ms 750
+```
+
+Each worker gets its own browser context, seeded from the live session's storage
+state — so a signed-in crawl stays signed in on every worker, without workers
+sharing one mutable session. Concurrency defaults to **1**; more workers on
+someone else's site is a decision only you can make.
+
+**`perPageDelayMs` is a minimum gap between navigations to one origin, enforced
+across every worker.** Raising `--concurrency` cannot raise the rate a single
+host sees; the workers stagger instead. That is the difference between a
+throttle and a sleep, and there is a test that fails if it regresses.
+
+A persistent profile (`--mode profile`) owns its only context and cannot create
+siblings, so it warns and stays single-worker. Use `clean` or `storage-state`
+for concurrency.
+
 A site config is an ordinary UI Atlas config with a `crawl:` block:
 
 ```yaml

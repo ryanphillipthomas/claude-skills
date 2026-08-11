@@ -17,6 +17,7 @@ import { collectLinks, type DiscoveredLink } from './page-scripts.js';
 import type { InteractionInventory } from './inventory.js';
 import { CrawlPolicy } from './policy.js';
 import type { RecipeOutcome, RecipeRunner } from './recipes.js';
+import { OriginThrottle } from './throttle.js';
 
 export type CrawlStopReason = 'frontier-empty' | 'max-pages' | 'run-timeout';
 
@@ -47,6 +48,19 @@ export interface CrawlResult {
   state: CrawlState;
 }
 
+/**
+ * One worker's resources. Each owns its own page — and, when the CLI builds
+ * them, its own browser context — because the brief is explicit that scale
+ * comes from isolated workers rather than many tabs sharing one mutable
+ * session.
+ */
+export interface CrawlWorker {
+  page: Page;
+  /** Bound to this worker's page, so recipes capture the page they ran on. */
+  recipes?: RecipeRunner | undefined;
+  close?: (() => Promise<void>) | undefined;
+}
+
 export interface CrawlerOptions {
   page: Page;
   writer: RunWriter;
@@ -64,8 +78,14 @@ export interface CrawlerOptions {
    */
   recipes?: RecipeRunner | undefined;
   /**
+   * Builds worker `n` (1-based; worker 0 is `page`/`recipes`). Without it a
+   * crawl stays single-worker whatever `crawl.concurrency` says, and warns.
+   */
+  createWorker?: ((index: number) => Promise<CrawlWorker>) | undefined;
+  /**
    * Inventories each page's interactive controls and says what each is likely
-   * to do. Read-only: it activates nothing, ever.
+   * to do. Read-only: it activates nothing, ever. Shared across workers: it
+   * takes the page as an argument rather than holding one.
    */
   inventory?: InteractionInventory | undefined;
   /**
@@ -80,6 +100,13 @@ const MAX_SKIP_SAMPLES = 50;
 
 /** Reading a title should be instant; this only bounds a pathological page. */
 const TITLE_BUDGET_MS = 2_000;
+
+/**
+ * How long an idle worker waits before looking for work again. Only reached
+ * when the queue is momentarily empty but another worker is still on a page,
+ * so it costs nothing in a single-worker crawl.
+ */
+const IDLE_POLL_MS = 25;
 
 /**
  * A policy-driven queue that visits pages and reads their links. It is not a
@@ -120,6 +147,43 @@ export class Crawler {
     return this.policy.origins;
   }
 
+  /**
+   * Worker 0 is the caller's page. The rest are built on demand, and a crawl
+   * that asked for concurrency without supplying a way to build them says so
+   * rather than quietly running one worker.
+   */
+  private async startWorkers(): Promise<CrawlWorker[]> {
+    const wanted = Math.max(1, this.options.config.crawl.concurrency);
+    const first: CrawlWorker = {
+      page: this.options.page,
+      ...(this.options.recipes === undefined ? {} : { recipes: this.options.recipes }),
+    };
+    const workers: CrawlWorker[] = [first];
+    if (wanted === 1) return workers;
+
+    const create = this.options.createWorker;
+    if (create === undefined) {
+      this.warnings.push(
+        `crawl.concurrency is ${String(wanted)} but this run cannot build extra workers; ` +
+          'continuing with one',
+      );
+      return workers;
+    }
+
+    for (let index = 1; index < wanted; index += 1) {
+      try {
+        workers.push(await create(index));
+      } catch (error) {
+        this.warnings.push(
+          `worker ${String(index)} could not be started (${describe(error)}); ` +
+            `continuing with ${String(workers.length)}`,
+        );
+        break;
+      }
+    }
+    return workers;
+  }
+
   async run(): Promise<CrawlResult> {
     const { config, writer } = this.options;
     const crawl = config.crawl;
@@ -140,42 +204,73 @@ export class Crawler {
     }
 
     const pages: PageRecord[] = [];
+    const workers = await this.startWorkers();
+    const throttle = new OriginThrottle(crawl.perPageDelayMs);
     let timedOut = false;
 
-    for (;;) {
-      // An empty queue means the crawl finished, whatever the budgets say. It
-      // is checked first so a crawl that ran out of work is never reported as
-      // having been stopped by a limit it merely happened to reach.
-      if (this.frontier.pendingCount === 0) break;
-      if (runDeadline.expired()) {
-        timedOut = true;
-        break;
+    const runOne = async (worker: CrawlWorker): Promise<void> => {
+      for (;;) {
+        if (runDeadline.expired()) {
+          timedOut = true;
+          return;
+        }
+        if (this.frontier.pageBudgetSpent) return;
+
+        const item = this.frontier.next();
+        if (item === undefined) {
+          // The queue can be empty while another worker is still on a page that
+          // is about to contribute links, so idling is not the same as being
+          // finished. Only a drained frontier ends a worker.
+          if (this.frontier.isDrained) return;
+          await sleep(IDLE_POLL_MS);
+          continue;
+        }
+
+        try {
+          // Politeness is enforced per origin across every worker, not per
+          // worker, so raising concurrency never raises the rate one host sees.
+          await throttle.acquire(originOrKey(item.url), runDeadline.remainingMs());
+          if (runDeadline.expired()) {
+            timedOut = true;
+            this.frontier.release(item.url);
+            return;
+          }
+
+          this.options.onProgress?.(
+            `${String(this.frontier.visitedCount)}/${String(crawl.budgets.maxPages)} ${item.url}`,
+          );
+
+          const record = await this.visit(worker, item, runDeadline);
+          pages.push(await writer.addPage(record));
+          // Committed only once the record is on disk: until then a snapshot
+          // puts the page back in the queue rather than calling it visited.
+          this.frontier.commit(item.url);
+        } catch (error) {
+          // A worker that dies must not take its page down with it.
+          this.frontier.release(item.url);
+          this.warnings.push(`worker failed on ${item.url}: ${describe(error)}`);
+          return;
+        }
+
+        if (this.frontier.claimQueueFullWarning()) {
+          this.warnings.push(
+            `the pending queue reached maxQueued (${String(crawl.budgets.maxQueued)}); ` +
+              'later links were dropped',
+          );
+        }
+
+        // Persisted after every page, so an interrupted crawl resumes from the
+        // last completed page rather than from the start.
+        await writer.writeCrawlState(this.snapshotState());
       }
-      if (this.frontier.pageBudgetSpent) break;
+    };
 
-      const item = this.frontier.next();
-      if (item === undefined) break;
-
-      this.options.onProgress?.(
-        `${String(this.frontier.visitedCount)}/${String(crawl.budgets.maxPages)} ${item.url}`,
-      );
-
-      const record = await this.visit(item, runDeadline);
-      pages.push(await writer.addPage(record));
-
-      if (this.frontier.claimQueueFullWarning()) {
-        this.warnings.push(
-          `the pending queue reached maxQueued (${String(crawl.budgets.maxQueued)}); ` +
-            'later links were dropped',
-        );
-      }
-
-      // Persisted after every page, so an interrupted crawl resumes from the
-      // last completed page rather than from the start.
-      await writer.writeCrawlState(this.snapshotState());
-
-      if (crawl.perPageDelayMs > 0 && !this.frontier.pageBudgetSpent) {
-        await sleep(Math.min(crawl.perPageDelayMs, runDeadline.remainingMs()));
+    try {
+      await Promise.all(workers.map((worker) => runOne(worker)));
+    } finally {
+      // Worker 0's page belongs to the caller; the rest are ours to close.
+      for (const worker of workers.slice(1)) {
+        await worker.close?.().catch(() => undefined);
       }
     }
 
@@ -233,8 +328,13 @@ export class Crawler {
    * of the per-page budget and whatever is left of the whole run, so a slow page
    * near the end of a run cannot overrun the total deadline.
    */
-  private async visit(item: FrontierItem, runDeadline: Deadline): Promise<PageRecord> {
-    const { config, page, runId } = this.options;
+  private async visit(
+    worker: CrawlWorker,
+    item: FrontierItem,
+    runDeadline: Deadline,
+  ): Promise<PageRecord> {
+    const { config, runId } = this.options;
+    const { page } = worker;
     const crawl = config.crawl;
     const visitedAt = new Date().toISOString();
     const warnings: string[] = [];
@@ -304,7 +404,7 @@ export class Crawler {
       );
       // No recipes either. A recipe is approval to interact with pages on the
       // origins the operator named, not with wherever a redirect landed.
-      await this.runPageHook(record);
+      await this.runPageHook(worker, record);
       return record;
     }
 
@@ -316,21 +416,25 @@ export class Crawler {
       this.frontier.markVisited(canonicalFinal.url);
     }
 
-    await this.discover(item, finalUrl, warnings, pageDeadline);
+    await this.discover(worker, item, finalUrl, warnings, pageDeadline);
     // Before recipes: the inventory describes the page as served, not whatever
     // a recipe left it looking like.
-    await this.runInventory(record, warnings);
-    await this.runRecipes(record, warnings);
-    await this.runPageHook(record);
+    await this.runInventory(worker, record, warnings);
+    await this.runRecipes(worker, record, warnings);
+    await this.runPageHook(worker, record);
     return record;
   }
 
-  private async runInventory(record: PageRecord, warnings: string[]): Promise<void> {
+  private async runInventory(
+    worker: CrawlWorker,
+    record: PageRecord,
+    warnings: string[],
+  ): Promise<void> {
     const inventory = this.options.inventory;
     if (inventory === undefined || !inventory.enabled) return;
 
     try {
-      const found = await inventory.collect(this.options.page, record);
+      const found = await inventory.collect(worker.page, record);
       for (const candidate of found) {
         this.interactions.push(await this.options.writer.addInteraction(candidate));
       }
@@ -345,11 +449,15 @@ export class Crawler {
    * the frontier: the crawl's shape is decided by the markup as served, not by
    * wherever an interaction ended up.
    */
-  private async runRecipes(record: PageRecord, warnings: string[]): Promise<void> {
-    const runner = this.options.recipes;
+  private async runRecipes(
+    worker: CrawlWorker,
+    record: PageRecord,
+    warnings: string[],
+  ): Promise<void> {
+    const runner = worker.recipes;
     if (runner === undefined || runner.isEmpty) return;
 
-    const outcomes = await runner.runFor(this.options.page, record.finalUrl);
+    const outcomes = await runner.runFor(worker.page, record.finalUrl);
     for (const outcome of outcomes) {
       this.recipeOutcomes.push(outcome);
       // Per-page detail belongs on the page record.
@@ -368,13 +476,14 @@ export class Crawler {
     }
   }
 
-  private async runPageHook(record: PageRecord): Promise<void> {
+  private async runPageHook(worker: CrawlWorker, record: PageRecord): Promise<void> {
     const hook = this.options.onPage;
     if (hook === undefined) return;
-    await hook(this.options.page, record);
+    await hook(worker.page, record);
   }
 
   private async discover(
+    worker: CrawlWorker,
     item: FrontierItem,
     base: string,
     warnings: string[],
@@ -389,7 +498,7 @@ export class Crawler {
     // is wedged must not hold the whole crawl open.
     let failure: unknown;
     const evaluated = await withTimeout(
-      this.options.page.evaluate(collectLinks).catch((error: unknown) => {
+      worker.page.evaluate(collectLinks).catch((error: unknown) => {
         failure = error;
         return undefined;
       }),
@@ -432,6 +541,11 @@ function safeOrigin(raw: string): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+/** Throttle key. An unparseable URL gets its own bucket rather than sharing one. */
+function originOrKey(raw: string): string {
+  return safeOrigin(raw) ?? raw;
 }
 
 function describe(error: unknown): string {

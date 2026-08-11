@@ -366,36 +366,110 @@ describe('frontier', () => {
     expect(queue.pendingCount).toBe(0);
   });
 
-  it('round-trips through persisted state without re-handing out visited pages', () => {
+  function resumeFrom(state: ReturnType<Frontier['toState']>): Frontier {
+    return new Frontier({
+      policy: new CrawlPolicy(crawlConfig(), [`${ORIGIN}/`]),
+      budgets: CrawlBudgetsSchema.parse({}),
+      resume: state,
+    });
+  }
+
+  function snapshot(queue: Frontier) {
+    return queue.toState({
+      runId: 'run-1',
+      seeds: [`${ORIGIN}/`],
+      updatedAt: new Date(0).toISOString(),
+    });
+  }
+
+  it('round-trips a committed page without re-handing it out', () => {
     const first = frontier();
     first.add({ raw: `${ORIGIN}/a` }, { depth: 0 });
     first.add({ raw: `${ORIGIN}/b` }, { depth: 0 });
     first.add({ raw: 'mailto:x@site.test' }, { depth: 0 });
-    const visited = first.next();
-    expect(visited?.url).toBe(`${ORIGIN}/a`);
 
-    const state = first.toState({
-      runId: 'run-1',
-      seeds: [`${ORIGIN}/`],
-      updatedAt: new Date().toISOString(),
-    });
+    const taken = first.next();
+    expect(taken?.url).toBe(`${ORIGIN}/a`);
+    first.commit(`${ORIGIN}/a`);
 
-    const config = crawlConfig();
-    const resumed = new Frontier({
-      policy: new CrawlPolicy(config, [`${ORIGIN}/`]),
-      budgets: CrawlBudgetsSchema.parse({}),
-      resume: state,
-    });
-
-    expect(resumed.visitedCount).toBe(1);
+    const state = snapshot(first);
+    expect(state.visited).toEqual([`${ORIGIN}/a`]);
     expect(state.navigations).toBe(1);
+
+    const resumed = resumeFrom(state);
+    expect(resumed.visitedCount).toBe(1);
     expect(resumed.next()?.url).toBe(`${ORIGIN}/b`);
     expect(resumed.next()).toBeUndefined();
-    // The already-visited page is refused rather than crawled a second time.
+    // The already-recorded page is refused rather than crawled a second time.
     expect(resumed.add({ raw: `${ORIGIN}/a` }, { depth: 0 })).toMatchObject({
       reason: 'duplicate',
     });
     // Skip counts survive, so a resumed run's summary covers the whole crawl.
     expect(resumed.skipCounts['unsupported-scheme']).toBe(1);
+  });
+
+  it('puts a page that was in flight back in the queue, so a crash loses none', () => {
+    const first = frontier();
+    first.add({ raw: `${ORIGIN}/a` }, { depth: 0 });
+    first.add({ raw: `${ORIGIN}/b` }, { depth: 0 });
+
+    // Two workers each holding a page; neither has written its record yet.
+    expect(first.next()?.url).toBe(`${ORIGIN}/a`);
+    expect(first.next()?.url).toBe(`${ORIGIN}/b`);
+    expect(first.inFlightCount).toBe(2);
+    expect(first.isDrained).toBe(false);
+
+    // The snapshot a crash would leave behind.
+    const state = snapshot(first);
+    expect(state.visited).toEqual([]);
+    expect(state.navigations).toBe(0);
+    expect(state.pending.map((item) => item.url).sort()).toEqual([
+      `${ORIGIN}/a`,
+      `${ORIGIN}/b`,
+    ]);
+
+    const resumed = resumeFrom(state);
+    expect(resumed.next()?.url).toBe(`${ORIGIN}/a`);
+    expect(resumed.next()?.url).toBe(`${ORIGIN}/b`);
+  });
+
+  it('counts in-flight pages against maxPages, so workers cannot overshoot', () => {
+    const queue = frontier({ budgets: { maxPages: 2 } });
+    for (const path of ['/a', '/b', '/c']) queue.add({ raw: `${ORIGIN}${path}` }, { depth: 0 });
+
+    // Two workers take a page each. Neither has committed.
+    expect(queue.next()).toBeDefined();
+    expect(queue.next()).toBeDefined();
+    expect(queue.pageBudgetSpent).toBe(true);
+    // A third worker gets nothing, even though nothing is recorded yet.
+    expect(queue.next()).toBeUndefined();
+  });
+
+  it('releases an abandoned page to the front of the queue', () => {
+    const queue = frontier();
+    queue.add({ raw: `${ORIGIN}/a` }, { depth: 0 });
+    queue.add({ raw: `${ORIGIN}/b` }, { depth: 0 });
+
+    const taken = queue.next();
+    expect(taken?.url).toBe(`${ORIGIN}/a`);
+    queue.release(`${ORIGIN}/a`);
+    expect(queue.inFlightCount).toBe(0);
+    // Back at the front: it was next before, and nothing about it has changed.
+    expect(queue.next()?.url).toBe(`${ORIGIN}/a`);
+    // Releasing something not in flight is a no-op, not a corruption.
+    queue.release(`${ORIGIN}/nothing`);
+    expect(queue.pendingCount).toBe(1);
+  });
+
+  it('is drained only when the queue is empty and nobody holds a page', () => {
+    const queue = frontier();
+    expect(queue.isDrained).toBe(true);
+    queue.add({ raw: `${ORIGIN}/a` }, { depth: 0 });
+    expect(queue.isDrained).toBe(false);
+    const taken = queue.next();
+    expect(queue.pendingCount).toBe(0);
+    expect(queue.isDrained).toBe(false);
+    queue.commit(taken?.url ?? '');
+    expect(queue.isDrained).toBe(true);
   });
 });

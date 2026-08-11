@@ -10,3 +10,4 @@ export * from './page-scripts.js';
 export * from './policy.js';
 export * from './recipes.js';
 export * from './targets.js';
+export * from './throttle.js';

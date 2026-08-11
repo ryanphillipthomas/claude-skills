@@ -13,7 +13,8 @@ in its `warnings` or its `error`.
 | Bounded crawler | **Built.** URL canonicalisation, a same-origin frontier, hard budgets and a resumable queue. It follows `<a href>` and, on its own, clicks nothing. Details below. |
 | Interaction recipes | **Built.** Declarative steps validated before execution, plus `--dry-run`. A recipe is the only thing that may touch a crawled page. Details below. |
 | Interaction inventory | **Built.** `crawl --inventory` lists each page's interactive controls, classifies what each is likely to do, and writes a reviewable recipe skeleton. It reads and nothing else. Details below. |
-| Scale | Worker concurrency, per-origin throttling, retry/backoff and trace-on-failure are the rest of phase 3. |
+| Worker concurrency | **Built.** `--concurrency <n>` runs isolated workers, each with its own context. `perPageDelayMs` is enforced per origin across all of them. Details below. |
+| Retry and traces | Retry with jitter, status-aware backoff for 429/503 and trace-on-failure are the rest of phase 3. |
 | Animation capture | The motion fixture exists; discovery and deterministic frame sampling are phase 4. The toolbar's Animation button is disabled. |
 | CDP forced pseudo-states | Not implemented. `focus-visible` is reached with a real keyboard interaction or reported as `skipped` — never faked. |
 | Chrome extension packaging | Not required and not built. |
@@ -78,6 +79,21 @@ All of these are deliberate for the first crawl slice; see
 - **Retry and status-aware backoff are not built.** A navigation failure is
   recorded on the page record and the crawl moves on; a 429 or 503 is recorded
   as an ordinary status and not retried.
+- **A persistent profile cannot run concurrently.** `browser.mode: profile` owns
+  its only context and cannot create siblings, so it warns and stays at one
+  worker. Use `clean` or `storage-state`.
+- **Per-origin concurrency is not separately capped.** With a single-origin
+  crawl, `concurrency` *is* the per-origin concurrency and the throttle bounds
+  the rate. A crawl spanning several origins can have every worker on one of
+  them at once.
+- **Page order is not deterministic under concurrency.** Work is still handed
+  out breadth-first, but pages finish when they finish, so `pages.jsonl` row
+  order varies between runs.
+- **Resuming can repeat one page per worker.** A crash between writing a page
+  record and writing `crawl-state.json` re-crawls that page, because the two are
+  separate files and there is no transaction across them. A crash with pages
+  mid-flight re-crawls those pages and loses none — that direction is the one
+  worth being safe in.
 
 ## Boundaries of recipes
 

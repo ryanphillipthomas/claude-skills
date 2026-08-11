@@ -92,9 +92,16 @@ crawl:
     maxRunMinutes: 30
     maxQueued: 10000 # memory bound on the pending queue
   respectNofollow: true
-  # Politeness pause between navigations. Crawling flat out is the fastest way
-  # to be mistaken for something worth blocking; 0 removes the pause.
+  # Minimum gap between navigations *to one origin*, enforced across every
+  # worker rather than per worker — so raising concurrency never raises the rate
+  # one host sees. Crawling flat out is the fastest way to be mistaken for
+  # something worth blocking; 0 removes the gap.
   perPageDelayMs: 750
+  # Isolated workers, each with its own browser context seeded from the live
+  # session. Scale comes from separate workers, not many tabs sharing one
+  # mutable session. `browser.mode: profile` cannot create extra contexts and
+  # stays at 1 with a warning.
+  concurrency: 1
   # The only way the crawler interacts with a page. Without a matching recipe it
   # navigates, reads links and touches nothing. Writing a recipe is what approves
   # the interaction, so `--dry-run` prints every control one would click.

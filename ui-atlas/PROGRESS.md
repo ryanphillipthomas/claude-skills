@@ -3,16 +3,16 @@
 Running log for the build. Updated after each milestone so an interrupted
 session is recoverable.
 
-**Last updated:** 2026-08-11, after the interaction inventory landed.
+**Last updated:** 2026-08-11, after worker concurrency landed.
 
 ## Status
 
 Phases 0, 1 and 2 are complete and their exit criteria pass, with one
 environment-bound gap recorded below. Phase 3 is nearly complete: the bounded
-frontier, declarative interaction recipes and the suggested-interaction
-inventory are all done, and its exit criterion passes on the fixture graph. Only
-worker concurrency, retry/backoff and trace-on-failure remain. The repository is
-buildable, tested and documented.
+frontier, declarative interaction recipes, the suggested-interaction inventory
+and worker concurrency with per-origin throttling are all done, and its exit
+criterion passes on the fixture graph. Only retry/backoff and trace-on-failure
+remain. The repository is buildable, tested and documented.
 
 ```
 npm install
@@ -25,8 +25,8 @@ npm test
 `npm test` (builds, then Vitest — unit and browser integration):
 
 ```
-Test Files  23 passed (23)
-     Tests  270 passed | 3 skipped (273)
+Test Files  25 passed (25)
+     Tests  286 passed | 3 skipped (289)
   Duration  ~183s
 ```
 
@@ -52,12 +52,14 @@ the phase 1 exit criterion. Nothing is unverified now.
 | `integration/report` | 7 | **phase 2 exit criterion**: the generated report driven in a real browser, including script injection |
 | `unit/reporter` | 13 | escaping, view model, matrix grouping, duplicate grouping |
 | `integration/state-preview` | 10 | live state preview: apply, hold, release, swap, forced undo, capture isolation |
-| `unit/crawl` | 39 | canonicalisation, path globs, link policy, frontier, budgets, resume round-trip |
-| `integration/crawl` | 11 | **phase 3, first slice**: the fixture link graph, the empty click log, budgets, redirects on and off origin, dry run, resume through the CLI |
+| `unit/crawl` | 43 | canonicalisation, path globs, link policy, frontier, budgets, in-flight vs committed, resume round-trip |
+| `integration/crawl` | 12 | **phase 3, first slice**: the fixture link graph, the empty click log, budgets, redirects on and off origin, dry run, concurrent and resumed runs through the CLI |
 | `unit/recipes` | 16 | step validation, rejected `fill`/`type`/`evaluate`, target rules, dry-run problem detection |
 | `integration/recipes` | 8 | **phase 3, second slice**: recipe-approved clicking, match scoping, state sets, hover menus, failure isolation, discovery ordering |
 | `unit/inventory` | 19 | classification rules, recipe-target mapping, the skeleton's refusal to emit a click |
 | `integration/inventory` | 7 | **phase 3, third slice**: destructive controls all classified `mutation` with an empty click log, safe controls on the states fixture, `maxPerPage`, the generated skeleton |
+| `unit/throttle` | 6 | the reservation ladder, per-origin independence, budget clamping, real-clock waiting |
+| `integration/concurrency` | 5 | **phase 3, fourth slice**: same coverage as one worker, no duplicate records, budget under parallel flight, the delay holding across workers, concurrent resume, loud single-worker fallback |
 | `integration/external-smoke` | 3 skipped | read-only public-site checks; skip without network |
 
 `npm run typecheck` passes for all eleven packages and for the test sources.
@@ -136,6 +138,7 @@ Consequential ones are in [`docs/adr/`](docs/adr/):
 14. The crawler follows links and clicks nothing
 15. A recipe is the only thing that may touch a crawled page
 16. The interaction inventory suggests; it never acts
+17. Workers are isolated; politeness is per origin, not per worker
 
 Smaller assumptions, not worth an ADR:
 
@@ -412,22 +415,78 @@ The inventory only sees what is visible without interacting: `states.html`'s
 hover menu hides its links from it, and a test asserts exactly that. It is the
 direct cost of never touching anything, recorded in `docs/limitations.md`.
 
+## Worker concurrency and throttling (phase 3, fourth slice)
+
+Done and covered by `tests/unit/throttle.test.ts` and
+`tests/integration/concurrency.test.ts`. See
+[ADR 17](docs/adr/0017-worker-concurrency-and-per-origin-throttling.md).
+
+All four points of the plan this replaced are done:
+
+1. `crawl --concurrency <n>` runs isolated workers, each with its own browser
+   context seeded from the live session's storage state, so a signed-in crawl
+   stays signed in on every worker without them sharing a mutable session.
+2. `perPageDelayMs` is now **a minimum gap per origin across all workers**. The
+   throttle claims its slot *before* waiting, so workers arriving together take
+   consecutive intervals rather than all waiting out the same one and firing at
+   once. That one ordering is the whole difference between a throttle and a
+   sleep, and the test for it fails if the reservation moves after the wait —
+   verified by making that change and watching gaps collapse to 1ms.
+3. `next()` is safe from several workers: nothing in it awaits, so it runs to
+   completion before another worker can enter it.
+4. `crawl-state.json` stays correct mid-flight — see below.
+
+Concurrency defaults to **1**. More workers on someone else's site is a decision
+only the operator can make.
+
+### The frontier now separates handed-out from committed
+
+This was the non-obvious part. `next()` moves an item *in flight*; `commit()`,
+called only once the page record is on disk, moves it to *committed*. A snapshot
+writes committed URLs as `visited` and both pending **and in-flight** items as
+`pending`.
+
+Without that, a crawl killed with four pages in flight would have recorded those
+four as visited with no records to show for it, and the resumed run would skip
+them as duplicates: **four pages silently lost**. Putting them back in the queue
+means a crash re-crawls what was mid-flight and loses nothing.
+
+`maxPages` counts committed plus in-flight, so N workers cannot collectively
+overshoot the budget by holding N uncommitted pages.
+
+### One behaviour change worth knowing
+
+The unit test `round-trips through persisted state without re-handing out
+visited pages` failed after this change, correctly. It asserted that a page
+handed out but never committed counts as visited on resume — which is exactly
+the data-loss behaviour above. It has been replaced by two tests that pin the
+new contract: a committed page is not re-handed out, and an in-flight page is.
+
+Building it surfaced two other things:
+
+1. **A test filter was too broad.** Counting `resourceType === 'document'`
+   requests to measure navigations also counted `frames.html`'s iframe, so six
+   pages produced seven "navigations". The harness now records whether a request
+   was for the main frame.
+2. **An idle worker is not a finished worker.** The queue can be empty while
+   another worker is on a page about to contribute links. Workers exit only on a
+   drained frontier — queue empty *and* nothing in flight.
+
 ## Next smallest milestone
 
-Phase 3's remaining work is throughput and resilience, not new capability:
+**Retry with jitter, and status-aware backoff for 429/503.**
 
-**Worker concurrency with per-origin throttling.**
+1. A navigation failure currently becomes a page record with an error and the
+   crawl moves on. Bounded retries with jitter would recover the transient ones.
+2. `429` and `503` need to feed the throttle rather than the retry counter:
+   the right response is to slow down for that origin, honouring `Retry-After`
+   when present, not to try again immediately.
+3. The frontier already has `release()`, which puts a page back for another
+   attempt — the retry path should reuse it and carry an attempt count on the
+   frontier item.
+4. Retries must stay inside the existing budgets: an attempt is not a free page,
+   and `maxRunMinutes` still ends the run.
 
-1. Several isolated workers, each with its own context, pulling from one
-   frontier — the brief is explicit that scale comes from isolated workers, not
-   many tabs sharing one mutable session.
-2. A per-origin token bucket, so `perPageDelayMs` becomes a floor enforced
-   across workers rather than per worker.
-3. The frontier is already the synchronisation point and its keys are already
-   deterministic; `next()` needs to become safe to call from several workers.
-4. `crawl-state.json` must stay correct when several pages are in flight: write
-   it on a settled snapshot, not mid-batch.
-
-After that: retry with jitter and status-aware backoff for 429/503, then
-trace-on-failure. Both are small next to concurrency and neither changes the
-data model.
+After that, trace-on-failure closes phase 3: attach a Playwright trace to a page
+that failed, written under the run's `traces/` directory, which already exists in
+`RunPaths` and is still unused.

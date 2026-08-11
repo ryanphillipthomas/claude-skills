@@ -1,7 +1,8 @@
 import { existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { emptyManifest, newRunId, readRunManifest, RunWriter } from '@ui-atlas/artifacts';
-import { launchSession, resolveViewport, viewportLabel } from '@ui-atlas/browser';
+import type { Page } from 'playwright';
+import { emulationOptions, launchSession, resolveViewport, viewportLabel } from '@ui-atlas/browser';
 import { CaptureService } from '@ui-atlas/capture';
 import {
   Crawler,
@@ -62,6 +63,11 @@ ui-atlas crawl <site-config.yml | url> [options]
   --max-pages <n>     hard cap on pages visited
   --max-depth <n>     seeds are depth 0
   --max-minutes <n>   hard deadline for the whole crawl
+  --concurrency <n>   isolated workers, each with its own browser context.
+                      Politeness is enforced per origin across all of them, so
+                      more workers never means more requests per second to one
+                      host. Defaults to 1.
+  --delay-ms <n>      minimum gap between navigations to one origin
   --resume <run-dir>  continue an interrupted crawl in its own run directory
   --mode <mode>       clean | profile | storage-state | attach
   --profile <name>    the auth profile saved by \`ui-atlas auth save\`
@@ -117,6 +123,10 @@ export async function runCrawl(args: ParsedArgs, logger: Logger): Promise<number
   if (Object.keys(budgetOverrides).length > 0) crawlOverrides['budgets'] = budgetOverrides;
 
   if (args.flags.get('inventory') === true) crawlOverrides['inventory'] = { enabled: true };
+  const concurrency = flagNumber(args, 'concurrency');
+  if (concurrency !== undefined) crawlOverrides['concurrency'] = concurrency;
+  const delayMs = flagNumber(args, 'delay-ms');
+  if (delayMs !== undefined) crawlOverrides['perPageDelayMs'] = delayMs;
 
   const seedFlag = flagString(args, 'seed');
   const seeds: string[] = [];
@@ -229,21 +239,73 @@ export async function runCrawl(args: ParsedArgs, logger: Logger): Promise<number
     );
   }
 
-  const captures = new CaptureService({
-    page,
-    writer,
-    config,
-    runId,
-    project,
-    viewport,
-    viewportLabel: viewportLabel(viewport),
-  });
-  const recipes = new RecipeRunner({
-    config,
-    captures,
-    probe: (target, spec) => probeLocator(locatorFor(target, spec), describeTarget(spec)),
-    onProgress: (message) => logger.info(message),
-  });
+  /**
+   * A recipe runner is bound to one page, so every worker needs its own — along
+   * with its own capture service, which writes to the shared run.
+   */
+  const recipesForPage = (target: Page): RecipeRunner =>
+    new RecipeRunner({
+      config,
+      captures: new CaptureService({
+        page: target,
+        writer,
+        config,
+        runId,
+        project,
+        viewport,
+        viewportLabel: viewportLabel(viewport),
+      }),
+      probe: (probeTarget, spec) =>
+        probeLocator(locatorFor(probeTarget, spec), describeTarget(spec)),
+      onProgress: (message) => logger.info(message),
+    });
+
+  /**
+   * An extra worker gets a fresh context, seeded from the live one's storage
+   * state so a signed-in crawl stays signed in on every worker — the same
+   * approach responsive replay uses (ADR 11).
+   *
+   * A persistent profile owns its only context and cannot create siblings, so
+   * there is nothing to hand back; the crawler warns and stays single-worker.
+   */
+  const parentBrowser = browser.browser;
+  const createWorker =
+    parentBrowser === undefined
+      ? undefined
+      : async (index: number) => {
+          const storageState = await browser.context.storageState().catch(() => undefined);
+          const context = await parentBrowser.newContext({
+            ...emulationOptions(viewport, browser.browserVersion),
+            locale: config.browser.locale,
+            colorScheme: config.browser.colorScheme,
+            reducedMotion: config.browser.reducedMotion,
+            ignoreHTTPSErrors: config.browser.ignoreHttpsErrors,
+            ...(config.browser.timezoneId === undefined
+              ? {}
+              : { timezoneId: config.browser.timezoneId }),
+            ...(storageState === undefined ? {} : { storageState }),
+          });
+          context.setDefaultNavigationTimeout(config.browser.navigationTimeoutMs);
+          if (needsProbe) await context.addInitScript({ content: await loadProbeBundle() });
+          const workerPage = await context.newPage();
+          workerPage.setDefaultTimeout(config.browser.navigationTimeoutMs);
+          logger.debug(`worker ${String(index)} ready`);
+          return {
+            page: workerPage,
+            recipes: recipesForPage(workerPage),
+            close: async () => {
+              await context.close().catch(() => undefined);
+            },
+          };
+        };
+
+  if (createWorker === undefined && config.crawl.concurrency > 1) {
+    const warning =
+      `browser.mode "${config.browser.mode}" owns a single persistent context, so ` +
+      'extra crawl workers cannot be created; running with one';
+    logger.warn(warning);
+    writer.addWarning(warning);
+  }
 
   const policy = new CrawlPolicy(config.crawl, seedsForRun);
   const inventory = new InteractionInventory({
@@ -262,8 +324,9 @@ export async function runCrawl(args: ParsedArgs, logger: Logger): Promise<number
       runId,
       config,
       seeds: seedsForRun,
-      recipes,
+      recipes: recipesForPage(page),
       inventory,
+      ...(createWorker === undefined ? {} : { createWorker }),
       ...(resumeState === undefined ? {} : { resume: resumeState }),
       onProgress: (message) => logger.info(`visiting ${message}`),
     });

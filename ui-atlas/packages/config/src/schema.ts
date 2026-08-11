@@ -321,8 +321,20 @@ export const CrawlConfigSchema = z.object({
   budgets: CrawlBudgetsSchema.prefault({}),
   /** Skip `<a rel="nofollow">`. On by default: it is what the attribute asks for. */
   respectNofollow: z.boolean().default(true),
-  /** Politeness pause between navigations. */
+  /**
+   * Minimum gap between navigations *to one origin*, enforced across every
+   * worker rather than per worker. Raising `concurrency` therefore never raises
+   * the rate a single host sees.
+   */
   perPageDelayMs: z.number().int().min(0).max(60_000).default(750),
+  /**
+   * Isolated workers, each with its own browser context. Scale comes from
+   * separate workers, not from many tabs sharing one mutable session.
+   *
+   * Defaults to 1: concurrency is opt-in, because more workers on someone
+   * else's site is a decision only the operator can make.
+   */
+  concurrency: z.number().int().min(1).max(32).default(1),
   /**
    * The only way the crawler is allowed to interact with a page. Without a
    * matching recipe it navigates, reads links and touches nothing.
