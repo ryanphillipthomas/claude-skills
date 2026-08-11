@@ -175,6 +175,27 @@ A persistent profile (`--mode profile`) owns its only context and cannot create
 siblings, so it warns and stays single-worker. Use `clean` or `storage-state`
 for concurrency.
 
+### Retry and backoff
+
+Timeouts, dropped connections and `5xx` responses are retried with exponential
+backoff and jitter — three attempts by default, `--max-attempts 1` to turn it
+off. A `404` is not retried: it is an answer, not a hiccup.
+
+**A `429` or `503` slows the whole origin down, not just that page.** It feeds
+the same per-origin throttle, so every worker's next request to that host is
+pushed back. `Retry-After` is honoured in either form the spec allows, clamped
+by `retry.maxRetryAfterMs`. A `429` on the final attempt still slows the origin
+— giving up on one page is no reason to keep hammering.
+
+Retries cost attempts, never pages: `maxPages` counts pages, and a host that
+made you try three times has not shown you three pages. Every wait is clamped by
+what is left of `maxRunMinutes`.
+
+A page that answered `404` is a finding about the site and appears in the run;
+a page that never answered at all is a finding about the run, and is the only
+thing that makes `crawl` exit non-zero. One broken link will not fail your
+pipeline.
+
 A site config is an ordinary UI Atlas config with a `crawl:` block:
 
 ```yaml

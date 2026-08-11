@@ -102,6 +102,19 @@ crawl:
   # mutable session. `browser.mode: profile` cannot create extra contexts and
   # stays at 1 with a warning.
   concurrency: 1
+  # Bounded retries for the failures worth retrying. A 429 or 503 additionally
+  # holds the whole origin back — it is the host asking for less traffic, not
+  # one page going wrong — honouring Retry-After up to maxRetryAfterMs.
+  # Retries cost attempts, never pages, and every wait is clamped by the run
+  # budget. maxAttempts: 1 turns retrying off.
+  retry:
+    maxAttempts: 3
+    baseDelayMs: 500 # doubles each attempt
+    maxDelayMs: 15000
+    jitter: 0.3 # so workers that failed together do not retry together
+    retryStatuses: [408, 425, 429, 500, 502, 503, 504]
+    backoffStatuses: [429, 503]
+    maxRetryAfterMs: 120000
   # The only way the crawler interacts with a page. Without a matching recipe it
   # navigates, reads links and touches nothing. Writing a recipe is what approves
   # the interaction, so `--dry-run` prints every control one would click.

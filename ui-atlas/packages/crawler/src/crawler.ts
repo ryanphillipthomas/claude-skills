@@ -17,6 +17,7 @@ import { collectLinks, type DiscoveredLink } from './page-scripts.js';
 import type { InteractionInventory } from './inventory.js';
 import { CrawlPolicy } from './policy.js';
 import type { RecipeOutcome, RecipeRunner } from './recipes.js';
+import { decideRetry, type AttemptOutcome } from './retry.js';
 import { OriginThrottle } from './throttle.js';
 
 export type CrawlStopReason = 'frontier-empty' | 'max-pages' | 'run-timeout';
@@ -44,6 +45,10 @@ export interface CrawlResult {
   interactions: InteractionCandidate[];
   /** Controls clicked across the whole crawl. Zero unless a recipe said to. */
   clicks: number;
+  /** Extra attempts spent on pages that failed the first time. */
+  retries: number;
+  /** Origins that asked for a slower rate with a 429 or 503. */
+  backedOffOrigins: string[];
   warnings: string[];
   state: CrawlState;
 }
@@ -122,6 +127,9 @@ export class Crawler {
   private readonly recipeOutcomes: RecipeOutcome[] = [];
   private readonly failedRecipes = new Set<string>();
   private readonly interactions: InteractionCandidate[] = [];
+  private retries = 0;
+  /** Origins already reported as having asked for a slower rate. */
+  private readonly backedOffOrigins = new Set<string>();
 
   constructor(private readonly options: CrawlerOptions) {
     const crawl = options.config.crawl;
@@ -240,7 +248,7 @@ export class Crawler {
             `${String(this.frontier.visitedCount)}/${String(crawl.budgets.maxPages)} ${item.url}`,
           );
 
-          const record = await this.visit(worker, item, runDeadline);
+          const record = await this.visit(worker, item, runDeadline, throttle);
           pages.push(await writer.addPage(record));
           // Committed only once the record is on disk: until then a snapshot
           // puts the page back in the queue rather than calling it visited.
@@ -310,9 +318,22 @@ export class Crawler {
       recipes: this.recipeOutcomes,
       interactions: this.interactions,
       clicks: this.recipeOutcomes.reduce((total, outcome) => total + outcome.clicks, 0),
+      retries: this.retries,
+      backedOffOrigins: [...this.backedOffOrigins],
       warnings: this.warnings,
       state,
     };
+  }
+
+  /**
+   * Raise an origin's first backoff to the run. A throttled host usually
+   * answers every worker the same way, so reporting each one would bury the
+   * summary in identical lines.
+   */
+  private noteOriginBackoff(origin: string, notice: string): void {
+    if (this.backedOffOrigins.has(origin)) return;
+    this.backedOffOrigins.add(origin);
+    this.warnings.push(notice);
   }
 
   private snapshotState(): CrawlState {
@@ -324,42 +345,133 @@ export class Crawler {
   }
 
   /**
-   * Navigate to one page, let it settle, read its links. Bounded by the smaller
-   * of the per-page budget and whatever is left of the whole run, so a slow page
-   * near the end of a run cannot overrun the total deadline.
+   * Visit one page, retrying the failures that are worth retrying.
+   *
+   * A retry costs an attempt, never a page: the budget counts pages, and a host
+   * that made us try three times has not shown us three pages. Every wait is
+   * clamped by what is left of the run, so retrying cannot push a crawl past its
+   * own deadline.
    */
   private async visit(
     worker: CrawlWorker,
     item: FrontierItem,
     runDeadline: Deadline,
+    throttle: OriginThrottle,
   ): Promise<PageRecord> {
+    const retry = this.options.config.crawl.retry;
+    const origin = originOrKey(item.url);
+    const warnings: string[] = [];
+
+    for (let attempt = 1; ; attempt += 1) {
+      const { record, outcome } = await this.attemptVisit(worker, item, runDeadline, {
+        attempt,
+        warnings,
+      });
+
+      const decision = decideRetry(outcome, { attempt, config: retry });
+
+      // A host asking us to slow down is answered for the whole origin, whether
+      // or not this page has attempts left: giving up on one page is no reason
+      // to keep hammering.
+      if (decision.originPenaltyMs !== undefined && decision.originPenaltyMs > 0) {
+        throttle.penalise(origin, decision.originPenaltyMs);
+        const notice =
+          `${origin} asked for a slower rate (${decision.reason}); ` +
+          `holding it off for ${String(decision.originPenaltyMs)}ms`;
+        warnings.push(notice);
+        this.noteOriginBackoff(origin, notice);
+      }
+
+      if (!decision.retry) {
+        if (attempt > 1) record.attempts = attempt;
+        return record;
+      }
+
+      // The retry itself has to fit in the run, or there is no point starting it.
+      const waitMs = Math.min(decision.delayMs, runDeadline.remainingMs());
+      warnings.push(
+        `attempt ${String(attempt)} of ${String(retry.maxAttempts)} failed: ` +
+          `${decision.reason}; retrying in ${String(waitMs)}ms`,
+      );
+      if (runDeadline.remainingMs() <= waitMs) {
+        warnings.push('the run budget ran out before the next attempt');
+        record.attempts = attempt;
+        return record;
+      }
+      this.retries += 1;
+      if (waitMs > 0) await sleep(waitMs);
+    }
+  }
+
+  /** One navigation, settle, discovery and recipe pass. No retrying here. */
+  private async attemptVisit(
+    worker: CrawlWorker,
+    item: FrontierItem,
+    runDeadline: Deadline,
+    context: { attempt: number; warnings: string[] },
+  ): Promise<{ record: PageRecord; outcome: AttemptOutcome }> {
     const { config, runId } = this.options;
     const { page } = worker;
     const crawl = config.crawl;
     const visitedAt = new Date().toISOString();
-    const warnings: string[] = [];
+    const warnings = context.warnings;
     const pageDeadline = new Deadline(
       Math.max(1, runDeadline.budgetFor(crawl.budgets.perPageTimeoutMs)),
     );
 
     let httpStatus: number | undefined;
+    let retryAfter: string | undefined;
     try {
       const response = await page.goto(item.url, {
         waitUntil: config.settle.loadState,
         timeout: pageDeadline.remainingMs(),
       });
       httpStatus = response?.status();
+      retryAfter = (await response?.headerValue('retry-after')) ?? undefined;
     } catch (error) {
+      const message = describe(error);
       return {
-        schemaVersion: SCHEMA_VERSION,
-        id: newPageId(),
-        runId,
-        requestedUrl: item.url,
-        finalUrl: page.url(),
-        routeKey: routeKeyFromUrl(item.url),
-        visitedAt,
-        warnings,
-        error: toStructuredError(error, 'capture.timeout'),
+        record: {
+          schemaVersion: SCHEMA_VERSION,
+          id: newPageId(),
+          runId,
+          requestedUrl: item.url,
+          finalUrl: page.url(),
+          routeKey: routeKeyFromUrl(item.url),
+          visitedAt,
+          warnings,
+          error: toStructuredError(error, 'capture.timeout'),
+        },
+        outcome: { kind: 'navigation-error', message },
+      };
+    }
+
+    // An error status is a real page with real bytes, so it is still recorded
+    // and still settled. What changes is whether it is worth asking again.
+    const outcome: AttemptOutcome =
+      httpStatus !== undefined && httpStatus >= 400
+        ? { kind: 'http-error', status: httpStatus, retryAfter }
+        : { kind: 'ok', status: httpStatus };
+
+    if (outcome.kind === 'http-error') {
+      return {
+        record: {
+          schemaVersion: SCHEMA_VERSION,
+          id: newPageId(),
+          runId,
+          requestedUrl: item.url,
+          finalUrl: page.url(),
+          routeKey: routeKeyFromUrl(page.url()),
+          visitedAt,
+          httpStatus,
+          warnings,
+          error: {
+            code: 'capture.failed',
+            message: `HTTP ${String(httpStatus)}`,
+            detail: { url: item.url, status: httpStatus },
+          },
+        },
+        outcome,
       };
     }
 
@@ -405,7 +517,7 @@ export class Crawler {
       // No recipes either. A recipe is approval to interact with pages on the
       // origins the operator named, not with wherever a redirect landed.
       await this.runPageHook(worker, record);
-      return record;
+      return { record, outcome };
     }
 
     // A redirect means this run has now fetched the destination too. Mark it
@@ -422,7 +534,7 @@ export class Crawler {
     await this.runInventory(worker, record, warnings);
     await this.runRecipes(worker, record, warnings);
     await this.runPageHook(worker, record);
-    return record;
+    return { record, outcome };
   }
 
   private async runInventory(

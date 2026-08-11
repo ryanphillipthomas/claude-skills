@@ -19,7 +19,7 @@ import {
   type CrawlResult,
 } from '@ui-atlas/crawler';
 import { loadProbeBundle, probeLocator } from '@ui-atlas/overlay';
-import { UiAtlasError, type CrawlState } from '@ui-atlas/protocol';
+import { UiAtlasError, type CrawlState, type PageRecord } from '@ui-atlas/protocol';
 import { flagNumber, flagString, type ParsedArgs } from '../args.js';
 import { loadCliConfig, TOOL_VERSION } from '../config.js';
 import type { Logger } from '../logger.js';
@@ -68,6 +68,9 @@ ui-atlas crawl <site-config.yml | url> [options]
                       more workers never means more requests per second to one
                       host. Defaults to 1.
   --delay-ms <n>      minimum gap between navigations to one origin
+  --max-attempts <n>  attempts per page, including the first. Timeouts and 5xx
+                      are retried with backoff and jitter; a 429 or 503 slows
+                      the whole origin down, honouring Retry-After.
   --resume <run-dir>  continue an interrupted crawl in its own run directory
   --mode <mode>       clean | profile | storage-state | attach
   --profile <name>    the auth profile saved by \`ui-atlas auth save\`
@@ -127,6 +130,8 @@ export async function runCrawl(args: ParsedArgs, logger: Logger): Promise<number
   if (concurrency !== undefined) crawlOverrides['concurrency'] = concurrency;
   const delayMs = flagNumber(args, 'delay-ms');
   if (delayMs !== undefined) crawlOverrides['perPageDelayMs'] = delayMs;
+  const maxAttempts = flagNumber(args, 'max-attempts');
+  if (maxAttempts !== undefined) crawlOverrides['retry'] = { maxAttempts };
 
   const seedFlag = flagString(args, 'seed');
   const seeds: string[] = [];
@@ -351,8 +356,18 @@ export async function runCrawl(args: ParsedArgs, logger: Logger): Promise<number
     process.stdout.write(`${JSON.stringify({ manifest, crawl: summarise(result) }, null, 2)}\n`);
   }
 
-  // A crawl that stopped on a budget did what it was told; that is not an error.
-  return result.pages.some((record) => record.error !== undefined) ? 1 : 0;
+  // A crawl that stopped on a budget did what it was told; that is not an
+  // error. Neither is a page that answered 404 — the crawl worked, the site has
+  // a broken link, and that belongs in the report rather than in the exit code.
+  // A page that could not be reached at all is a different matter.
+  return unreachable(result).length > 0 ? 1 : 0;
+}
+
+/** Pages no HTTP response ever came back for, after every retry. */
+function unreachable(result: CrawlResult): PageRecord[] {
+  return result.pages.filter(
+    (record) => record.error !== undefined && record.httpStatus === undefined,
+  );
 }
 
 function withConfigPath(
@@ -372,6 +387,9 @@ function summarise(result: CrawlResult): Record<string, unknown> {
     visited: result.visited.length,
     pendingAtStop: result.pendingAtStop,
     clicks: result.clicks,
+    retries: result.retries,
+    backedOffOrigins: result.backedOffOrigins,
+    unreachable: unreachable(result).map((record) => record.requestedUrl),
     recipes: result.recipes,
     inventory: summariseInventory(result.interactions),
     skipCounts: Object.fromEntries(
@@ -424,10 +442,25 @@ function report(result: CrawlResult, logger: Logger): void {
     logger.debug(`skipped ${sample.url}`, { reason: sample.reason, rule: sample.detail });
   }
 
+  if (result.retries > 0) {
+    logger.info(`${String(result.retries)} retry attempt(s) across the run`);
+  }
+  for (const origin of result.backedOffOrigins) {
+    logger.warn(`${origin} asked for a slower rate; the crawl backed off`);
+  }
+
   for (const warning of result.warnings) logger.warn(warning);
-  for (const record of result.pages) {
-    if (record.error !== undefined) {
-      logger.warn(`${record.requestedUrl}: ${record.error.code} — ${record.error.message}`);
+
+  // A page that answered with an error status is a finding about the site; a
+  // page that never answered is a finding about the run. Say which is which.
+  const httpErrors = result.pages.filter((record) => record.httpStatus !== undefined && record.error !== undefined);
+  if (httpErrors.length > 0) {
+    logger.info(`${String(httpErrors.length)} page(s) answered with an error status:`);
+    for (const record of httpErrors.slice(0, 20)) {
+      logger.info(`  ${String(record.httpStatus)} ${record.requestedUrl}`);
     }
+  }
+  for (const record of unreachable(result)) {
+    logger.warn(`unreachable: ${record.requestedUrl} — ${record.error?.message ?? 'no detail'}`);
   }
 }

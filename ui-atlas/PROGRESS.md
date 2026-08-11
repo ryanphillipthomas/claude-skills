@@ -3,16 +3,16 @@
 Running log for the build. Updated after each milestone so an interrupted
 session is recoverable.
 
-**Last updated:** 2026-08-11, after worker concurrency landed.
+**Last updated:** 2026-08-11, after retry and status-aware backoff landed.
 
 ## Status
 
 Phases 0, 1 and 2 are complete and their exit criteria pass, with one
-environment-bound gap recorded below. Phase 3 is nearly complete: the bounded
-frontier, declarative interaction recipes, the suggested-interaction inventory
-and worker concurrency with per-origin throttling are all done, and its exit
-criterion passes on the fixture graph. Only retry/backoff and trace-on-failure
-remain. The repository is buildable, tested and documented.
+environment-bound gap recorded below. Phase 3 is one item from done: the bounded
+frontier, declarative interaction recipes, the suggested-interaction inventory,
+worker concurrency with per-origin throttling, and retry with status-aware
+backoff are all built, and its exit criterion passes on the fixture graph. Only
+trace-on-failure remains. The repository is buildable, tested and documented.
 
 ```
 npm install
@@ -25,9 +25,9 @@ npm test
 `npm test` (builds, then Vitest — unit and browser integration):
 
 ```
-Test Files  25 passed (25)
-     Tests  286 passed | 3 skipped (289)
-  Duration  ~183s
+Test Files  27 passed (27)
+     Tests  312 passed | 3 skipped (315)
+  Duration  ~186s
 ```
 
 On a networked machine the three external smoke tests run instead of skipping:
@@ -60,6 +60,8 @@ the phase 1 exit criterion. Nothing is unverified now.
 | `integration/inventory` | 7 | **phase 3, third slice**: destructive controls all classified `mutation` with an empty click log, safe controls on the states fixture, `maxPerPage`, the generated skeleton |
 | `unit/throttle` | 6 | the reservation ladder, per-origin independence, budget clamping, real-clock waiting |
 | `integration/concurrency` | 5 | **phase 3, fourth slice**: same coverage as one worker, no duplicate records, budget under parallel flight, the delay holding across workers, concurrent resume, loud single-worker fallback |
+| `unit/retry` | 18 | `Retry-After` in both forms, backoff doubling and jitter bounds, which statuses retry, which slow the origin |
+| `integration/retry` | 8 | **phase 3, fifth slice**: recovery after two failures, giving up honestly, no retry on 404, `Retry-After` honoured and clamped, origin backoff reported once, retries not eating the page budget, the run deadline winning |
 | `integration/external-smoke` | 3 skipped | read-only public-site checks; skip without network |
 
 `npm run typecheck` passes for all eleven packages and for the test sources.
@@ -139,6 +141,7 @@ Consequential ones are in [`docs/adr/`](docs/adr/):
 15. A recipe is the only thing that may touch a crawled page
 16. The interaction inventory suggests; it never acts
 17. Workers are isolated; politeness is per origin, not per worker
+18. Retrying is per page; backing off is per origin
 
 Smaller assumptions, not worth an ADR:
 
@@ -472,21 +475,74 @@ Building it surfaced two other things:
    another worker is on a page about to contribute links. Workers exit only on a
    drained frontier — queue empty *and* nothing in flight.
 
+## Retry and status-aware backoff (phase 3, fifth slice)
+
+Done and covered by `tests/unit/retry.test.ts` and
+`tests/integration/retry.test.ts`. See
+[ADR 18](docs/adr/0018-retry-and-status-aware-backoff.md).
+
+The central idea is that two things were being conflated. **Retryable** means
+this request might work next time, and belongs to the *page*. **Backoff** means
+the host is asking for less traffic, and belongs to the *origin*. They are
+decided separately and applied separately:
+
+1. Navigation failures and the statuses worth repeating (408, 425, 429, 500,
+   502, 503, 504) are retried with exponential backoff and jitter. A `404` is
+   an answer, not a hiccup, and is left alone.
+2. A `429` or `503` additionally penalises the origin through the same
+   `OriginThrottle` that enforces `perPageDelayMs`, so **every** worker's next
+   request to that host is pushed back. The corollary is easy to get wrong and
+   is tested: a `429` on the *last* attempt still penalises the origin, because
+   giving up on one page is no reason to keep hammering.
+3. `Retry-After` is honoured in both forms the spec allows, clamped by
+   `maxRetryAfterMs`, falling back to our own backoff when unreadable.
+4. A retry costs an attempt, never a page. `maxPages` counts pages, and a host
+   that made us try three times has not shown us three pages. Every wait is
+   clamped by what is left of `maxRunMinutes`.
+
+### Two departures from the plan, both deliberate
+
+**Retries loop in place rather than re-queueing.** The plan said to hand a failed
+page back through `release()`. That turned out to be more machinery for no gain:
+the origin is throttled either way, so a re-queued page waits exactly as long,
+and `visit()` would have had to return a "not finished" signal and defer writing
+its record. Looping inside `visit()` keeps the retry story in one function and
+keeps `visit()` returning a finished `PageRecord`. `release()` is still there for
+a worker that dies or is cut off by a budget.
+
+**An error status is now a failed page record.** A `4xx`/`5xx` used to be an
+ordinary page with an `httpStatus`; it now carries a structured error, and its
+links are not harvested — an error page's navigation is not the site's link
+graph. The exit code deliberately does not follow: a `404` is a finding about the
+site and belongs in the report, while a page that never answered is a finding
+about the run, and only the latter makes `crawl` exit non-zero. One broken link
+should not fail a pipeline that was checking whether the crawl worked.
+
+Building it surfaced one real defect and one wrong expectation:
+
+1. **`Date.parse` accepted garbage as a date.** `Retry-After: -5` parsed as a
+   year and produced a real timestamp, so a malformed header would have become
+   "retry immediately" rather than falling back to backoff. Every HTTP-date form
+   carries a day or month name, so a letter is now required before a date is
+   attempted. Found by a unit test.
+2. **A test expected the wrong backoff.** The "still penalises on the last
+   attempt" case asserted the first attempt's delay; by the third 429 the
+   backoff has doubled twice. The code was right.
+
 ## Next smallest milestone
 
-**Retry with jitter, and status-aware backoff for 429/503.**
+**Trace-on-failure**, which closes phase 3.
 
-1. A navigation failure currently becomes a page record with an error and the
-   crawl moves on. Bounded retries with jitter would recover the transient ones.
-2. `429` and `503` need to feed the throttle rather than the retry counter:
-   the right response is to slow down for that origin, honouring `Retry-After`
-   when present, not to try again immediately.
-3. The frontier already has `release()`, which puts a page back for another
-   attempt — the retry path should reuse it and carry an attempt count on the
-   frontier item.
-4. Retries must stay inside the existing budgets: an attempt is not a free page,
-   and `maxRunMinutes` still ends the run.
+1. `RunPaths.tracesDir` already exists and is still unused.
+2. Start a Playwright trace on a worker's context, and keep it only for a page
+   that ended unreachable or that a recipe failed on — a trace per page would
+   dwarf the screenshots.
+3. Name it by the page record id, so `pages.jsonl` and the trace can be lined up,
+   and add an optional `tracePath` to `PageRecord`.
+4. Traces capture network traffic and can contain authentication material. They
+   must never be written for a successful page, and the report must not link
+   them without saying so.
 
-After that, trace-on-failure closes phase 3: attach a Playwright trace to a page
-that failed, written under the run's `traces/` directory, which already exists in
-`RunPaths` and is still unused.
+After phase 3, phase 4 is animation capture and design-system extraction: the
+motion fixture exists, the toolbar's Animation button is still disabled, and
+`AnimationSample` is already in the data model.

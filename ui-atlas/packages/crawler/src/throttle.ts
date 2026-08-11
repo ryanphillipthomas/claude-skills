@@ -43,4 +43,21 @@ export class OriginThrottle {
     if (waitMs > 0) await sleep(waitMs);
     return waitMs;
   }
+
+  /**
+   * Hold this origin off for at least `ms`, on top of whatever it already owed.
+   *
+   * This is how a `429` or a `503` reaches the *whole crawl* rather than only
+   * the worker that received it: the host said it is overloaded, so every
+   * worker's next request to it is pushed back, not just the one that asked.
+   *
+   * Returns the new wait, so a caller can say how long it slowed down by.
+   */
+  penalise(origin: string, ms: number): number {
+    if (ms <= 0) return this.waitFor(origin);
+    const now = this.now();
+    const earliest = Math.max(now, this.nextFreeAt.get(origin) ?? 0);
+    this.nextFreeAt.set(origin, earliest + ms);
+    return this.waitFor(origin);
+  }
 }

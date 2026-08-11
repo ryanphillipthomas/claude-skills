@@ -174,8 +174,24 @@ is still empty and no non-`GET` request was issued.
       one worker, matching ADR 11's degradation
 - [x] Politeness waits are clamped by the run budget
 
+## Phase 3 — retry and status-aware backoff (fifth slice)
+
+- [x] Bounded retries with exponential backoff and jitter, for navigation
+      failures and the statuses worth repeating
+- [x] `429`/`503` hold the **whole origin** back through the shared throttle, so
+      every worker slows down, not just the one that was refused
+- [x] A `429` on the final attempt still penalises the origin
+- [x] `Retry-After` honoured in both forms the spec allows, clamped by
+      `maxRetryAfterMs`, falling back to backoff when unreadable
+- [x] A retry costs an attempt, never a page: `maxPages` is untouched
+- [x] Every wait clamped by what is left of `maxRunMinutes`
+- [x] `PageRecord.attempts`, present only when a page took more than one
+- [x] An origin's backoff reported to the run once, with per-page detail kept on
+      each page record
+- [x] Exit code follows *unreachable* pages only, not error statuses: one broken
+      link does not fail a pipeline
+
 ### Still to build in phase 3
-- [ ] Retry with jitter, and status-aware backoff for 429/503
 - [ ] Trace-on-failure
 - [ ] Sitemap seeding, and optional dedup by page structural fingerprint
 - [ ] `captureResponsive` during a crawl (the step validates but reports that it

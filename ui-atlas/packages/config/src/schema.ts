@@ -199,6 +199,36 @@ export const InventoryConfigSchema = z.object({
 });
 export type InventoryConfig = z.infer<typeof InventoryConfigSchema>;
 
+/**
+ * Statuses worth trying again. A `404` will not improve, and neither will a
+ * `403`; these are the ones that mean "not right now" rather than "no".
+ */
+export const DEFAULT_RETRY_STATUSES = [408, 425, 429, 500, 502, 503, 504];
+
+/**
+ * The subset that means *the host is asking us to slow down*, rather than *that
+ * request went wrong*. These hold the whole origin back, not just this page.
+ */
+export const DEFAULT_BACKOFF_STATUSES = [429, 503];
+
+export const RetryConfigSchema = z.object({
+  /** Attempts per page, including the first. 1 disables retrying. */
+  maxAttempts: z.number().int().min(1).max(10).default(3),
+  /** First backoff step. Doubles each attempt, capped by `maxDelayMs`. */
+  baseDelayMs: z.number().int().min(0).max(60_000).default(500),
+  maxDelayMs: z.number().int().min(0).max(300_000).default(15_000),
+  /**
+   * Random fraction added to each backoff. Without it, workers that failed
+   * together retry together, and the host sees the same burst again.
+   */
+  jitter: z.number().min(0).max(1).default(0.3),
+  retryStatuses: z.array(z.number().int().min(100).max(599)).default(DEFAULT_RETRY_STATUSES),
+  backoffStatuses: z.array(z.number().int().min(100).max(599)).default(DEFAULT_BACKOFF_STATUSES),
+  /** Trust `Retry-After`, but not unboundedly: a hostile value is still a wait. */
+  maxRetryAfterMs: z.number().int().min(0).max(600_000).default(120_000),
+});
+export type RetryConfig = z.infer<typeof RetryConfigSchema>;
+
 export const CrawlBudgetsSchema = z.object({
   /** Hard cap on pages *visited*. Reaching it ends the crawl. */
   maxPages: z.number().int().min(1).max(100_000).default(50),
@@ -335,6 +365,8 @@ export const CrawlConfigSchema = z.object({
    * else's site is a decision only the operator can make.
    */
   concurrency: z.number().int().min(1).max(32).default(1),
+  /** Bounded retries for the failures that are worth trying again. */
+  retry: RetryConfigSchema.prefault({}),
   /**
    * The only way the crawler is allowed to interact with a page. Without a
    * matching recipe it navigates, reads links and touches nothing.

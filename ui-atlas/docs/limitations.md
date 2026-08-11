@@ -14,7 +14,8 @@ in its `warnings` or its `error`.
 | Interaction recipes | **Built.** Declarative steps validated before execution, plus `--dry-run`. A recipe is the only thing that may touch a crawled page. Details below. |
 | Interaction inventory | **Built.** `crawl --inventory` lists each page's interactive controls, classifies what each is likely to do, and writes a reviewable recipe skeleton. It reads and nothing else. Details below. |
 | Worker concurrency | **Built.** `--concurrency <n>` runs isolated workers, each with its own context. `perPageDelayMs` is enforced per origin across all of them. Details below. |
-| Retry and traces | Retry with jitter, status-aware backoff for 429/503 and trace-on-failure are the rest of phase 3. |
+| Retry and backoff | **Built.** Bounded retries with jitter for timeouts and 5xx; a 429 or 503 holds the whole origin back, honouring `Retry-After`. Details below. |
+| Traces | Trace-on-failure is the last of phase 3. `traces/` exists in the run layout and is still unused. |
 | Animation capture | The motion fixture exists; discovery and deterministic frame sampling are phase 4. The toolbar's Animation button is disabled. |
 | CDP forced pseudo-states | Not implemented. `focus-visible` is reached with a real keyboard interaction or reported as `skipped` — never faked. |
 | Chrome extension packaging | Not required and not built. |
@@ -76,9 +77,17 @@ All of these are deliberate for the first crawl slice; see
   bounded by whatever is left of the run. A crawl can still overshoot slightly:
   a step that hits its budget is abandoned rather than cancelled, because
   Playwright's `evaluate` and `title` take no timeout argument.
-- **Retry and status-aware backoff are not built.** A navigation failure is
-  recorded on the page record and the crawl moves on; a 429 or 503 is recorded
-  as an ordinary status and not retried.
+- **Retries do not survive a resume.** A page's attempt count starts again in a
+  resumed run. That is deliberate: the host may well have recovered since, and
+  carrying a stale count would give it fewer chances than a fresh crawl would.
+- **Nothing retries a recipe.** A recipe that failed did so against a page that
+  loaded, and repeating an interaction is not the same kind of safe as
+  repeating a `GET`.
+- **`Retry-After` is clamped**, by `retry.maxRetryAfterMs` (two minutes). A host
+  asking for an hour gets two minutes and a warning.
+- **An error status stops link discovery.** A `4xx`/`5xx` page is recorded with
+  a structured error and its links are not followed, on the grounds that an
+  error page's navigation is not the site's link graph.
 - **A persistent profile cannot run concurrently.** `browser.mode: profile` owns
   its only context and cannot create siblings, so it warns and stays at one
   worker. Use `clean` or `storage-state`.

@@ -330,6 +330,8 @@ export const PageRecordSchema = z.object({
   title: z.string().optional(),
   visitedAt: IsoDateTimeSchema,
   httpStatus: z.number().int().optional(),
+  /** Present only when the page took more than one: absent means it worked. */
+  attempts: z.number().int().min(1).optional(),
   readiness: ReadinessResultSchema.optional(),
   warnings: z.array(z.string()),
   error: StructuredErrorSchema.optional(),

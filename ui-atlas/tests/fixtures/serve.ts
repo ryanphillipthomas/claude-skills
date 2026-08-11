@@ -29,6 +29,8 @@ export interface FixtureServer {
   url(path: string): string;
   /** Open connections held by `/__endless`, so tests can assert they exist. */
   openEndlessRequests(): number;
+  /** Requests `/__flaky` and `/__status` have seen, by their `key` parameter. */
+  attempts(key: string): number;
   close(): Promise<void>;
 }
 
@@ -50,9 +52,10 @@ function safeFilePath(pathname: string): string | undefined {
  */
 export async function startFixtureServer(options: { port?: number } = {}): Promise<FixtureServer> {
   const endless = new Set<ServerResponse>();
+  const attempts = new Map<string, number>();
 
   const server: Server = createServer((request: IncomingMessage, response: ServerResponse) => {
-    void handle(request, response, endless).catch(() => {
+    void handle(request, response, endless, attempts).catch(() => {
       if (!response.headersSent) response.writeHead(500);
       response.end('fixture server error');
     });
@@ -71,6 +74,7 @@ export async function startFixtureServer(options: { port?: number } = {}): Promi
     port: address.port,
     url: (path: string) => new URL(path, origin).toString(),
     openEndlessRequests: () => endless.size,
+    attempts: (key: string) => attempts.get(key) ?? 0,
     close: async () => {
       for (const held of endless) held.destroy();
       endless.clear();
@@ -86,6 +90,7 @@ async function handle(
   request: IncomingMessage,
   response: ServerResponse,
   endless: Set<ServerResponse>,
+  attempts: Map<string, number>,
 ): Promise<void> {
   const url = new URL(request.url ?? '/', 'http://127.0.0.1');
   const pathname = url.pathname === '/' ? '/index.html' : url.pathname;
@@ -110,6 +115,51 @@ async function handle(
   if (pathname === '/__image') {
     response.writeHead(200, { 'content-type': 'image/png', 'cache-control': 'no-store' });
     response.end(TINY_PNG);
+    return;
+  }
+
+  // Fails its first `fail` requests, then succeeds. Counted per `key`, so
+  // several flaky routes can coexist in one test run.
+  if (pathname === '/__flaky') {
+    const key = url.searchParams.get('key') ?? 'default';
+    const failures = Number(url.searchParams.get('fail') ?? '1');
+    const status = Number(url.searchParams.get('status') ?? '503');
+    const seen = (attempts.get(key) ?? 0) + 1;
+    attempts.set(key, seen);
+
+    if (seen <= failures) {
+      const headers: Record<string, string> = {
+        'content-type': 'text/plain',
+        'cache-control': 'no-store',
+      };
+      const retryAfter = url.searchParams.get('retryAfter');
+      if (retryAfter !== null) headers['retry-after'] = retryAfter;
+      response.writeHead(status, headers);
+      response.end(`attempt ${String(seen)} of ${String(failures)} fails`);
+      return;
+    }
+
+    response.writeHead(200, { 'content-type': MIME['.html'] as string, 'cache-control': 'no-store' });
+    response.end(
+      `<!doctype html><title>flaky</title><h1>recovered on attempt ${String(seen)}</h1>`,
+    );
+    return;
+  }
+
+  // Always returns the requested status, so "this is not worth retrying" can be
+  // told apart from "this recovered".
+  if (pathname === '/__status') {
+    const key = url.searchParams.get('key') ?? 'status';
+    attempts.set(key, (attempts.get(key) ?? 0) + 1);
+    const code = Number(url.searchParams.get('code') ?? '500');
+    const headers: Record<string, string> = {
+      'content-type': 'text/plain',
+      'cache-control': 'no-store',
+    };
+    const retryAfter = url.searchParams.get('retryAfter');
+    if (retryAfter !== null) headers['retry-after'] = retryAfter;
+    response.writeHead(code, headers);
+    response.end(`status ${String(code)}`);
     return;
   }
 
