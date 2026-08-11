@@ -92,7 +92,25 @@ crawl:
     maxRunMinutes: 30
     maxQueued: 10000 # memory bound on the pending queue
   respectNofollow: true
-  perPageDelayMs: 0
+  # Politeness pause between navigations. Crawling flat out is the fastest way
+  # to be mistaken for something worth blocking; 0 removes the pause.
+  perPageDelayMs: 750
+  # The only way the crawler interacts with a page. Without a matching recipe it
+  # navigates, reads links and touches nothing. Writing a recipe is what approves
+  # the interaction, so `--dry-run` prints every control one would click.
+  #
+  # There is deliberately no step that types text: no fill, no type, no evaluate.
+  # Sign in by hand with `ui-atlas auth save <profile> <url>`, then crawl with
+  # `--mode storage-state --profile <profile>`.
+  #
+  #   recipes:
+  #     - name: open-primary-navigation
+  #       match: '/**'
+  #       steps:
+  #         - hover: { role: button, name: Menu }
+  #         - waitFor: { role: navigation }
+  #         - capture: { kind: viewport, label: nav-open }
+  recipes: []
 
 # Redacted before anything is logged.
 redact:

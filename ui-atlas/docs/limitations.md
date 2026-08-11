@@ -10,8 +10,9 @@ in its `warnings` or its `error`.
 | --- | --- |
 | Responsive capture sets | **Built.** Each preset gets a fresh context, its own reload and its own re-resolution; absent, hidden and ambiguous elements are recorded per viewport. Two caveats: a persistent `profile` context cannot create sibling contexts, so replay there degrades to a resize with a warning on every mobile preset; and the toolbar's `viewport/set` control still only resizes the current page (it warns that a mobile preset is not real emulation) — use the responsive set for true emulation. |
 | Static HTML report | **Built.** `ui-atlas report <run-dir>` writes `report/index.html`. It references screenshots by relative path, so the report travels with its run directory rather than as a lone file. |
-| Bounded crawler | **Built, first slice.** URL canonicalisation, a same-origin frontier, hard budgets and a resumable queue. It follows `<a href>` and clicks nothing. It takes no screenshots — captures during a crawl need recipes. Details below. |
-| Recipes and interaction inventory | Declarative recipe steps, dry-run validation, the suggested-interaction inventory, worker concurrency, per-origin throttling and trace-on-failure are the rest of phase 3. |
+| Bounded crawler | **Built.** URL canonicalisation, a same-origin frontier, hard budgets and a resumable queue. It follows `<a href>` and, on its own, clicks nothing. Details below. |
+| Interaction recipes | **Built.** Declarative steps validated before execution, plus `--dry-run`. A recipe is the only thing that may touch a crawled page. Details below. |
+| Interaction inventory and scale | The suggested-interaction inventory, worker concurrency, per-origin throttling, retry/backoff and trace-on-failure are the rest of phase 3. |
 | Animation capture | The motion fixture exists; discovery and deterministic frame sampling are phase 4. The toolbar's Animation button is disabled. |
 | CDP forced pseudo-states | Not implemented. `focus-visible` is reached with a real keyboard interaction or reported as `skipped` — never faked. |
 | Chrome extension packaging | Not required and not built. |
@@ -76,6 +77,30 @@ All of these are deliberate for the first crawl slice; see
 - **Retry and status-aware backoff are not built.** A navigation failure is
   recorded on the page record and the crawl moves on; a 429 or 503 is recorded
   as an ordinary status and not retried.
+
+## Boundaries of recipes
+
+See [ADR 15](adr/0015-recipes-are-the-only-way-to-interact.md).
+
+- **No step types text.** `fill`, `type` and `evaluate` are rejected by
+  validation, on purpose. Sign in by hand with `ui-atlas auth save`, then crawl
+  with `--mode storage-state --profile <name>`. Automating credential entry is
+  how tools get a session flagged, and it is the one place where being wrong
+  costs an account rather than a screenshot.
+- **A crawl cannot tell you the session expired.** If saved storage state has
+  gone stale, the crawl will happily record fifty copies of a sign-in page. Run
+  a small `--max-pages 2` crawl first and look at the page titles.
+- **Recipes see the top document only.** There is no way to name an element
+  inside an iframe from a recipe; the target vocabulary has no frame selector.
+- **`captureResponsive` is accepted but inert during a crawl.** The crawl does
+  not build a responsive runner yet, so the step records a warning saying it was
+  unavailable rather than failing the recipe.
+- **`--dry-run` cannot tell you a recipe will match a real page.** It knows the
+  configuration, not the site. It catches a recipe that can *never* run, not one
+  that merely happens not to.
+- **A recipe that navigates leaves the page it was capturing.** Later steps
+  capture the new page. The outcome carries a warning naming both URLs, but
+  nothing stops it.
 
 ## Things the tool reports that surprise people
 

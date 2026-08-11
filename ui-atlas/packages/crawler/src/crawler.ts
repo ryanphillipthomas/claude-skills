@@ -14,6 +14,7 @@ import { Deadline, settlePage, sleep, TIMED_OUT, withTimeout } from '@ui-atlas/s
 import { Frontier } from './frontier.js';
 import { collectLinks, type DiscoveredLink } from './page-scripts.js';
 import { CrawlPolicy } from './policy.js';
+import type { RecipeOutcome, RecipeRunner } from './recipes.js';
 
 export type CrawlStopReason = 'frontier-empty' | 'max-pages' | 'run-timeout';
 
@@ -34,6 +35,10 @@ export interface CrawlResult {
   skipSamples: CrawlSkipSample[];
   /** Left in the queue when a budget stopped the crawl. */
   pendingAtStop: number;
+  /** One entry per recipe run, in visit order. Empty when no recipes matched. */
+  recipes: RecipeOutcome[];
+  /** Controls clicked across the whole crawl. Zero unless a recipe said to. */
+  clicks: number;
   warnings: string[];
   state: CrawlState;
 }
@@ -49,9 +54,14 @@ export interface CrawlerOptions {
   resume?: CrawlState | undefined;
   onProgress?: ((message: string) => void) | undefined;
   /**
-   * Called after a page has settled, while it is still the current document.
-   * The extension point recipes and per-page captures will use. It is handed
-   * the live page deliberately; the crawler itself never interacts with it.
+   * Runs matching recipes once a page has settled. This is the *only* path by
+   * which anything on a crawled page is interacted with; the crawler itself
+   * navigates and reads, and nothing else.
+   */
+  recipes?: RecipeRunner | undefined;
+  /**
+   * Called after a page has settled and its recipes have run, while it is still
+   * the current document. Used by tests to inspect the live page.
    */
   onPage?: ((page: Page, record: PageRecord) => Promise<void>) | undefined;
 }
@@ -73,6 +83,8 @@ export class Crawler {
   private readonly seeds: string[];
   private readonly warnings: string[] = [];
   private readonly skipSamples: CrawlSkipSample[] = [];
+  private readonly recipeOutcomes: RecipeOutcome[] = [];
+  private readonly failedRecipes = new Set<string>();
 
   constructor(private readonly options: CrawlerOptions) {
     const crawl = options.config.crawl;
@@ -190,6 +202,8 @@ export class Crawler {
       skipCounts: { ...this.frontier.skipCounts },
       skipSamples: this.skipSamples,
       pendingAtStop: this.frontier.pendingCount,
+      recipes: this.recipeOutcomes,
+      clicks: this.recipeOutcomes.reduce((total, outcome) => total + outcome.clicks, 0),
       warnings: this.warnings,
       state,
     };
@@ -277,6 +291,8 @@ export class Crawler {
         `${item.url} redirected to ${finalUrl}, which is outside the crawl scope; ` +
           'its links were not followed',
       );
+      // No recipes either. A recipe is approval to interact with pages on the
+      // origins the operator named, not with wherever a redirect landed.
       await this.runPageHook(record);
       return record;
     }
@@ -290,8 +306,38 @@ export class Crawler {
     }
 
     await this.discover(item, finalUrl, warnings, pageDeadline);
+    await this.runRecipes(record, warnings);
     await this.runPageHook(record);
     return record;
+  }
+
+  /**
+   * Recipes run *after* link discovery, always. A recipe that clicks something
+   * and navigates therefore cannot change which links this page contributed to
+   * the frontier: the crawl's shape is decided by the markup as served, not by
+   * wherever an interaction ended up.
+   */
+  private async runRecipes(record: PageRecord, warnings: string[]): Promise<void> {
+    const runner = this.options.recipes;
+    if (runner === undefined || runner.isEmpty) return;
+
+    const outcomes = await runner.runFor(this.options.page, record.finalUrl);
+    for (const outcome of outcomes) {
+      this.recipeOutcomes.push(outcome);
+      // Per-page detail belongs on the page record.
+      warnings.push(...outcome.warnings);
+      if (outcome.status !== 'failed') continue;
+
+      const detail = `recipe "${outcome.recipe}" failed: ${outcome.error ?? 'no detail'}`;
+      warnings.push(detail);
+      // A broken recipe usually fails on every page it matches. Raise it to the
+      // run once, by name, so the summary and run.json say so without repeating
+      // the same line fifty times.
+      if (!this.failedRecipes.has(outcome.recipe)) {
+        this.failedRecipes.add(outcome.recipe);
+        this.warnings.push(`${detail} (first seen on ${outcome.route})`);
+      }
+    }
   }
 
   private async runPageHook(record: PageRecord): Promise<void> {

@@ -11,6 +11,8 @@
     { "path": "../protocol" },
     { "path": "../config" },
     { "path": "../artifacts" },
+    { "path": "../capture" },
+    { "path": "../identity" },
     { "path": "../settle" }
   ]
 }

@@ -1,8 +1,20 @@
 import { existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { emptyManifest, newRunId, readRunManifest, RunWriter } from '@ui-atlas/artifacts';
-import { launchSession, resolveViewport } from '@ui-atlas/browser';
-import { Crawler, type CrawlResult } from '@ui-atlas/crawler';
+import { launchSession, resolveViewport, viewportLabel } from '@ui-atlas/browser';
+import { CaptureService } from '@ui-atlas/capture';
+import {
+  Crawler,
+  CrawlPolicy,
+  describeTarget,
+  formatPlan,
+  locatorFor,
+  planCrawl,
+  planProblems,
+  RecipeRunner,
+  type CrawlResult,
+} from '@ui-atlas/crawler';
+import { loadProbeBundle, probeLocator } from '@ui-atlas/overlay';
 import { UiAtlasError, type CrawlState } from '@ui-atlas/protocol';
 import { flagNumber, flagString, type ParsedArgs } from '../args.js';
 import { loadCliConfig, TOOL_VERSION } from '../config.js';
@@ -26,11 +38,27 @@ ui-atlas crawl <site-config.yml | url> [options]
 
   Passing a URL instead crawls it with the default budgets.
 
+  Recipes are the only way anything on a crawled page is interacted with. A
+  control is clicked because a recipe names it, and for no other reason.
+
+    crawl:
+      recipes:
+        - name: open-primary-navigation
+          match: '/**'
+          steps:
+            - click: { role: button, name: Menu }
+            - waitFor: { role: navigation }
+            - capture: { kind: viewport, label: nav-open }
+
+  --dry-run           validate the config and print what would run, then exit.
+                      Launches no browser and visits nothing.
   --seed <url>        add a seed (repeatable via config); overrides crawl.seeds
   --max-pages <n>     hard cap on pages visited
   --max-depth <n>     seeds are depth 0
   --max-minutes <n>   hard deadline for the whole crawl
   --resume <run-dir>  continue an interrupted crawl in its own run directory
+  --mode <mode>       clean | profile | storage-state | attach
+  --profile <name>    the auth profile saved by \`ui-atlas auth save\`
   --project <name>    artifact project directory
   --output <dir>      artifact root
   --config <path>     explicit config file
@@ -97,6 +125,21 @@ export async function runCrawl(args: ParsedArgs, logger: Logger): Promise<number
   );
   const { config } = loaded;
 
+  // Everything the dry run needs is already validated by the schema, so it can
+  // answer before any browser exists.
+  if (args.flags.get('dry-run') === true) {
+    const origins = [...new CrawlPolicy(config.crawl, config.crawl.seeds).origins];
+    const plan = planCrawl(config.crawl, origins);
+    if (args.flags.get('json') === true) {
+      process.stdout.write(`${JSON.stringify(plan, null, 2)}\n`);
+    } else {
+      process.stdout.write(`${formatPlan(plan)}\n`);
+    }
+    const problems = planProblems(plan);
+    for (const problem of problems) logger.warn(problem);
+    return problems.length > 0 ? 1 : 0;
+  }
+
   const resumed = resumeDir === undefined ? undefined : await resolveResumeTarget(resumeDir);
   const outputRoot = resumed?.outputRoot ?? loaded.outputRoot;
   const runId = resumed?.runId ?? newRunId();
@@ -152,10 +195,15 @@ export async function runCrawl(args: ParsedArgs, logger: Logger): Promise<number
     }
   }
 
-  // Nothing is injected into crawled pages: no overlay, no probe bundle. The
-  // crawler only navigates and reads the DOM, and a page it visits should look
-  // exactly like a page a browser visited.
-  const browser = await launchSession({ config: config.browser, viewport });
+  // A crawl with no recipes injects nothing into the pages it visits: no
+  // overlay, no probe. Recipes need the probe, because an element capture must
+  // describe its element exactly the way the inspector does.
+  const hasRecipes = config.crawl.recipes.length > 0;
+  const browser = await launchSession({
+    config: config.browser,
+    viewport,
+    ...(hasRecipes ? { initScripts: [{ content: await loadProbeBundle() }] } : {}),
+  });
   for (const warning of browser.warnings) {
     logger.warn(warning);
     writer.addWarning(warning);
@@ -173,6 +221,22 @@ export async function runCrawl(args: ParsedArgs, logger: Logger): Promise<number
     );
   }
 
+  const captures = new CaptureService({
+    page,
+    writer,
+    config,
+    runId,
+    project,
+    viewport,
+    viewportLabel: viewportLabel(viewport),
+  });
+  const recipes = new RecipeRunner({
+    config,
+    captures,
+    probe: (target, spec) => probeLocator(locatorFor(target, spec), describeTarget(spec)),
+    onProgress: (message) => logger.info(message),
+  });
+
   let result: CrawlResult;
   try {
     const crawler = new Crawler({
@@ -181,6 +245,7 @@ export async function runCrawl(args: ParsedArgs, logger: Logger): Promise<number
       runId,
       config,
       seeds: seedsForRun,
+      recipes,
       ...(resumeState === undefined ? {} : { resume: resumeState }),
       onProgress: (message) => logger.info(`visiting ${message}`),
     });
@@ -220,6 +285,8 @@ function summarise(result: CrawlResult): Record<string, unknown> {
     stopped: result.stopped,
     visited: result.visited.length,
     pendingAtStop: result.pendingAtStop,
+    clicks: result.clicks,
+    recipes: result.recipes,
     skipCounts: Object.fromEntries(
       Object.entries(result.skipCounts).filter(([, count]) => count > 0),
     ),
@@ -239,6 +306,16 @@ function report(result: CrawlResult, logger: Logger): void {
   logger.info(`${STOP_TEXT[result.stopped]}: ${String(result.visited.length)} pages visited`);
   if (result.pendingAtStop > 0) {
     logger.info(`${String(result.pendingAtStop)} URLs were still queued`);
+  }
+
+  if (result.recipes.length > 0) {
+    const captures = result.recipes.reduce((total, one) => total + one.captureIds.length, 0);
+    const failed = result.recipes.filter((one) => one.status === 'failed').length;
+    logger.info(
+      `${String(result.recipes.length)} recipe run(s): ${String(captures)} captures, ` +
+        `${String(result.clicks)} control(s) clicked` +
+        (failed > 0 ? `, ${String(failed)} failed` : ''),
+    );
   }
 
   const skipped = Object.entries(result.skipCounts).filter(([, count]) => count > 0);

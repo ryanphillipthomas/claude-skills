@@ -108,23 +108,48 @@ Met, end to end, in `tests/integration/report.test.ts`.
 - [x] `ui-atlas crawl <site-config.yml | url>`, where a site config is an
       ordinary config with a `crawl:` block
 
+## Phase 3 — interaction recipes (second slice)
+
+- [x] Declarative `recipes:` in the site config, validated before execution
+- [x] Steps: `select`, `click`, `hover`, `focus`, `press`, `scroll`, `scrollTo`,
+      `waitFor`, `waitForUrl`, `waitMs`, `capture`, `captureStates`,
+      `captureResponsive`
+- [x] Closed target vocabulary — `role`+`name`, `testId`, `text`, `label`,
+      `placeholder`, `css` — resolving through Playwright locator engines, with
+      no route from a recipe to arbitrary page JavaScript
+- [x] **No step that types text.** `fill`, `type` and `evaluate` are rejected,
+      so no recipe can attempt a sign-in; sign in by hand and crawl with
+      `--mode storage-state`
+- [x] A misspelled step or unknown option fails validation instead of being
+      silently skipped
+- [x] `match` globs binding a recipe to routes, reusing the frontier's dialect
+- [x] Recipes run after link discovery, so an interaction cannot change the
+      shape of the crawl; they never run on an off-origin redirect
+- [x] `crawl --dry-run`: no browser, no visits. Names every control a recipe
+      would click, catches recipes scoped to routes that can never run, element
+      captures with no `select`, clicks that keep no artifact and duplicate
+      names, and exits non-zero
+- [x] A failing recipe is recorded and the crawl continues
+- [x] Captures during a crawl, written as ordinary `CaptureRecord`s
+
 **Phase 3 exit criterion — a 50-page test site can be interrupted and resumed
 without duplicate records, exceeding budgets, or clicking destructive fixture
-controls.** Partly met: interruption and resumption without duplicates, budget
-enforcement and the no-clicking guarantee are all covered by
-`tests/integration/crawl.test.ts`, against the 13-page fixture graph rather than
-a 50-page site. Recipes, the suggested-interaction inventory, worker
-concurrency, retry/backoff and trace-on-failure are still to build.
+controls.** Met on the 13-page fixture graph rather than a 50-page site:
+interruption and resumption without duplicates, budget enforcement and the
+no-clicking guarantee are all covered by `tests/integration/crawl.test.ts` and
+`tests/integration/recipes.test.ts`, including a crawl of the whole site with a
+clicking recipe active on one route, after which `destructive.html`'s audit log
+is still empty and no non-`GET` request was issued.
 
 ### Still to build in phase 3
 
-- [ ] Declarative recipes and dry-run validation
-- [ ] Captures during a crawl (the crawl currently records pages, not images)
 - [ ] Suggested-interaction inventory
 - [ ] Worker concurrency and per-origin throttling
 - [ ] Retry with jitter, and status-aware backoff for 429/503
 - [ ] Trace-on-failure
 - [ ] Sitemap seeding, and optional dedup by page structural fingerprint
+- [ ] `captureResponsive` during a crawl (the step validates but reports that it
+      was unavailable)
 
 ## Still out of scope
 

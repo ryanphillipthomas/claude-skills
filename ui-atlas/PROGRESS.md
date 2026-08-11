@@ -3,14 +3,15 @@
 Running log for the build. Updated after each milestone so an interrupted
 session is recoverable.
 
-**Last updated:** 2026-08-11, after the bounded crawl frontier landed.
+**Last updated:** 2026-08-11, after interaction recipes landed.
 
 ## Status
 
 Phases 0, 1 and 2 are complete and their exit criteria pass, with one
-environment-bound gap recorded below. Phase 3 has started: its first slice — URL
-canonicalisation and a same-origin frontier with hard budgets and no clicking —
-is done. The repository is buildable, tested and documented.
+environment-bound gap recorded below. Phase 3 is most of the way there: the
+bounded frontier and declarative interaction recipes are both done, and its exit
+criterion passes on the fixture graph. The repository is buildable, tested and
+documented.
 
 ```
 npm install
@@ -23,9 +24,9 @@ npm test
 `npm test` (builds, then Vitest — unit and browser integration):
 
 ```
-Test Files  19 passed (19)
-     Tests  219 passed | 3 skipped (222)
-  Duration  ~146s
+Test Files  21 passed (21)
+     Tests  244 passed | 3 skipped (247)
+  Duration  ~195s
 ```
 
 On a networked machine the three external smoke tests run instead of skipping:
@@ -51,7 +52,9 @@ the phase 1 exit criterion. Nothing is unverified now.
 | `unit/reporter` | 13 | escaping, view model, matrix grouping, duplicate grouping |
 | `integration/state-preview` | 10 | live state preview: apply, hold, release, swap, forced undo, capture isolation |
 | `unit/crawl` | 39 | canonicalisation, path globs, link policy, frontier, budgets, resume round-trip |
-| `integration/crawl` | 10 | **phase 3, first slice**: the fixture link graph, the empty click log, budgets, redirects on and off origin, resume through the CLI |
+| `integration/crawl` | 11 | **phase 3, first slice**: the fixture link graph, the empty click log, budgets, redirects on and off origin, dry run, resume through the CLI |
+| `unit/recipes` | 16 | step validation, rejected `fill`/`type`/`evaluate`, target rules, dry-run problem detection |
+| `integration/recipes` | 8 | **phase 3, second slice**: recipe-approved clicking, match scoping, state sets, hover menus, failure isolation, discovery ordering |
 | `integration/external-smoke` | 3 skipped | read-only public-site checks; skip without network |
 
 `npm run typecheck` passes for all eleven packages and for the test sources.
@@ -128,6 +131,7 @@ Consequential ones are in [`docs/adr/`](docs/adr/):
 12. The report is one static file, and it treats capture data as hostile
 13. State chips apply the state to the live page
 14. The crawler follows links and clicks nothing
+15. A recipe is the only thing that may touch a crawled page
 
 Smaller assumptions, not worth an ADR:
 
@@ -288,27 +292,87 @@ None. The only unverified item is the public-site half of the phase 1 exit
 criterion, which is an environment limitation, not a failure — see above and
 [docs/limitations.md](docs/limitations.md).
 
+## Interaction recipes (phase 3, second slice)
+
+Done and covered by `tests/unit/recipes.test.ts` and
+`tests/integration/recipes.test.ts`. See
+[ADR 15](docs/adr/0015-recipes-are-the-only-way-to-interact.md).
+
+A recipe is the only thing that may touch a crawled page, and writing one is
+what approves the interaction. `Crawler` interacts with a page only through an
+injected `RecipeRunner`; construct one without it and the crawl behaves exactly
+as it did before recipes existed.
+
+The five points of the plan this replaced are done, with one deliberate
+subtraction:
+
+1. A `recipes:` block with `select`, `click`, `hover`, `focus`, `press`,
+   `scroll`, `scrollTo`, `waitFor`, `waitForUrl`, `waitMs`, `capture`,
+   `captureStates` and `captureResponsive`. **No `fill`, no `type`, no
+   `evaluate`** — see below.
+2. `match:` globs, reusing the frontier's glob dialect.
+3. `crawl --dry-run`: no browser, no visits, exits non-zero on a problem.
+4. Recipes run after link discovery, so an interaction cannot change the shape
+   of the crawl, and never on a page that redirected off-origin.
+5. Clicks stay recipe-approved only, and the `destructive.html` assertions still
+   pass with a clicking recipe active on another route.
+
+### The deliberate subtraction: nothing types text
+
+The brief lists "fill from secret reference" as a primitive. It is not
+implemented, and `fill`, `type` and `evaluate` all fail validation, with a test
+asserting they do so it cannot come back by accident.
+
+Sign-in is something a person does, in a visible browser, through
+`ui-atlas auth save` — which already refuses to run headless and never submits a
+form. The crawl then reuses that session with
+`--mode storage-state --profile <name>`, through the same `launchSession` every
+other command uses. Automating credential entry is how a tool gets a session
+flagged, and it is the one part of this system where being wrong costs an
+account rather than a screenshot.
+
+### Also changed
+
+`crawl.perPageDelayMs` now defaults to **750ms** rather than 0. Crawling flat
+out is the fastest way to be mistaken for something worth blocking, and this is
+the first slice where a crawl also interacts with pages. `perPageDelayMs: 0`
+restores the old behaviour; the fixture tests set it, since politeness to a
+local server is meaningless.
+
+Building it surfaced three things worth knowing:
+
+1. **Two test premises were wrong, not the code.** A recipe clicking a link
+   inside `states.html`'s hover menu timed out — the menu is `position:
+   absolute` with no `z-index`, so a tooltip intercepts the click and the
+   pointer leaving the menu hides the panel again. Playwright was right to
+   refuse. The test now proves the same property better: only `links.html` is in
+   scope, the recipe clicks a link out of scope, the browser really does end up
+   on `/states.html`, and the crawl still records exactly one page.
+2. **A recipe failure was only visible per page.** A recipe that fails on all
+   thirteen pages produced thirteen page-record warnings and nothing at the run
+   level. It is now also raised to the run once, by name.
+3. **The probe has to be injected after all** — but only when recipes exist.
+   Element captures must describe their element exactly the way the inspector
+   does. A crawl with no recipes still injects nothing, which is the ADR 14
+   property that mattered.
+
 ## Next smallest milestone
 
-The frontier exists, so the next slice is what turns a survey into a collection:
+Recipes made the crawl produce artifacts. The next slice makes it tell you what
+it found without you having to guess what to write:
 
-**Declarative recipes, validated before execution, and captures during a crawl.**
+**The suggested-interaction inventory.**
 
-1. A `recipes:` block in the site config with the brief's small primitive set —
-   navigate, select, click, hover, focus, press, scroll, wait-for locator,
-   wait-for URL, capture, capture states, capture responsive set. No arbitrary
-   JavaScript.
-2. `match:` globs binding a recipe to routes, reusing the same glob dialect the
-   frontier already uses.
-3. Dry-run validation: parse and check every recipe, resolve its selectors
-   against nothing, and report what *would* run, without launching a browser.
-4. The crawler's `onPage` hook is the seam this plugs into — it already receives
-   the live page and the page record, and the crawler itself still touches
-   nothing.
-5. Clicks stay recipe-approved only. The `destructive.html` assertions must keep
-   passing with recipes enabled and no recipe matching that route.
+1. On each crawled page, inventory the visible interactive elements: buttons,
+   links, inputs, tabs, disclosures, menus.
+2. Classify each as likely-navigation, likely-inert or likely-mutation, from
+   accessible role and name, element type, form membership and href scheme.
+   Wording like "delete", "remove", "buy", "send" pushes towards mutation.
+3. **Surface them, never click them.** The output is a report the user reads to
+   decide what deserves a recipe, and a generated recipe skeleton they can paste
+   and edit.
+4. `destructive.html` is the fixture: every control on it must land in the
+   likely-mutation bucket, and the audit log must still be empty afterwards.
 
-After that: the suggested-interaction inventory (classify visible interactive
-elements as likely-navigation or likely-mutation, and surface them rather than
-clicking them), then worker concurrency with per-origin throttling, then
-retry/backoff and trace-on-failure.
+After that: worker concurrency with per-origin throttling, then retry with
+jitter and status-aware backoff for 429/503, then trace-on-failure.

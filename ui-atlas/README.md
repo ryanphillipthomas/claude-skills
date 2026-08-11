@@ -8,8 +8,9 @@ No cloud account, no AI service, no browser extension, no database server.
 Everything runs on your machine and writes plain files.
 
 **Current release: the guided inspector, responsive replay, the report, and a
-bounded link crawler.** Interaction recipes and animation capture are later
-phases — see [docs/limitations.md](docs/limitations.md).
+bounded crawler with declarative interaction recipes.** Animation capture and
+design-system extraction are later phases — see
+[docs/limitations.md](docs/limitations.md).
 
 ## Requirements
 
@@ -169,8 +170,62 @@ The frontier is written to `crawl-state.json` after every page, keyed by a hash
 of the canonical URL, so `--resume <run-dir>` continues an interrupted crawl in
 the same run directory without visiting or recording a page twice.
 
-The crawl takes no screenshots. Captures during a crawl need interaction
-recipes, which are the next slice.
+### Recipes
+
+A recipe is the only thing that may touch a crawled page, and writing one is
+what approves the interaction. On any route no recipe matches, the crawl still
+clicks nothing.
+
+```yaml
+crawl:
+  seeds: [https://example.com]
+  recipes:
+    - name: open-primary-navigation
+      match: '/**'
+      steps:
+        - hover: { role: button, name: Menu }
+        - waitFor: { role: navigation }
+        - capture: { kind: viewport, label: nav-open }
+
+    - name: button-state-set
+      match: '/components/buttons'
+      steps:
+        - select: { role: button, name: Save }
+        - captureStates: [default, hover, focus, focus-visible]
+```
+
+Steps: `select`, `click`, `hover`, `focus`, `press`, `scroll`, `scrollTo`,
+`waitFor`, `waitForUrl`, `waitMs`, `capture`, `captureStates`,
+`captureResponsive`. A step points at an element with exactly one of `role`
+(plus optional `name`), `testId`, `text`, `label`, `placeholder` or `css` — a
+closed vocabulary that resolves through Playwright's locator engines, so there
+is no path from a recipe to arbitrary page JavaScript.
+
+**There is deliberately no step that types text.** No `fill`, no `type`, no
+`evaluate` — all three fail validation. Sign in by hand with `auth save`, then
+point the crawl at that session:
+
+```bash
+npm run ui-atlas -- auth save my-reviewer https://example.com/login
+npm run ui-atlas -- crawl site.yml --mode storage-state --profile my-reviewer
+```
+
+A misspelled step name or an unknown option is a validation error, never a
+silent skip: for a config that can click things, "I did not understand that
+line" must not quietly become "I ignored that line".
+
+### Dry run
+
+```bash
+npm run ui-atlas -- crawl site.yml --dry-run
+```
+
+Launches no browser and visits nothing. It prints the plan and calls out, in
+capitals, every control a recipe would click. It also catches the mistakes that
+are valid YAML and still wrong — a recipe scoped to a route `denyPaths` or
+`exclude` will never allow, an element capture with no preceding `select`, a
+recipe that clicks but keeps no artifact, duplicate names — and exits non-zero
+when it finds one, so it can gate a pipeline.
 
 ### Authentication
 
@@ -250,7 +305,7 @@ packages/settle   bounded readiness with a hard deadline
 packages/capture  screenshots, the state controller, computed-style deltas, queue
 packages/overlay  the injected inspector and the host side of its bridge
 packages/reporter the static report: view model, viewer, generator
-packages/crawler  URL canonicalisation, link policy, frontier, budgets
+packages/crawler  URL canonicalisation, link policy, frontier, budgets, recipes
 ```
 
 The Node host owns the browser, the filesystem, the capture queue and policy.

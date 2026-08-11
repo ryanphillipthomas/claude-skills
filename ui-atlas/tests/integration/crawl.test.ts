@@ -1,22 +1,15 @@
-import { readFile } from 'node:fs/promises';
-import { readdirSync, statSync } from 'node:fs';
+import { readFile, writeFile } from 'node:fs/promises';
+import { existsSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import type { Page, Request } from 'playwright';
-import {
-  emptyManifest,
-  newRunId,
-  readPages,
-  readRunManifest,
-  RunWriter,
-  type RunWriter as RunWriterType,
-} from '@ui-atlas/artifacts';
-import { launchSession, resolveViewport, type BrowserSession } from '@ui-atlas/browser';
+import type { Page } from 'playwright';
+import { readPages, readRunManifest } from '@ui-atlas/artifacts';
 import { Crawler, type CrawlResult } from '@ui-atlas/crawler';
 import type { PageRecord } from '@ui-atlas/protocol';
 import { run } from '../../apps/cli/src/index.js';
 import { createLogger } from '../../apps/cli/src/logger.js';
-import { makeOutputDir, removeDir, startFixtureServer, testConfig, type FixtureServer } from '../support/harness.js';
+import { makeOutputDir, removeDir, startFixtureServer, testConfig } from '../support/harness.js';
+import { startCrawlHarness, type CrawlHarness } from '../support/crawl-harness.js';
 
 function findRunDir(root: string, project = 'fixture'): string {
   const projectDir = join(root, project);
@@ -24,73 +17,6 @@ function findRunDir(root: string, project = 'fixture'): string {
   const runId = runs.sort().at(-1);
   if (runId === undefined) throw new Error(`no run directory under ${projectDir}`);
   return join(projectDir, runId);
-}
-
-/**
- * The crawler needs a page and a writer, not the whole inspector session: it
- * injects nothing into the pages it visits. This builds exactly that much.
- */
-interface CrawlHarness {
-  server: FixtureServer;
-  outputRoot: string;
-  browser: BrowserSession;
-  page: Page;
-  writer: RunWriterType;
-  runId: string;
-  /** Every request the browser made, so "it never clicked" can be proved. */
-  requests: Array<{ method: string; url: string }>;
-  url(path: string): string;
-  dispose(): Promise<void>;
-}
-
-const VIEWPORT = resolveViewport({ name: 'base', width: 1024, height: 768, mode: 'desktop' });
-
-async function startCrawlHarness(
-  options: { server?: FixtureServer; outputRoot?: string; runId?: string } = {},
-): Promise<CrawlHarness> {
-  const server = options.server ?? (await startFixtureServer());
-  const outputRoot = options.outputRoot ?? (await makeOutputDir('crawl'));
-  const runId = options.runId ?? newRunId();
-  const config = testConfig({ browser: { headless: true } });
-
-  const writer =
-    options.runId === undefined
-      ? new RunWriter(
-          outputRoot,
-          emptyManifest({
-            runId,
-            project: config.project,
-            command: 'test crawl',
-            toolVersion: '0.0.0-test',
-            baseViewport: VIEWPORT,
-            browser: { engine: 'chromium', mode: 'clean', headless: true },
-          }),
-        )
-      : await RunWriter.resume(outputRoot, config.project, runId);
-  if (options.runId === undefined) await writer.init();
-
-  const browser = await launchSession({ config: config.browser, viewport: VIEWPORT });
-  const page = browser.context.pages()[0] ?? (await browser.context.newPage());
-
-  const requests: Array<{ method: string; url: string }> = [];
-  page.on('request', (request: Request) => {
-    requests.push({ method: request.method(), url: request.url() });
-  });
-
-  return {
-    server,
-    outputRoot,
-    browser,
-    page,
-    writer,
-    runId,
-    requests,
-    url: (path: string) => server.url(path),
-    dispose: async () => {
-      await browser.close().catch(() => undefined);
-      if (options.server === undefined) await server.close();
-    },
-  };
 }
 
 function crawlerFor(
@@ -103,7 +29,9 @@ function crawlerFor(
     page: harness.page,
     writer: harness.writer,
     runId: harness.runId,
-    config: testConfig({ crawl: { seeds, ...crawlOverrides } }),
+    // No politeness delay: this is a local fixture, and the default would add
+    // three quarters of a second to every page of every test.
+    config: testConfig({ crawl: { seeds, perPageDelayMs: 0, ...crawlOverrides } }),
     ...(extra.onPage === undefined ? {} : { onPage: extra.onPage }),
   });
 }
@@ -287,6 +215,47 @@ describe('bounded crawler', () => {
       expect(test.requests.some((request) => request.url === `${other.origin}/states.html`)).toBe(false);
     } finally {
       await other.close();
+    }
+  });
+
+  it('validates a config without launching a browser', async () => {
+    const server = await startFixtureServer();
+    const outputRoot = await makeOutputDir('crawl-dry');
+    const configPath = join(outputRoot, 'site.yml');
+    const quiet = createLogger({ level: 'error', write: () => undefined });
+    try {
+      await writeFile(
+        configPath,
+        [
+          'project: fixture',
+          'crawl:',
+          `  seeds: ['${server.url('/')}']`,
+          '  recipes:',
+          '    - name: never-runs',
+          "      match: '/logout'",
+          '      steps:',
+          '        - capture: { kind: viewport }',
+          '    - name: opens-a-disclosure',
+          "      match: '/states.html'",
+          '      steps:',
+          '        - click: { css: \'[data-testid="disclosure"] summary\' }',
+          '        - capture: { kind: viewport }',
+        ].join('\n'),
+        'utf8',
+      );
+
+      // A plan with a problem in it exits non-zero, so CI can gate on it.
+      const code = await run({
+        argv: ['crawl', configPath, '--dry-run', '--output', outputRoot],
+        logger: quiet,
+      });
+      expect(code).toBe(1);
+
+      // Nothing was visited and no run directory was created.
+      expect(existsSync(join(outputRoot, 'fixture'))).toBe(false);
+    } finally {
+      await removeDir(outputRoot);
+      await server.close();
     }
   });
 

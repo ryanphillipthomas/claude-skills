@@ -186,6 +186,94 @@ export const CrawlBudgetsSchema = z.object({
 });
 export type CrawlBudgets = z.infer<typeof CrawlBudgetsSchema>;
 
+/* -------------------------------------------------------------------------- */
+/* Recipes                                                                     */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * How a recipe names an element. Deliberately a small set of accessibility- and
+ * test-attribute-based selectors rather than free-form JavaScript: a recipe can
+ * click, so what it can point at is a safety boundary.
+ *
+ * Exactly one locator key must be set. `name` and `exact` refine `role`.
+ */
+export const RecipeTargetSchema = z
+  .object({
+    role: z.string().min(1).optional(),
+    /** Accessible name, only meaningful alongside `role`. */
+    name: z.string().optional(),
+    testId: z.string().min(1).optional(),
+    text: z.string().min(1).optional(),
+    label: z.string().min(1).optional(),
+    placeholder: z.string().min(1).optional(),
+    css: z.string().min(1).optional(),
+    exact: z.boolean().default(false),
+    /** Which match to use when the locator is intentionally ambiguous. */
+    nth: z.number().int().nonnegative().optional(),
+  })
+  .refine(
+    (target) =>
+      [target.role, target.testId, target.text, target.label, target.placeholder, target.css].filter(
+        (value) => value !== undefined,
+      ).length === 1,
+    { message: 'a target needs exactly one of role, testId, text, label, placeholder or css' },
+  )
+  .refine((target) => target.name === undefined || target.role !== undefined, {
+    message: '`name` only applies alongside `role`',
+  });
+export type RecipeTarget = z.infer<typeof RecipeTargetSchema>;
+
+const CaptureStepSchema = z.strictObject({
+  kind: z.enum(['element', 'viewport', 'full-page']).default('viewport'),
+  state: StateNameSchema.default('default'),
+  label: z.string().optional(),
+});
+
+/**
+ * One step. The single-key object form comes from the brief's example YAML:
+ * `- hover: { role: button, name: Menu }`.
+ *
+ * Every variant is a strict object, so a misspelled step name or an unknown
+ * option fails validation instead of being silently skipped. For a config that
+ * can click things, "I did not understand that line" must never mean "I ignored
+ * that line".
+ */
+export const RecipeStepConfigSchema = z.union([
+  z.strictObject({ select: RecipeTargetSchema }),
+  z.strictObject({ click: RecipeTargetSchema }),
+  z.strictObject({ hover: RecipeTargetSchema }),
+  z.strictObject({ focus: RecipeTargetSchema }),
+  z.strictObject({ waitFor: RecipeTargetSchema }),
+  z.strictObject({ waitForUrl: z.string().min(1) }),
+  z.strictObject({
+    press: z.strictObject({ key: z.string().min(1), target: RecipeTargetSchema.optional() }),
+  }),
+  z.strictObject({ scroll: z.enum(['top', 'bottom']) }),
+  z.strictObject({ scrollTo: RecipeTargetSchema }),
+  z.strictObject({ waitMs: z.number().int().min(0).max(30_000) }),
+  z.strictObject({ capture: CaptureStepSchema.prefault({}) }),
+  z.strictObject({ captureStates: z.array(StateNameSchema).min(1) }),
+  z.strictObject({
+    captureResponsive: z
+      .strictObject({ kind: z.enum(['element', 'viewport', 'full-page']).default('viewport') })
+      .prefault({}),
+  }),
+]);
+export type RecipeStepConfig = z.infer<typeof RecipeStepConfigSchema>;
+
+export const RecipeSchema = z.strictObject({
+  name: z.string().min(1).max(120),
+  /** Path globs, same dialect as `include`/`exclude`. */
+  match: z
+    .union([z.string(), z.array(z.string())])
+    .default('/**')
+    .transform((value) => (typeof value === 'string' ? [value] : value)),
+  steps: z.array(RecipeStepConfigSchema).min(1).max(100),
+  /** Hard deadline for the whole recipe on one page. */
+  timeoutMs: z.number().int().min(500).max(300_000).default(20_000),
+});
+export type Recipe = z.infer<typeof RecipeSchema>;
+
 export const CrawlConfigSchema = z.object({
   /** Where the crawl starts. Every seed's origin is in scope automatically. */
   seeds: z.array(z.string().url()).default([]),
@@ -204,7 +292,12 @@ export const CrawlConfigSchema = z.object({
   /** Skip `<a rel="nofollow">`. On by default: it is what the attribute asks for. */
   respectNofollow: z.boolean().default(true),
   /** Politeness pause between navigations. */
-  perPageDelayMs: z.number().int().min(0).max(60_000).default(0),
+  perPageDelayMs: z.number().int().min(0).max(60_000).default(750),
+  /**
+   * The only way the crawler is allowed to interact with a page. Without a
+   * matching recipe it navigates, reads links and touches nothing.
+   */
+  recipes: z.array(RecipeSchema).default([]),
 });
 export type CrawlConfig = z.infer<typeof CrawlConfigSchema>;
 
