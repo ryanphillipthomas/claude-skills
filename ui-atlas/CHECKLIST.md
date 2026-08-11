@@ -1,7 +1,8 @@
-# Implementation checklist — phases 0 and 1
+# Implementation checklist
 
-Scope is phases 0 and 1 only. Later phases are listed in
-[docs/limitations.md](docs/limitations.md) and are not started.
+Phases 0, 1 and 2 are complete. Phase 3 is in progress: its first slice, the
+bounded link frontier, is done. What is still unbuilt is listed in
+[docs/limitations.md](docs/limitations.md).
 
 ## Phase 0 — foundation
 
@@ -87,7 +88,45 @@ appearing in screenshots or the page remaining altered.**
 including honest hidden/missing outcomes, and can be browsed in the report.**
 Met, end to end, in `tests/integration/report.test.ts`.
 
+## Phase 3 — bounded crawler (first slice, authorised separately)
+
+- [x] URL canonicalisation: fragment, credentials, host case, default port,
+      repeated slashes, trailing slash, configured query rules, sorted params
+- [x] Same-origin frontier over `<a href>`, breadth-first, deduplicated by
+      canonical URL
+- [x] Include/exclude globs, a sign-out deny list that is on by default,
+      download extensions, `mailto:`/`tel:`/`javascript:`, `rel="nofollow"`
+- [x] Every skip carries a stable reason code, is counted, and is sampled into
+      the run summary
+- [x] Hard budgets: `maxPages`, `maxDepth`, `perPageTimeoutMs`,
+      `maxRunMinutes`, `maxQueued`, each clamped by the run deadline
+- [x] Nothing is clicked. Link discovery reads the DOM and nothing else, proved
+      against `destructive.html` plus a no-non-`GET`-request assertion
+- [x] A redirect landing off-origin is recorded but its links are not followed
+- [x] Resumable queue keyed by a hash of the canonical URL, persisted to
+      `crawl-state.json` after every page, with `crawl --resume <run-dir>`
+- [x] `ui-atlas crawl <site-config.yml | url>`, where a site config is an
+      ordinary config with a `crawl:` block
+
+**Phase 3 exit criterion — a 50-page test site can be interrupted and resumed
+without duplicate records, exceeding budgets, or clicking destructive fixture
+controls.** Partly met: interruption and resumption without duplicates, budget
+enforcement and the no-clicking guarantee are all covered by
+`tests/integration/crawl.test.ts`, against the 13-page fixture graph rather than
+a 50-page site. Recipes, the suggested-interaction inventory, worker
+concurrency, retry/backoff and trace-on-failure are still to build.
+
+### Still to build in phase 3
+
+- [ ] Declarative recipes and dry-run validation
+- [ ] Captures during a crawl (the crawl currently records pages, not images)
+- [ ] Suggested-interaction inventory
+- [ ] Worker concurrency and per-origin throttling
+- [ ] Retry with jitter, and status-aware backoff for 429/503
+- [ ] Trace-on-failure
+- [ ] Sitemap seeding, and optional dedup by page structural fingerprint
+
 ## Still out of scope
 
-Crawler, recipes, extension packaging, distributed workers, AI control,
-CDP animation, perceptual (near-duplicate) hashing.
+Extension packaging, distributed workers, AI control, CDP animation, perceptual
+(near-duplicate) hashing.

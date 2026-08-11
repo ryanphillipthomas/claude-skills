@@ -17,7 +17,7 @@ Commands
   report  <run-directory>       summarise a run
   auth save <profile> <url>     sign in by hand and store the session
   auth clear <profile>          delete a stored session and profile
-  crawl <site-config.yml>       phase 3, not implemented yet
+  crawl <site-config.yml|url>   visit same-origin pages and record them
 
 Global options
   --help          show help for a command
@@ -79,7 +79,7 @@ export async function run(options: RunOptions): Promise<number> {
       case 'auth':
         return await runAuth(args, logger);
       case 'crawl':
-        return runCrawl(args, logger);
+        return await runCrawl(args, logger);
       default:
         logger.error(`unknown command "${command}"`);
         process.stdout.write(`${TOP_LEVEL_HELP}\n`);

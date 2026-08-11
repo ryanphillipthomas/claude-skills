@@ -19,6 +19,7 @@
     "@ui-atlas/browser": "*",
     "@ui-atlas/capture": "*",
     "@ui-atlas/config": "*",
+    "@ui-atlas/crawler": "*",
     "@ui-atlas/identity": "*",
     "@ui-atlas/overlay": "*",
     "@ui-atlas/protocol": "*",

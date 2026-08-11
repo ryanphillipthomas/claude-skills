@@ -113,6 +113,20 @@ async function handle(
     return;
   }
 
+  // Redirects to an arbitrary URL, so a crawl test can prove that landing
+  // off-origin does not widen its scope.
+  if (pathname === '/__redirect') {
+    const to = url.searchParams.get('to');
+    if (to === null) {
+      response.writeHead(400, { 'content-type': 'text/plain' });
+      response.end('__redirect needs ?to=');
+      return;
+    }
+    response.writeHead(302, { location: to, 'cache-control': 'no-store' });
+    response.end();
+    return;
+  }
+
   if (pathname === '/__slow-page') {
     const delayMs = Math.min(Number(url.searchParams.get('ms') ?? '300'), 5_000);
     await sleep(delayMs);

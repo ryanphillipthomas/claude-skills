@@ -10,7 +10,8 @@ in its `warnings` or its `error`.
 | --- | --- |
 | Responsive capture sets | **Built.** Each preset gets a fresh context, its own reload and its own re-resolution; absent, hidden and ambiguous elements are recorded per viewport. Two caveats: a persistent `profile` context cannot create sibling contexts, so replay there degrades to a resize with a warning on every mobile preset; and the toolbar's `viewport/set` control still only resizes the current page (it warns that a mobile preset is not real emulation) — use the responsive set for true emulation. |
 | Static HTML report | **Built.** `ui-atlas report <run-dir>` writes `report/index.html`. It references screenshots by relative path, so the report travels with its run directory rather than as a lone file. |
-| Crawler and recipes | `ui-atlas crawl` exits with a message. URL frontier, budgets, declarative recipes and the suggested-interaction inventory are phase 3. |
+| Bounded crawler | **Built, first slice.** URL canonicalisation, a same-origin frontier, hard budgets and a resumable queue. It follows `<a href>` and clicks nothing. It takes no screenshots — captures during a crawl need recipes. Details below. |
+| Recipes and interaction inventory | Declarative recipe steps, dry-run validation, the suggested-interaction inventory, worker concurrency, per-origin throttling and trace-on-failure are the rest of phase 3. |
 | Animation capture | The motion fixture exists; discovery and deterministic frame sampling are phase 4. The toolbar's Animation button is disabled. |
 | CDP forced pseudo-states | Not implemented. `focus-visible` is reached with a real keyboard interaction or reported as `skipped` — never faked. |
 | Chrome extension packaging | Not required and not built. |
@@ -40,6 +41,41 @@ in its `warnings` or its `error`.
   the inspector is hidden with `display: none` before a capture rather than
   removed, and why the "no overlay in artifacts" test compares against a session
   where the overlay was never injected.
+
+## Boundaries of the crawler
+
+All of these are deliberate for the first crawl slice; see
+[ADR 14](adr/0014-crawl-frontier-and-budgets.md).
+
+- **Two URLs serving identical content stay two pages.** `/` and `/index.html`
+  on our own fixture site canonicalise differently and are both crawled.
+  Recognising them as one needs the optional page structural fingerprint;
+  guessing without it would silently drop real pages.
+- **Only `<a href>` is followed.** Links a site exposes some other way — a
+  sitemap, `<link rel>`, a JavaScript router with no anchors, a `<form>` GET —
+  are invisible to the crawler. Sitemap seeding is listed in the brief and is
+  not built yet.
+- **Anchors inside iframes are not followed.** A frame's links belong to the
+  frame's origin, and following them from the parent's scope would quietly widen
+  the crawl.
+- **Deny rules match on the path only.** `/logout` is refused;
+  `/account?action=logout` is not, because the rule set does not look at query
+  parameters. Add a query-bearing pattern to `exclude` if a site works that way.
+- **Downloads are detected by file extension.** An extensionless URL that
+  responds with `Content-Disposition: attachment` will be navigated to. Chromium
+  will not render it and the page record carries whatever the navigation
+  produced.
+- **One worker, one page at a time.** Concurrency and per-origin throttling are
+  the next part of phase 3, so `perPageDelayMs` is currently the only politeness
+  control.
+- **`maxRunMinutes` is checked between pages** and also clamps each page's own
+  budget, so navigation, settle, the title read and link discovery are all
+  bounded by whatever is left of the run. A crawl can still overshoot slightly:
+  a step that hits its budget is abandoned rather than cancelled, because
+  Playwright's `evaluate` and `title` take no timeout argument.
+- **Retry and status-aware backoff are not built.** A navigation failure is
+  recorded on the page record and the crawl moves on; a 429 or 503 is recorded
+  as an ordinary status and not retried.
 
 ## Things the tool reports that surprise people
 

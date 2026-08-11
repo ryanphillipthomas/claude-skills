@@ -111,6 +111,104 @@ export const OverlayConfigSchema = z.object({
 export type OverlayConfig = z.infer<typeof OverlayConfigSchema>;
 
 /* -------------------------------------------------------------------------- */
+/* Crawl                                                                       */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Query parameters dropped before two URLs are compared. All of these identify
+ * *how someone arrived*, never *what page they arrived at*, so keeping them
+ * would crawl one page many times.
+ */
+export const DEFAULT_DROP_QUERY_PARAMS = [
+  'utm_*',
+  'gclid',
+  'gbraid',
+  'wbraid',
+  'fbclid',
+  'msclkid',
+  'mc_cid',
+  'mc_eid',
+  'igshid',
+  '_hsenc',
+  '_hsmi',
+];
+
+/**
+ * Never followed, on any site, unless the operator removes them. Following a
+ * sign-out link ends the session the rest of the crawl depends on.
+ */
+export const DEFAULT_DENY_PATHS = [
+  '**/logout',
+  '**/logout/**',
+  '**/log-out',
+  '**/logoff',
+  '**/signout',
+  '**/signout/**',
+  '**/sign-out',
+  '**/sign_out',
+];
+
+/** Extensions that download a file rather than render a page. */
+export const DEFAULT_DOWNLOAD_EXTENSIONS = [
+  '.pdf', '.zip', '.gz', '.tgz', '.bz2', '.7z', '.rar', '.tar',
+  '.dmg', '.pkg', '.exe', '.msi', '.deb', '.rpm', '.apk',
+  '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.rtf',
+  '.csv', '.tsv', '.mp3', '.mp4', '.m4a', '.mov', '.avi', '.mkv', '.wav',
+  '.iso', '.jar', '.bin', '.epub',
+];
+
+export const QueryRulesSchema = z.object({
+  /** Parameter names to remove. A trailing `*` matches by prefix (`utm_*`). */
+  drop: z.array(z.string()).default(DEFAULT_DROP_QUERY_PARAMS),
+  /** When non-empty this becomes an allowlist and every other parameter goes. */
+  keep: z.array(z.string()).default([]),
+  /** Sort what survives, so `?b=2&a=1` and `?a=1&b=2` are one URL. */
+  sort: z.boolean().default(true),
+  /** Drop the query string wholesale. Blunt, but right for some sites. */
+  dropAll: z.boolean().default(false),
+});
+export type QueryRules = z.infer<typeof QueryRulesSchema>;
+
+export const CrawlBudgetsSchema = z.object({
+  /** Hard cap on pages *visited*. Reaching it ends the crawl. */
+  maxPages: z.number().int().min(1).max(100_000).default(50),
+  /** Seeds are depth 0. Links found on a depth-N page are depth N+1. */
+  maxDepth: z.number().int().min(0).max(50).default(3),
+  /** Hard deadline for one page: navigation, settle and link discovery. */
+  perPageTimeoutMs: z.number().int().min(1_000).max(600_000).default(30_000),
+  /** Hard deadline for the whole crawl, checked before every page. */
+  maxRunMinutes: z.number().positive().max(1_440).default(30),
+  /**
+   * Memory bound on the pending queue. A crawl of a big site with a small
+   * `maxPages` can still discover a very large number of links.
+   */
+  maxQueued: z.number().int().min(1).max(1_000_000).default(10_000),
+});
+export type CrawlBudgets = z.infer<typeof CrawlBudgetsSchema>;
+
+export const CrawlConfigSchema = z.object({
+  /** Where the crawl starts. Every seed's origin is in scope automatically. */
+  seeds: z.array(z.string().url()).default([]),
+  /** Extra in-scope origins, e.g. a separate docs host. */
+  allowOrigins: z.array(z.string().url()).default([]),
+  /** Path globs. `**` crosses `/`, `*` does not; a trailing `/**` also matches the parent. */
+  include: z.array(z.string()).default(['/**']),
+  exclude: z.array(z.string()).default([]),
+  /** Checked before `exclude`, and reported separately so a near miss is obvious. */
+  denyPaths: z.array(z.string()).default(DEFAULT_DENY_PATHS),
+  downloadExtensions: z.array(z.string()).default(DEFAULT_DOWNLOAD_EXTENSIONS),
+  /** `strip` makes `/docs` and `/docs/` one page. The root `/` is never stripped. */
+  trailingSlash: z.enum(['strip', 'keep']).default('strip'),
+  query: QueryRulesSchema.prefault({}),
+  budgets: CrawlBudgetsSchema.prefault({}),
+  /** Skip `<a rel="nofollow">`. On by default: it is what the attribute asks for. */
+  respectNofollow: z.boolean().default(true),
+  /** Politeness pause between navigations. */
+  perPageDelayMs: z.number().int().min(0).max(60_000).default(0),
+});
+export type CrawlConfig = z.infer<typeof CrawlConfigSchema>;
+
+/* -------------------------------------------------------------------------- */
 /* Redaction                                                                   */
 /* -------------------------------------------------------------------------- */
 
@@ -148,6 +246,12 @@ export const UiAtlasConfigSchema = z.object({
   capture: CaptureConfigSchema.prefault({}),
   browser: BrowserConfigSchema.prefault({}),
   overlay: OverlayConfigSchema.prefault({}),
+  /**
+   * A crawl "site config" is just a UiAtlasConfig with this block filled in, so
+   * `ui-atlas crawl site.yml` reuses the same loader, deep merge, CLI overrides
+   * and validation as every other command. Recipes will slot in here too.
+   */
+  crawl: CrawlConfigSchema.prefault({}),
   redact: RedactionConfigSchema.prefault({}),
 });
 export type UiAtlasConfig = z.infer<typeof UiAtlasConfigSchema>;

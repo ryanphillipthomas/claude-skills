@@ -3,13 +3,14 @@
 Running log for the build. Updated after each milestone so an interrupted
 session is recoverable.
 
-**Last updated:** 2026-08-11, after live state preview landed.
+**Last updated:** 2026-08-11, after the bounded crawl frontier landed.
 
 ## Status
 
 Phases 0, 1 and 2 are complete and their exit criteria pass, with one
-environment-bound gap recorded below. The repository is buildable, tested and
-documented.
+environment-bound gap recorded below. Phase 3 has started: its first slice — URL
+canonicalisation and a same-origin frontier with hard budgets and no clicking —
+is done. The repository is buildable, tested and documented.
 
 ```
 npm install
@@ -22,14 +23,14 @@ npm test
 `npm test` (builds, then Vitest — unit and browser integration):
 
 ```
-Test Files  17 passed (17)
-     Tests  170 passed | 3 skipped (173)
-  Duration  ~110s
+Test Files  19 passed (19)
+     Tests  219 passed | 3 skipped (222)
+  Duration  ~146s
 ```
 
 On a networked machine the three external smoke tests run instead of skipping:
-the user confirmed **163/163 with zero skips** on macOS, which closes the last
-open item on the phase 1 exit criterion. Nothing is unverified now.
+the user confirmed **zero skips** on macOS, which closes the last open item on
+the phase 1 exit criterion. Nothing is unverified now.
 
 | Suite | Tests | What it proves |
 | --- | --- | --- |
@@ -49,9 +50,11 @@ open item on the phase 1 exit criterion. Nothing is unverified now.
 | `integration/report` | 7 | **phase 2 exit criterion**: the generated report driven in a real browser, including script injection |
 | `unit/reporter` | 13 | escaping, view model, matrix grouping, duplicate grouping |
 | `integration/state-preview` | 10 | live state preview: apply, hold, release, swap, forced undo, capture isolation |
+| `unit/crawl` | 39 | canonicalisation, path globs, link policy, frontier, budgets, resume round-trip |
+| `integration/crawl` | 10 | **phase 3, first slice**: the fixture link graph, the empty click log, budgets, redirects on and off origin, resume through the CLI |
 | `integration/external-smoke` | 3 skipped | read-only public-site checks; skip without network |
 
-`npm run typecheck` passes for all ten packages and for the test sources.
+`npm run typecheck` passes for all eleven packages and for the test sources.
 
 ## Exit criteria
 
@@ -124,6 +127,7 @@ Consequential ones are in [`docs/adr/`](docs/adr/):
 11. Responsive sets replay the route in a fresh context per viewport
 12. The report is one static file, and it treats capture data as hostile
 13. State chips apply the state to the live page
+14. The crawler follows links and clicks nothing
 
 Smaller assumptions, not worth an ADR:
 
@@ -205,6 +209,79 @@ Building it caught two real defects:
    re-sends its probe; releasing on any selection call yanked the preview away
    mid-capture. Selection now only releases on a genuinely different element.
 
+## Repository hygiene (cleanup)
+
+A `wip` commit had added **2849 files** to version control that
+`ui-atlas/.gitignore` already covers: `node_modules/` (2521), every package's
+`dist/` (836 after overlap), the ten `tsconfig.tsbuildinfo` files, and three
+captured run directories. Git ignores `.gitignore` for paths already in the
+index, so the rules were never going to evict them.
+
+All of it is out of the index now and untouched on disk, leaving 160 tracked
+sources under `ui-atlas/`. Recurrence is verified two ways: `git add -A
+--dry-run` stages nothing, and `.gitignore` has no negation rules that could
+punch a hole in those entries.
+
+The committed `node_modules` was not just noise. It was a **macOS arm64**
+install, so it carried `@esbuild/darwin-arm64` and no Linux binary, and
+`npm run build` failed on any Linux checkout with *"You installed esbuild for
+another platform than the one you're currently using"*. That is what the first
+baseline run in this session hit; `npm install` fixed it.
+
+## Bounded crawler (phase 3, first slice)
+
+Done and covered by `tests/unit/crawl.test.ts` and
+`tests/integration/crawl.test.ts`. `ui-atlas crawl <site-config.yml | url>`
+visits same-origin pages and records each one in `pages.jsonl`. See
+[ADR 14](docs/adr/0014-crawl-frontier-and-budgets.md).
+
+All five points of the plan this replaced are done:
+
+1. **Canonicalisation** — fragment dropped, credentials stripped, host
+   lower-cased, default port dropped, repeated slashes collapsed, trailing slash
+   normalised, configured query rules applied, surviving parameters sorted.
+   Deduplication is by canonical URL.
+2. **Same-origin frontier** over `<a href>` only, breadth-first, honouring
+   include/exclude globs and skipping `mailto:`, `tel:`, `javascript:`,
+   downloads by extension, `rel="nofollow"` and a sign-out deny list that is on
+   by default.
+3. **Hard budgets** — `maxPages`, `maxDepth`, `perPageTimeoutMs`,
+   `maxRunMinutes` and `maxQueued`. Each page's budget is clamped by whatever is
+   left of the run.
+4. **Nothing is clicked.** The crawler's entire interaction with a page is
+   `goto`, settle, and one `evaluate` that reads anchors.
+5. **Resumable queue** keyed by `sha256(canonicalUrl)[0..16]` — a function of
+   the URL alone, not of the run or the clock. `crawl-state.json` is written
+   atomically after every page; `crawl --resume <run-dir>` continues in the same
+   run directory.
+
+The no-clicking guarantee is asserted twice over: the crawl visits
+`destructive.html` and reads `window.__uiAtlasDestructiveLog` while that page is
+still current, requiring it to be empty, and separately requires that the
+browser issued **no non-`GET` request** during the whole crawl.
+
+Building it surfaced four things worth knowing:
+
+1. **A test premise was wrong, not the code.** The new `links.html` fixture was
+   seeded expecting the crawl to stay on that page's own links, but the fixture
+   graph is connected — `links.html` → `states.html` → `index.html` reaches
+   every page. The fix was to bound that test to `maxDepth: 1`, which is what it
+   actually meant to measure.
+2. **Two deadline holes.** `page.title()` and `page.evaluate()` take no timeout
+   argument in Playwright, so both were outside the per-page budget and a wedged
+   page could have held a crawl open past `maxRunMinutes`. Both are now raced
+   against the remaining budget.
+3. **A redirect destination was fetched twice.** Landing on `/b` from `/a` used
+   to *queue* `/b`, so a page linking to `/b` produced a second navigation and a
+   second record for one page. It is now marked seen instead — and marked
+   without charging a navigation, so a site with ten redirects no longer drains
+   `maxPages` at double rate. `visited` and the navigation count are separate
+   numbers for this reason, and both are persisted.
+4. **`/` and `/index.html` are two pages,** on our own fixture site. They serve
+   identical bytes but canonicalise differently. Collapsing them needs the
+   optional page structural fingerprint; guessing would silently drop real
+   pages. Recorded in `docs/limitations.md`.
+
 ## Known failures
 
 None. The only unverified item is the public-site half of the phase 1 exit
@@ -213,22 +290,25 @@ criterion, which is an environment limitation, not a failure — see above and
 
 ## Next smallest milestone
 
-Phase 3 is the bounded crawler, and it is a much bigger step than anything so
-far — it is the first part of the tool that visits pages nobody chose by hand.
-The smallest useful slice, and the one everything else in phase 3 depends on:
+The frontier exists, so the next slice is what turns a survey into a collection:
 
-**URL canonicalisation and a same-origin frontier, with budgets, and no clicking.**
+**Declarative recipes, validated before execution, and captures during a crawl.**
 
-1. Canonicalise scheme/host, drop fragments, normalise trailing slashes, apply
-   configured query rules; deduplicate by canonical URL.
-2. A frontier that only follows same-origin `<a href>`, honours include/exclude
-   globs, and skips `mailto:`, `tel:`, downloads and logout/signout URLs.
-3. Budgets enforced as hard limits: max pages, max depth, per-page timeout, total
-   run timeout.
-4. Nothing is clicked. Link discovery only. The `destructive.html` fixture
-   already asserts an empty click log and should be wired into the crawl tests.
-5. A resumable queue keyed deterministically, so an interrupted crawl restarts
-   without duplicate records.
+1. A `recipes:` block in the site config with the brief's small primitive set —
+   navigate, select, click, hover, focus, press, scroll, wait-for locator,
+   wait-for URL, capture, capture states, capture responsive set. No arbitrary
+   JavaScript.
+2. `match:` globs binding a recipe to routes, reusing the same glob dialect the
+   frontier already uses.
+3. Dry-run validation: parse and check every recipe, resolve its selectors
+   against nothing, and report what *would* run, without launching a browser.
+4. The crawler's `onPage` hook is the seam this plugs into — it already receives
+   the live page and the page record, and the crawler itself still touches
+   nothing.
+5. Clicks stay recipe-approved only. The `destructive.html` assertions must keep
+   passing with recipes enabled and no recipe matching that route.
 
-Recipes, worker concurrency and the suggested-interaction inventory build on top
-of that frontier and should come after it, not with it.
+After that: the suggested-interaction inventory (classify visible interactive
+elements as likely-navigation or likely-mutation, and surface them rather than
+clicking them), then worker concurrency with per-origin throttling, then
+retry/backoff and trace-on-failure.

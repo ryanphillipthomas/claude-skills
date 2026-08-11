@@ -61,6 +61,39 @@ overlay:
   autoInspect: false
   showBoxModel: false
 
+# `ui-atlas crawl <this file>`. The crawler follows <a href> links and clicks
+# nothing at all — no buttons, no forms, no interaction of any kind.
+crawl:
+  # Where the crawl starts. Each seed's origin is in scope automatically.
+  seeds: []
+  # Extra in-scope origins, e.g. a separate docs host.
+  allowOrigins: []
+  # `**` crosses `/`, `*` does not, and a trailing `/**` also matches the parent,
+  # so '/checkout/**' excludes '/checkout' too.
+  include: ['/**']
+  exclude: []
+  # Checked before `exclude` and reported separately. Following a sign-out link
+  # would end the session the rest of the crawl depends on.
+  denyPaths:
+    ['**/logout', '**/logout/**', '**/log-out', '**/logoff', '**/signout', '**/signout/**', '**/sign-out', '**/sign_out']
+  # `strip` makes /docs and /docs/ one page. The root `/` is never stripped.
+  trailingSlash: strip
+  query:
+    # These say how someone arrived, never which page they arrived at.
+    drop: ['utm_*', gclid, gbraid, wbraid, fbclid, msclkid, mc_cid, mc_eid, igshid, _hsenc, _hsmi]
+    keep: [] # non-empty turns this into an allowlist
+    sort: true # so ?b=2&a=1 and ?a=1&b=2 are one page
+    dropAll: false
+  # Hard limits, every one of them.
+  budgets:
+    maxPages: 50
+    maxDepth: 3 # seeds are depth 0
+    perPageTimeoutMs: 30000
+    maxRunMinutes: 30
+    maxQueued: 10000 # memory bound on the pending queue
+  respectNofollow: true
+  perPageDelayMs: 0
+
 # Redacted before anything is logged.
 redact:
   headers: [authorization, cookie, set-cookie, proxy-authorization, x-api-key]

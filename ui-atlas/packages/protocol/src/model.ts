@@ -368,3 +368,61 @@ export const RunManifestSchema = z.object({
   warnings: z.array(z.string()),
 });
 export type RunManifest = z.infer<typeof RunManifestSchema>;
+
+/* -------------------------------------------------------------------------- */
+/* Crawl state                                                                 */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Why a discovered URL was not queued. Stable codes, so a report can count them
+ * without matching on prose.
+ */
+export const CRAWL_SKIP_REASONS = [
+  'unparseable',
+  'unsupported-scheme',
+  'cross-origin',
+  'download',
+  'denied-path',
+  'excluded',
+  'not-included',
+  'nofollow',
+  'depth-exceeded',
+  'duplicate',
+  'queue-full',
+] as const;
+export const CrawlSkipReasonSchema = z.enum(CRAWL_SKIP_REASONS);
+export type CrawlSkipReason = z.infer<typeof CrawlSkipReasonSchema>;
+
+export const FrontierItemSchema = z.object({
+  /**
+   * Deterministic function of the canonical URL alone. The same page yields the
+   * same key on every run, which is what makes a resumed crawl idempotent.
+   */
+  key: z.string(),
+  url: z.string(),
+  depth: z.number().int().nonnegative(),
+  discoveredFrom: z.string().optional(),
+});
+export type FrontierItem = z.infer<typeof FrontierItemSchema>;
+
+/**
+ * Everything needed to restart an interrupted crawl exactly where it stopped.
+ * Written next to the run's other artifacts after every page.
+ */
+export const CrawlStateSchema = z.object({
+  schemaVersion: SchemaVersionSchema,
+  runId: z.string(),
+  seeds: z.array(z.string()),
+  /** Canonical URLs already fetched. Re-adding one is a `duplicate` skip. */
+  visited: z.array(z.string()),
+  /**
+   * Navigations performed, which is what `maxPages` caps. Lower than
+   * `visited.length` when a redirect landed on a URL that cost no navigation of
+   * its own.
+   */
+  navigations: z.number().int().nonnegative(),
+  pending: z.array(FrontierItemSchema),
+  skipCounts: z.record(CrawlSkipReasonSchema, z.number().int().nonnegative()),
+  updatedAt: IsoDateTimeSchema,
+});
+export type CrawlState = z.infer<typeof CrawlStateSchema>;

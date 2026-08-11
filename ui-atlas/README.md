@@ -7,9 +7,9 @@ states, and keep enough metadata to find it again.
 No cloud account, no AI service, no browser extension, no database server.
 Everything runs on your machine and writes plain files.
 
-**Current release: the guided inspector, responsive replay and the report.**
-The crawler and animation capture are later phases — see
-[docs/limitations.md](docs/limitations.md).
+**Current release: the guided inspector, responsive replay, the report, and a
+bounded link crawler.** Interaction recipes and animation capture are later
+phases — see [docs/limitations.md](docs/limitations.md).
 
 ## Requirements
 
@@ -123,6 +123,55 @@ the summary instead; `--no-html` skips writing the report.
 The report contains no authentication material, no absolute paths, and no
 executable content derived from the sites you captured.
 
+### Crawl
+
+```bash
+npm run ui-atlas -- crawl https://example.com --max-pages 50
+npm run ui-atlas -- crawl site-config.yml
+npm run ui-atlas -- crawl site-config.yml --resume ui-atlas-output/<project>/<run-id>
+```
+
+Visits same-origin pages and records each one in `pages.jsonl`.
+
+**It follows `<a href>` links and clicks nothing.** No buttons, no forms, no
+interaction of any kind — the only things it does to a page are navigate to it,
+wait for it to settle, and read anchors out of the DOM. That is asserted by a
+test which crawls a fixture page full of destructive controls and requires both
+the page's own audit log and the browser's non-`GET` request list to be empty.
+
+Turned away by default, each with its own reason in the summary: other origins,
+`mailto:`/`tel:`/`javascript:`, downloads by extension, `rel="nofollow"`, and
+anything matching the sign-out deny list — following a sign-out link would end
+the session the rest of the crawl depends on.
+
+URLs are canonicalised before anything is compared: fragment dropped,
+credentials stripped, host lower-cased, default port dropped, repeated slashes
+collapsed, trailing slash normalised, tracking parameters removed and the rest
+sorted. So `/docs/`, `/docs#install` and `/docs?utm_source=news` are one page,
+crawled once.
+
+Every budget is a hard limit — `maxPages`, `maxDepth`, `perPageTimeoutMs`,
+`maxRunMinutes` and a bound on the pending queue. Stopping on one is a result,
+not an error: the run says which budget stopped it and how much was left queued.
+
+A site config is an ordinary UI Atlas config with a `crawl:` block:
+
+```yaml
+project: example-audit
+crawl:
+  seeds: [https://example.com]
+  include: ['/**']
+  exclude: ['/checkout/**']       # also excludes /checkout itself
+  budgets: { maxPages: 100, maxDepth: 4, maxRunMinutes: 30 }
+```
+
+The frontier is written to `crawl-state.json` after every page, keyed by a hash
+of the canonical URL, so `--resume <run-dir>` continues an interrupted crawl in
+the same run directory without visiting or recording a page twice.
+
+The crawl takes no screenshots. Captures during a crawl need interaction
+recipes, which are the next slice.
+
 ### Authentication
 
 ```bash
@@ -145,6 +194,7 @@ ui-atlas-output/
       run.json                                        run manifest
       captures.jsonl                                  one record per capture
       pages.jsonl                                     one record per page visit
+      crawl-state.json                                resumable crawl frontier
       screenshots/<route>/<viewport>/<capture-id>.png
       screenshots/<route>/<viewport>/<capture-id>.json   metadata beside the image
       report/index.html                                  browsable report
@@ -181,8 +231,8 @@ Interaction tests run only against the controlled fixture site in
 `tests/fixtures/sites/`, which covers hover menus, focus vs focus-visible,
 pressed state, checked/selected/expanded/disabled, motion, lazy images and
 never-ending requests, SPA route changes and DOM replacement, same- and
-cross-origin iframes, open and closed shadow DOM, hostile global CSS, and
-destructive controls that must never be clicked.
+cross-origin iframes, open and closed shadow DOM, hostile global CSS, every kind
+of `href` a crawler meets, and destructive controls that must never be clicked.
 
 The external-site smoke tests are read-only and skip themselves when the browser
 has no network access.
@@ -200,6 +250,7 @@ packages/settle   bounded readiness with a hard deadline
 packages/capture  screenshots, the state controller, computed-style deltas, queue
 packages/overlay  the injected inspector and the host side of its bridge
 packages/reporter the static report: view model, viewer, generator
+packages/crawler  URL canonicalisation, link policy, frontier, budgets
 ```
 
 The Node host owns the browser, the filesystem, the capture queue and policy.
