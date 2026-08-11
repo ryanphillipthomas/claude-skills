@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "runId": "20260811T170825Z-403502",
+  "project": "default",
+  "command": "inspect https://grok.com/",
+  "startedAt": "2026-08-11T17:08:25.377Z",
+  "finishedAt": "2026-08-11T17:09:50.740Z",
+  "toolVersion": "0.1.0",
+  "browser": {
+    "engine": "chromium",
+    "version": "141.0.7390.37",
+    "mode": "clean",
+    "headless": false
+  },
+  "baseViewport": {
+    "name": "base",
+    "width": 1440,
+    "height": 1000,
+    "deviceScaleFactor": 1,
+    "mobile": false,
+    "hasTouch": false,
+    "userAgentClass": "desktop"
+  },
+  "counts": {
+    "captured": 0,
+    "failed": 0,
+    "skipped": 0,
+    "pages": 1
+  },
+  "warnings": []
+}

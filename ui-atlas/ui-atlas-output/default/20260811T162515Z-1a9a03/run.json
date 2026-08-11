@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "runId": "20260811T162515Z-1a9a03",
+  "project": "default",
+  "command": "inspect https://example.com/",
+  "startedAt": "2026-08-11T16:25:15.772Z",
+  "toolVersion": "0.1.0",
+  "browser": {
+    "engine": "chromium",
+    "mode": "clean",
+    "headless": false
+  },
+  "baseViewport": {
+    "name": "base",
+    "width": 1440,
+    "height": 1000,
+    "deviceScaleFactor": 1,
+    "mobile": false,
+    "hasTouch": false,
+    "userAgentClass": "desktop"
+  },
+  "warnings": []
+}
