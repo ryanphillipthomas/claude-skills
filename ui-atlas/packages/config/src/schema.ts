@@ -52,6 +52,28 @@ export const SettleConfigSchema = z.object({
 export type SettleConfig = z.infer<typeof SettleConfigSchema>;
 
 /* -------------------------------------------------------------------------- */
+/* Animation sampling                                                          */
+/* -------------------------------------------------------------------------- */
+
+export const AnimationSamplingConfigSchema = z.object({
+  /**
+   * Points within **one iteration** to photograph, 0..1. One iteration is the
+   * meaningful unit for design reference: it is the keyframe progression, and
+   * "50% of three iterations" is a moment nobody was asking about.
+   */
+  offsets: z
+    .array(z.number().min(0).max(1))
+    .min(1)
+    .max(50)
+    .default([0, 0.25, 0.5, 0.75, 1]),
+  /** Cap on animations sampled in one go, so a busy page cannot run away. */
+  maxAnimations: z.number().int().min(1).max(200).default(10),
+  /** What to photograph for each frame. */
+  kind: z.enum(['element', 'viewport']).default('element'),
+});
+export type AnimationSamplingConfig = z.infer<typeof AnimationSamplingConfigSchema>;
+
+/* -------------------------------------------------------------------------- */
 /* Capture                                                                     */
 /* -------------------------------------------------------------------------- */
 
@@ -73,6 +95,8 @@ export const CaptureConfigSchema = z.object({
   keyboardFocusMaxTabs: z.number().int().min(0).max(200).default(60),
   /** Allow synthesising states the page cannot reach naturally (labelled `forced`). */
   allowForcedStates: z.boolean().default(true),
+  /** Where animation frames are sampled, when sampling is asked for. */
+  animation: AnimationSamplingConfigSchema.prefault({}),
 });
 export type CaptureConfig = z.infer<typeof CaptureConfigSchema>;
 

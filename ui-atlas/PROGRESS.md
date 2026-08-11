@@ -3,7 +3,7 @@
 Running log for the build. Updated after each milestone so an interrupted
 session is recoverable.
 
-**Last updated:** 2026-08-11, after the animation inventory landed.
+**Last updated:** 2026-08-11, after animation frame sampling landed.
 
 ## Status
 
@@ -13,8 +13,9 @@ frontier, declarative interaction recipes, the suggested-interaction inventory,
 worker concurrency with per-origin throttling, retry with status-aware backoff,
 and trace-on-failure. The repository is buildable, tested and documented.
 
-Phase 4 has started: its first slice, the animation inventory, is done. Frame
-sampling and design-system extraction are still to come.
+Phase 4 is under way: the animation inventory and deterministic frame sampling
+are both done. Hover-transition sampling, the screencast fallback and
+design-system extraction are still to come.
 
 ```
 npm install
@@ -27,9 +28,9 @@ npm test
 `npm test` (builds, then Vitest — unit and browser integration):
 
 ```
-Test Files  30 passed (30)
-     Tests  341 passed | 3 skipped (344)
-  Duration  ~240s
+Test Files  31 passed (31)
+     Tests  349 passed | 3 skipped (352)
+  Duration  ~222s
 ```
 
 On a networked machine the three external smoke tests run instead of skipping:
@@ -67,6 +68,7 @@ the phase 1 exit criterion. Nothing is unverified now.
 | `integration/traces` | 8 | **phase 3, sixth slice**: nothing written for a healthy crawl, a trace for an unreachable page and for a failed recipe, no trace for a 404, `maxTraces`, and the report not leaking `tracePath` |
 | `unit/animation` | 14 | sampleability rules, scroll beating every other signal, summaries, unobservable-motion wording |
 | `integration/animation` | 7 | **phase 4, first slice**: every kind of motion on the fixture, the scroll-driven verdict, the hover transition's honest absence, nothing perturbed, canvas/video counted, frames reached, end to end through the CLI |
+| `integration/animation-sampling` | 8 | **phase 4, second slice**: only sampleable animations sampled, seek arithmetic, restoration after a full pass and after a thrown capture, the right animation of two sharing a name, the element really moving, real frames through the CLI |
 | `integration/external-smoke` | 3 skipped | read-only public-site checks; skip without network |
 
 `npm run typecheck` passes for all twelve packages and for the test sources.
@@ -149,6 +151,7 @@ Consequential ones are in [`docs/adr/`](docs/adr/):
 18. Retrying is per page; backing off is per origin
 19. A trace is kept only for a failure, and never leaves the run directory
 20. The animation inventory describes without touching, and says what it cannot sample
+21. Frame sampling moves one animation, and puts it back
 
 Smaller assumptions, not worth an ADR:
 
@@ -644,24 +647,81 @@ One correction to the plan as written: `Document.getAnimations()` takes no
 options. `{ subtree: true }` is the `Element.getAnimations()` form, and the
 document-level call already covers the whole document. Caught by the compiler.
 
+## Deterministic frame sampling (phase 4, second slice)
+
+Done and covered by `tests/integration/animation-sampling.test.ts`. See
+[ADR 21](docs/adr/0021-frame-sampling-restores-what-it-moves.md).
+
+`ui-atlas animations <url> --sample` photographs each sampleable animation at
+chosen points within one iteration, pausing and seeking it and then putting it
+back exactly as it was found.
+
+All five points of the plan this replaced are done:
+
+1. Pause, seek to each configured offset, capture, and restore `currentTime`,
+   `playbackRate`, `playState` and `startTime` in a `finally`.
+2. Only what the inventory called `sampleable` is sampled. Everything else comes
+   back as a skip carrying **the inventory's own reason** — the judgement lives
+   in one place and the sampler never re-derives or overrides it.
+3. `AnimationSample` is filled in rather than reshaped, `limitations` included.
+4. Restoration is proved twice: a full pass leaves a snapshot of *every*
+   animation's play state, time and rate identical, and so does a capture that
+   throws half way through.
+5. The toolbar's Animation button is still disabled — enabling it needs the
+   bridge's `capabilities.animation` flipped and a queue job kind, which is UI
+   work rather than capture work.
+
+### Three real defects, each found by a test
+
+1. **Playwright's `animations: 'disabled'` would have destroyed every frame.**
+   The option the rest of the tool relies on to make stills deterministic
+   *fast-forwards finite animations to completion*. On a frame just seeked to
+   25% it throws the seek away and photographs the end state. `animation-frame`
+   captures now use `'allow'`, which is safe precisely because the animation is
+   already paused.
+2. **Matching an animation by name sampled the wrong one.** The fixture runs
+   `drift` twice — once finite, once infinite — because two elements sharing a
+   `@keyframes` name is completely ordinary. A name identifies a rule, not an
+   animation. The inventory now records each animation's index in its document's
+   `getAnimations()` list, and the sampler addresses it by index and *verifies*
+   name and target, so a changed page yields "could not be found again" rather
+   than a confident frame of the wrong animation.
+3. **`animation-frame` was still a stub** in the capture service, throwing "not
+   implemented yet". It now takes an ordinary still of the element, falling back
+   to the viewport when the animated element cannot be located.
+
+### And one test premise that was wrong
+
+The restoration tests paused every animation and snapshotted immediately. But
+`pause()` *queues* a pause task: `playState` reads `paused` at once while
+`currentTime` keeps tracking the timeline until the task runs at the next frame.
+The snapshot was catching animations mid-flight, so every later comparison
+drifted by exactly one frame — 16ms. Waiting two frames after pausing makes
+"before" a genuinely settled state, and restoration then compares exact.
+
+### One thing deliberately not done
+
+Only the animation being sampled is paused. A page with several running
+animations shows the others wherever they happened to be. Freezing everything
+would produce a composite moment that never existed — a bigger lie, not a
+smaller one.
+
 ## Next smallest milestone
 
-**Deterministic frame sampling of what the inventory already marks `sampleable`.**
+**Hover-transition sampling**, which closes the loop between recipes and motion.
 
-1. Pause the animation, seek `currentTime` to each configured offset (0, 25, 50,
-   75, 100% by default), capture, and restore the original `currentTime`,
-   `playbackRate` and play state in a `finally`.
-2. Sample only what the inventory calls `sampleable`. Everything else gets a
-   `skipped` capture record carrying the classification's own reason — the
-   vocabulary for that already exists ([ADR 6](docs/adr/0006-capture-record-shape.md)).
-3. `AnimationSample` is already in the data model and already carries
-   `limitations`; the sampler fills it in rather than inventing a shape.
-4. Restoration is the risk. The inventory's "nothing was perturbed" test is the
-   template: snapshot every animation before, sample one, and require every
-   *other* animation unchanged and the sampled one back where it started.
-5. The toolbar's Animation button can be enabled once this works, since
-   `capabilities.animation` is already wired through the bridge as `false`.
+1. A transition does not exist until something provokes it, which is why the
+   inventory legitimately cannot see one on a page at rest.
+2. The shape: enter hover, re-run the inventory, diff against the pre-hover list
+   to find what *appeared*, and sample only those. `motion.html`'s
+   `transition-swatch` is the fixture, and the inventory test already proves the
+   before/after asymmetry the diff depends on.
+3. It belongs behind a recipe step rather than a new command — `hover` already
+   exists as a step, so this is `captureAnimation` alongside `captureStates`.
+4. The restore story gets one step longer: release the hover as well as the
+   animation, and the transition that then runs *backwards* must not be
+   photographed as though it were the forward one.
 
-After that: hover-transition sampling (enter hover, discover what appeared,
-sample it), then the bounded screencast fallback for motion that is not
-keyframable, then design-token extraction.
+After that: the bounded screencast fallback for motion that cannot be
+represented as keyframes (`animation-video` is still a stub), then first-pass
+design-token extraction and duplicate component grouping, which closes phase 4.

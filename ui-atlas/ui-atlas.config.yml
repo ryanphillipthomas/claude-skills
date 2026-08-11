@@ -46,6 +46,15 @@ capture:
   states: [default, hover, focus]
   keyboardFocusMaxTabs: 60
   allowForcedStates: true
+  # Where `ui-atlas animations <url> --sample` photographs each sampleable
+  # animation. Offsets are within ONE iteration, because that is the keyframe
+  # progression a design reference is for; "50% of three iterations" is a
+  # moment nobody asked about. Anything the inventory could not call sampleable
+  # is skipped with its reason, never seeked anyway.
+  animation:
+    offsets: [0, 0.25, 0.5, 0.75, 1]
+    maxAnimations: 10
+    kind: element # element | viewport
 
 browser:
   # clean | profile | storage-state | attach

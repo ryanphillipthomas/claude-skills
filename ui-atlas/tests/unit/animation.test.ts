@@ -8,6 +8,7 @@ import {
 
 function animation(overrides: Partial<DiscoveredAnimation> = {}): DiscoveredAnimation {
   return {
+    index: 0,
     id: 'a1',
     kind: 'css-animation',
     animationName: 'drift',

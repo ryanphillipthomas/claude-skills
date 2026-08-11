@@ -92,6 +92,7 @@ export async function inventoryAnimations(
         foundAt,
         framePath,
         kind: item.kind,
+        index: item.index,
         animationId: item.id,
         playState: item.playState,
         timeline: item.timeline,

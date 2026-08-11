@@ -9,6 +9,11 @@
 
 /** Raw facts about one animation, as plain data Playwright can serialise. */
 export interface DiscoveredAnimation {
+  /**
+   * Position in this document's `getAnimations()` list. Two elements sharing a
+   * keyframe name is ordinary, so a name is not an identity; the position is.
+   */
+  index: number;
   /** `Animation.id` when the page set one; otherwise a position-based label. */
   id: string;
   kind: 'css-animation' | 'css-transition' | 'web-animation';
@@ -153,6 +158,7 @@ export function discoverAnimations(): DiscoveredAnimation[] {
     const targetElement = keyframeEffect?.target ?? null;
 
     out.push({
+      index,
       id: animation.id.length > 0 ? animation.id : `${kind}-${String(index)}`,
       kind,
       animationName,

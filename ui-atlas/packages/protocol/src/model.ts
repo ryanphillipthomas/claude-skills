@@ -464,6 +464,11 @@ export const AnimationRecordSchema = z.object({
   /** Frame the animation lives in, outermost first. Empty for the top document. */
   framePath: z.array(FrameIdentitySchema),
   kind: AnimationKindSchema,
+  /**
+   * Position in its document's `getAnimations()` list. Two elements sharing a
+   * keyframe name is ordinary, so this is what addresses an animation again.
+   */
+  index: z.number().int().nonnegative(),
   /** The animation's own id, or a position-based label when it has none. */
   animationId: z.string(),
   animationName: z.string().optional(),

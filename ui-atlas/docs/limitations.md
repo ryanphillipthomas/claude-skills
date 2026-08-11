@@ -17,7 +17,9 @@ in its `warnings` or its `error`.
 | Retry and backoff | **Built.** Bounded retries with jitter for timeouts and 5xx; a 429 or 503 holds the whole origin back, honouring `Retry-After`. Details below. |
 | Trace on failure | **Built.** `--trace-on-failure` keeps a Playwright trace for unreachable pages and for pages a recipe failed on. Off by default: a trace can contain session cookies. Details below. |
 | Animation inventory | **Built.** `ui-atlas animations <url>` lists every animation the Web Animations API can see and says how samplable each is. It reads and only reads. Details below. |
-| Animation frame sampling | Not built. Pausing, seeking and capturing frames is the next slice; the toolbar's Animation button stays disabled until then. |
+| Animation frame sampling | **Built.** `animations --sample` photographs the sampleable animations at chosen offsets and restores them. Details below. |
+| Animation video / screencast | Not built. `animation-video` still reports that it is unimplemented; it is for motion that cannot be represented as keyframes. |
+| Design-system extraction | Not built. Token extraction and duplicate component grouping are the rest of phase 4. |
 | CDP forced pseudo-states | Not implemented. `focus-visible` is reached with a real keyboard interaction or reported as `skipped` — never faked. |
 | Chrome extension packaging | Not required and not built. |
 
@@ -191,6 +193,32 @@ See [ADR 20](adr/0020-animation-inventory-describes-without-touching.md).
 - **Nothing is wired into `crawl` yet.** The inventory is a one-shot command; a
   site-wide animation inventory would be a small addition alongside the
   interaction inventory.
+
+## Boundaries of frame sampling
+
+See [ADR 21](adr/0021-frame-sampling-restores-what-it-moves.md).
+
+- **Only `sampleable` animations are sampled.** Everything else is skipped with
+  the inventory's own reason. Seeking an infinite or scroll-driven animation
+  would produce a frame the site never shows while looking exactly like a
+  successful capture.
+- **Only the sampled animation is paused.** A page with several running
+  animations shows the others wherever they happened to be. Freezing everything
+  would produce a composite moment that never existed — a bigger lie, not a
+  smaller one.
+- **Offsets are within one iteration**, not the whole active duration. A
+  multi-iteration or `alternate` animation says so in the frame's
+  `limitations`.
+- **`fill: none` at 100% shows the un-animated element**, because that is what
+  the browser shows at the end of an unfilled animation. It looks exactly like a
+  failed capture, so the frame says so.
+- **A resumed animation continues from where it was paused.** The `startTime` is
+  restored so it goes back on the same clock, but wall-clock time spent
+  sampling is not replayed.
+- **`animation-video` is not implemented.** A screencast fallback is for motion
+  that cannot be represented as keyframes; nothing here needs it yet.
+- **CDP animation control is not used.** The Web Animations API answers both the
+  inventory and the sampling question on its own.
 
 ## Things the tool reports that surprise people
 

@@ -21,6 +21,7 @@ const KNOWN_BOOLEAN_FLAGS = new Set([
   'dry-run',
   'inventory',
   'trace-on-failure',
+  'sample',
 ]);
 
 /**

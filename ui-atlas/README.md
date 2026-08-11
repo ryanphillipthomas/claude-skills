@@ -8,9 +8,9 @@ No cloud account, no AI service, no browser extension, no database server.
 Everything runs on your machine and writes plain files.
 
 **Current release: the guided inspector, responsive replay, the report, a
-bounded crawler with declarative interaction recipes, and the animation
-inventory.** Animation frame sampling and design-system extraction are still to
-come — see [docs/limitations.md](docs/limitations.md).
+bounded crawler with declarative interaction recipes, and animation inventory
+plus frame sampling.** Design-system extraction is still to come — see
+[docs/limitations.md](docs/limitations.md).
 
 ## Requirements
 
@@ -343,10 +343,9 @@ could be sampled at a chosen point and give the same frame every time:
 | `indeterminate` | Duration is `auto`, or the timeline could not be identified. |
 | `instant` | Zero duration or iterations: no intermediate frames exist. |
 
-**It reads and only reads.** Nothing is paused, seeked or cancelled, and no
-screenshot is taken — a test snapshots every animation's play state and playback
-rate before and after a pass and requires them identical. Frame sampling is the
-next slice, and it will only sample what this marks `sampleable`.
+**By default it reads and only reads.** Nothing is paused, seeked or cancelled,
+and no screenshot is taken — a test snapshots every animation's play state and
+playback rate before and after a pass and requires them identical.
 
 Written to `animations.jsonl`. Two gaps it tells you about rather than hiding:
 
@@ -355,6 +354,35 @@ Written to `animations.jsonl`. Two gaps it tells you about rather than hiding:
   on a canvas-driven page is a lie of omission.
 - **A hover transition does not exist on a page at rest**, so it will not
   appear. Provoking one is a recipe's job.
+
+### Animation frames
+
+```bash
+npm run ui-atlas -- animations https://example.com --sample
+npm run ui-atlas -- animations https://example.com --sample --offsets 0,0.5,1
+```
+
+Photographs each **sampleable** animation at chosen points within one iteration
+(`0, 0.25, 0.5, 0.75, 1` by default), pausing and seeking it and then putting it
+back exactly as it was found.
+
+Anything the inventory could not call sampleable is skipped, carrying *the
+inventory's own reason* — "it repeats forever, so it has no 100% to sample at" —
+rather than being seeked anyway and presented as if the frame meant something.
+
+Restoration is the risk, so it is the thing most heavily tested: one test
+samples every animation on the fixture and requires a snapshot of *all*
+animations' play state, time and rate to be identical afterwards; another throws
+from the capture half way through and requires the same.
+
+Each frame records what it does not promise, in `animation.limitations`:
+`fill: none` at 100% shows the un-animated element (which looks exactly like a
+failed capture), a multi-iteration or `alternate` animation means one iteration
+is not the whole story, and a page-set playback rate is ignored by a seek.
+
+Only the animation being sampled is paused. A page with several running
+animations shows the others wherever they happened to be — freezing everything
+would produce a composite moment that never existed.
 
 ### Authentication
 

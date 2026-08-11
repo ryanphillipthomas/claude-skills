@@ -1,8 +1,8 @@
 # Implementation checklist
 
-Phases 0 through 3 are complete. Phase 4 is in progress: its first slice, the
-animation inventory, is done. What is still unbuilt is listed in
-[docs/limitations.md](docs/limitations.md).
+Phases 0 through 3 are complete. Phase 4 is in progress: the animation
+inventory and deterministic frame sampling are both done. What is still unbuilt
+is listed in [docs/limitations.md](docs/limitations.md).
 
 ## Phase 0 — foundation
 
@@ -235,10 +235,26 @@ is still empty and no non-`GET` request was issued.
       test asserts both that absence and its appearance after a hover
 - [x] Written to `animations.jsonl`; a run has no `captures.jsonl`
 
+## Phase 4 — deterministic frame sampling (second slice)
+
+- [x] `animations --sample` photographs each sampleable animation at configured
+      offsets within one iteration
+- [x] Only what the inventory called `sampleable` is sampled; everything else is
+      skipped carrying **the inventory's own reason**
+- [x] Pause, seek, capture, and restore `currentTime`, `playbackRate`,
+      `playState` and `startTime` in a `finally`, each step guarded separately
+- [x] Restoration proved twice: a full pass leaves every animation's snapshot
+      identical, and so does a capture that throws half way through
+- [x] Animations addressed by index and verified by name and target, because two
+      elements sharing a `@keyframes` name is ordinary
+- [x] `animations: 'disabled'` turned off for animation frames — it
+      fast-forwards finite animations to completion and would discard the seek
+- [x] `AnimationSample.limitations` filled in: `fill: none` at 100%, multiple or
+      reversed iterations, a page-set playback rate, a pseudo-element target
+- [x] Frames of one animation grouped by `set: { kind: 'animation' }`
+
 ### Still to build in phase 4
 
-- [ ] Deterministic frame sampling of what the inventory marks `sampleable`,
-      with every animation's original state restored
 - [ ] Hover-transition sampling (enter hover, discover what appeared, sample)
 - [ ] Optional video/screencast fallback for motion that is not keyframable
 - [ ] The toolbar's Animation button, still disabled
