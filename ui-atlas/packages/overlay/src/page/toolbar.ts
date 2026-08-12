@@ -18,6 +18,14 @@ export interface CaptureIntent {
 
 export type SelectionMove = 'parent' | 'child' | 'previous' | 'next';
 
+export type TabId = 'capture' | 'viewport' | 'animation' | 'output';
+
+interface TabDefinition {
+  id: TabId;
+  label: string;
+  sections: Section[];
+}
+
 export interface ToolbarCallbacks {
   onToggleInspect(): void;
   /** Walk the tree from the current selection. Arrow keys do the same thing. */
@@ -75,12 +83,10 @@ export class Toolbar {
   private capturedHere = 0;
   private pageLabel = '/';
   private workingJobs = 0;
-  private instructionsOpen = true;
 
   private readonly runLabel: HTMLSpanElement;
   private readonly flowHost: HTMLDivElement;
   private readonly instructionsHost: HTMLDivElement;
-  private readonly instructionsToggle: HTMLButtonElement;
   private readonly inspectButton: HTMLButtonElement;
   private readonly boxModelButton: HTMLButtonElement;
   private readonly treeRow: HTMLDivElement;
@@ -94,7 +100,16 @@ export class Toolbar {
   private animations: AnimationInventoryResult | undefined;
   private animationsPending = false;
   private readonly animationSection: Section;
+  private readonly captureSection: Section;
   private readonly outputSection: Section;
+  private readonly tabs: TabDefinition[];
+  private readonly tabStrip: HTMLDivElement;
+  private readonly tabPanel: HTMLDivElement;
+  private readonly tabButtons = new Map<TabId, HTMLButtonElement>();
+  private activeTab: TabId = 'capture';
+  private compact = false;
+  private readonly compactToggle: HTMLButtonElement;
+  private readonly compactHost: HTMLDivElement;
   private readonly outputHost: HTMLDivElement;
   private output: OutputSummaryResult | undefined;
   private outputPending = false;
@@ -127,27 +142,36 @@ export class Toolbar {
     // start a drag.
     revealButton.addEventListener('pointerdown', (event) => event.stopPropagation());
 
-    titlebar.append(title, this.runLabel, revealButton);
+    this.compactToggle = button('▴', () => this.setCompact(!this.compact));
+    this.compactToggle.className = 'ua-btn ua-btn--titlebar';
+    this.compactToggle.title = 'Shrink to the essentials';
+    this.compactToggle.setAttribute('aria-pressed', 'false');
+    this.compactToggle.addEventListener('pointerdown', (event) => event.stopPropagation());
+
+    titlebar.append(title, this.runLabel, this.compactToggle, revealButton);
     makeDraggable(this.element, titlebar);
 
     const body = div('ua-body');
 
-    // --- Flow -------------------------------------------------------------
-    // The one line that says what to do now. It sits above everything because
-    // it is the answer to the question a first-time user actually has.
+    // --- Flow, always visible ---------------------------------------------
+    // The one line that says what to do now. Above the tabs because it is the
+    // answer to the question a first-time user actually has, whichever tab
+    // they are looking at.
     this.flowHost = div('ua-flow');
+    this.noticeHost = div('ua-section');
 
-    const instructionsSection = section('How this works', true);
-    this.instructionsToggle = button('Hide', () => {
-      this.instructionsOpen = !this.instructionsOpen;
-      this.renderInstructions();
-    });
-    this.instructionsToggle.className = 'ua-btn ua-btn--quiet';
-    instructionsSection.body.append(this.instructionsToggle);
+    // Reference, not reading. It was 274px of the panel's 970 — more than a
+    // quarter — shown expanded on every single run, when the flow line above
+    // already says what to do next. The heading stays, so it is one click away.
+    // One collapse mechanism, not two: the heading is the toggle. The inner
+    // Hide/Show button that used to live here was a second way to do the same
+    // thing, with its own state to keep in sync.
+    const instructionsSection = section('How this works', false);
     this.instructionsHost = div('ua-steps');
-    instructionsSection.body.append(this.instructionsHost);
+    this.helpHost = div('ua-help');
+    instructionsSection.body.append(this.instructionsHost, this.helpHost);
 
-    // --- Mode -------------------------------------------------------------
+    // --- Inspect tab ------------------------------------------------------
     const modeSection = section('Mode', true);
     const modeRow = div('ua-row');
     this.inspectButton = button('Inspect', () => this.callbacks.onToggleInspect());
@@ -162,23 +186,26 @@ export class Toolbar {
     modeRow.append(this.inspectButton, this.boxModelButton, clearButton);
     modeSection.body.append(modeRow);
 
-    // --- Element ----------------------------------------------------------
     const elementSection = section('Element', true);
     // Walking the tree was arrow-keys-only, which meant it may as well not have
     // existed: the one operation you always want after clicking slightly the
     // wrong thing had no visible control at all.
     this.treeRow = div('ua-row');
-    elementSection.body.append(this.treeRow);
     this.detailsHost = div('ua-section');
-    elementSection.body.append(this.detailsHost);
+    elementSection.body.append(this.treeRow, this.detailsHost);
 
-    // --- States -----------------------------------------------------------
+    // --- Capture tab ------------------------------------------------------
     const stateSection = section('States to capture', true);
     this.stateRow = div('ua-row');
     this.stateNote = div('ua-hint');
     stateSection.body.append(this.stateRow, this.stateNote);
 
-    // --- Viewport ---------------------------------------------------------
+    const captureSection = section('Capture', true);
+    this.captureSection = captureSection;
+    this.captureRow = div('ua-row');
+    captureSection.body.append(this.captureRow);
+    this.renderCaptureButtons();
+
     const viewportSection = section('Viewport', false);
     this.viewportRow = div('ua-row');
     const customRow = div('ua-row');
@@ -194,53 +221,74 @@ export class Toolbar {
     customRow.append(this.widthInput, this.heightInput, applyButton);
     viewportSection.body.append(this.viewportRow, customRow);
 
-    // --- Capture ----------------------------------------------------------
-    const captureSection = section('Capture', true);
-    this.captureRow = div('ua-row');
-    captureSection.body.append(this.captureRow);
-    this.renderCaptureButtons();
-
-    // --- Animation --------------------------------------------------------
     const animationSection = section('Animation', false);
     this.animationSection = animationSection;
     this.animationHost = div('ua-section');
     animationSection.body.append(this.animationHost);
 
-    // --- Output -----------------------------------------------------------
-    // Where the files went, which the panel could not answer at all before.
+    // --- Output tab -------------------------------------------------------
     const outputSection = section('Output', true);
     this.outputSection = outputSection;
     this.outputHost = div('ua-section');
     outputSection.body.append(this.outputHost);
 
-    // --- Queue ------------------------------------------------------------
-    const queueSection = section('Queue', false);
+    const queueSection = section('Queue', true);
     this.jobList = document.createElement('ul');
     this.jobList.className = 'ua-jobs';
     queueSection.body.append(this.jobList);
 
-    this.noticeHost = div('ua-section');
+    // --- Tabs -------------------------------------------------------------
+    // Eleven sections rendering at once was what filled the window. Only one
+    // group renders now, so the panel is the size of what you are doing rather
+    // than the size of everything it can do.
+    // The whole main loop lives in one tab. An earlier split put Mode and
+    // Element under "Inspect" and the states and shutter under "Capture",
+    // which meant selecting an element and then photographing it — the one
+    // sequence this tool exists for — crossed a tab boundary. Tabs that
+    // interrupt the main path are worse than the scrolling they replaced.
+    this.tabs = [
+      {
+        id: 'capture',
+        label: 'Capture',
+        sections: [modeSection, elementSection, stateSection, captureSection],
+      },
+      { id: 'viewport', label: 'Viewport', sections: [viewportSection] },
+      { id: 'animation', label: 'Animation', sections: [animationSection] },
+      { id: 'output', label: 'Output', sections: [outputSection, queueSection] },
+    ];
+    this.tabStrip = div('ua-tabs');
+    this.tabPanel = div('ua-tabpanel');
+    for (const tab of this.tabs) {
+      const control = button(tab.label, () => this.setTab(tab.id));
+      control.className = 'ua-tab';
+      control.setAttribute('role', 'tab');
+      this.tabButtons.set(tab.id, control);
+      this.tabStrip.append(control);
+    }
+    this.tabStrip.setAttribute('role', 'tablist');
 
-    // --- Help -------------------------------------------------------------
-    const helpSection = section('Shortcuts', false);
-    this.helpHost = div('ua-help');
-    helpSection.body.append(this.helpHost);
+    // Empty unless compact mode is on, when the capture row moves into it.
+    this.compactHost = div('ua-compact');
 
     body.append(
       this.flowHost,
       this.noticeHost,
+      this.compactHost,
       instructionsSection.element,
-      modeSection.element,
-      elementSection.element,
-      stateSection.element,
-      viewportSection.element,
-      captureSection.element,
-      animationSection.element,
-      outputSection.element,
-      queueSection.element,
-      helpSection.element,
+      this.tabStrip,
+      this.tabPanel,
     );
-    this.element.append(titlebar, body);
+    this.renderTab();
+
+    // A cap, plus a way past it. The panel is 620px by default rather than
+    // whatever the window allows, and the handle is there for the times you
+    // want more — resizing is the honest answer to "how tall should this be?",
+    // because only the person looking at it knows.
+    const resizeHandle = div('ua-resize');
+    resizeHandle.title = 'Drag to resize';
+    makeResizable(this.element, body, resizeHandle);
+
+    this.element.append(titlebar, body, resizeHandle);
     root.append(this.element);
 
     this.renderInstructions();
@@ -265,6 +313,7 @@ export class Toolbar {
     if (summary !== undefined) {
       this.reviewed = true;
       this.outputSection.setOpen(true);
+      this.setTab('output');
     }
     this.renderOutput();
     this.renderFlow();
@@ -278,6 +327,54 @@ export class Toolbar {
     this.pageLabel = input.pageLabel;
     this.capturedHere = input.capturedHere;
     this.renderFlow();
+  }
+
+  /**
+   * Show one tab's sections. Nothing is destroyed — the section elements are
+   * moved, so their collapsed state, their content and their scroll position
+   * all survive switching away and back.
+   */
+  setTab(id: TabId): void {
+    this.activeTab = id;
+    this.renderTab();
+  }
+
+  get tab(): TabId {
+    return this.activeTab;
+  }
+
+  private renderTab(): void {
+    for (const [id, control] of this.tabButtons) {
+      const active = id === this.activeTab;
+      control.setAttribute('aria-selected', String(active));
+      control.classList.toggle('ua-tab--active', active);
+    }
+    this.tabPanel.textContent = '';
+    const tab = this.tabs.find((candidate) => candidate.id === this.activeTab);
+    for (const part of tab?.sections ?? []) this.tabPanel.append(part.element);
+  }
+
+  /**
+   * Shrink to the flow line and the capture buttons.
+   *
+   * The capture row is *moved* rather than copied — two rows of buttons that
+   * both claim to capture would be two things to keep in sync, and one of them
+   * would eventually lie.
+   */
+  setCompact(next: boolean): void {
+    this.compact = next;
+    this.element.classList.toggle('ua-panel--compact', next);
+    this.compactToggle.setAttribute('aria-pressed', String(next));
+    this.compactToggle.textContent = next ? '▾' : '▴';
+    this.compactToggle.title = next ? 'Show the whole panel' : 'Shrink to the essentials';
+
+    if (next) this.compactHost.append(this.captureRow);
+    else this.captureSection.body.append(this.captureRow);
+    this.renderCaptureButtons();
+  }
+
+  get isCompact(): boolean {
+    return this.compact;
   }
 
   /** The current advice, exposed so a test can read it without scraping text. */
@@ -316,12 +413,7 @@ export class Toolbar {
 
   /** Numbered, and the step you are on is marked so the two agree. */
   private renderInstructions(): void {
-    this.instructionsToggle.textContent = this.instructionsOpen ? 'Hide' : 'Show';
-    this.instructionsToggle.setAttribute('aria-expanded', String(this.instructionsOpen));
     this.instructionsHost.textContent = '';
-    this.instructionsHost.hidden = !this.instructionsOpen;
-    if (!this.instructionsOpen) return;
-
     const current = this.flow.position;
     const list = document.createElement('ol');
     list.className = 'ua-steps__list';
@@ -358,7 +450,10 @@ export class Toolbar {
   /** The host is working on the list; say so rather than looking inert. */
   setAnimationsPending(pending: boolean): void {
     this.animationsPending = pending;
-    if (pending) this.animationSection.setOpen(true);
+    if (pending) {
+      this.animationSection.setOpen(true);
+      this.setTab('animation');
+    }
     this.renderAnimations();
   }
 
@@ -367,7 +462,12 @@ export class Toolbar {
     this.animationsPending = false;
     // The list is the answer to a button press; a collapsed section would hide
     // it and read as "nothing happened".
-    if (result !== undefined) this.animationSection.setOpen(true);
+    if (result !== undefined) {
+      this.animationSection.setOpen(true);
+      // Revealing a collapsed section is not enough once tabs exist: the
+      // section has to be the one on screen, or the list is still invisible.
+      this.setTab('animation');
+    }
     this.renderAnimations();
   }
 
@@ -930,6 +1030,7 @@ function humanise(action: string): string {
 
 /** Enough panel to be worth having on screen: title bar plus a few controls. */
 const MIN_PANEL_HEIGHT = 220;
+
 /**
  * Gap kept below the panel. The drag clamp and the height calculation must use
  * the *same* margin: when they disagreed, dragging to the very bottom left the
@@ -950,6 +1051,50 @@ function fitToViewport(panel: HTMLElement): void {
   const top = panel.getBoundingClientRect().top;
   const available = Math.max(MIN_PANEL_HEIGHT, window.innerHeight - top - PANEL_MARGIN);
   panel.style.maxHeight = `${String(Math.round(available))}px`;
+}
+
+/**
+ * Drag the bottom edge to resize.
+ *
+ * The height is set on the *body* rather than the panel, so the title bar and
+ * the resize handle keep their own height and the scrolling region is what
+ * grows and shrinks. Clamped to the window, so a drag downwards cannot push the
+ * handle out of reach of the pointer that is dragging it.
+ */
+function makeResizable(panel: HTMLElement, body: HTMLElement, handle: HTMLElement): void {
+  let resizing = false;
+  let startY = 0;
+  let startHeight = 0;
+
+  handle.addEventListener('pointerdown', (event) => {
+    resizing = true;
+    startY = event.clientY;
+    startHeight = body.getBoundingClientRect().height;
+    handle.setPointerCapture(event.pointerId);
+    event.preventDefault();
+    event.stopPropagation();
+  });
+
+  handle.addEventListener('pointermove', (event) => {
+    if (!resizing) return;
+    const panelTop = panel.getBoundingClientRect().top;
+    const chrome = panel.getBoundingClientRect().height - body.getBoundingClientRect().height;
+    const room = window.innerHeight - panelTop - PANEL_MARGIN - chrome;
+    const wanted = startHeight + (event.clientY - startY);
+    const height = Math.min(Math.max(80, wanted), Math.max(80, room));
+    body.style.height = `${String(Math.round(height))}px`;
+    // A height that was asked for beats the cap that was assumed.
+    panel.style.maxHeight = 'none';
+    event.stopPropagation();
+  });
+
+  const stop = (event: PointerEvent): void => {
+    if (!resizing) return;
+    resizing = false;
+    handle.releasePointerCapture?.(event.pointerId);
+  };
+  handle.addEventListener('pointerup', stop);
+  handle.addEventListener('pointercancel', stop);
 }
 
 /** Drag by the title bar. Position is clamped so the panel cannot be lost. */

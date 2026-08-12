@@ -66,10 +66,16 @@ Explorer, or your file manager). The Output section lists the most recent files
 by name — `button--save-changes--hover.png` — with the folder each sits in, plus
 **Open report**.
 
-Sections collapse. The ones on the main path (Mode, Element, States, Capture,
-Output) start open; the ones you visit occasionally (Viewport, Animation, Queue,
-Shortcuts) start closed, and every heading is a toggle. The panel keeps itself
-inside the window wherever you drag it, and the body scrolls.
+The panel is organised in four tabs — **Capture**, **Viewport**, **Animation**,
+**Output** — so only one group of controls renders at a time. The whole main
+loop (Mode, Element, States, Capture) lives in the first tab, because selecting
+an element and then photographing it should never cross a tab boundary.
+
+It opens at about 370px rather than filling the window. Drag the bottom edge to
+resize, press **▴** in the title bar to shrink to just the flow line and the
+capture buttons, and drag the title bar to move it. Section headings collapse
+their contents, and "How this works" starts closed — the flow line already says
+what to do next.
 The absolute path is printed in the terminal rather than shown in the panel: the
 inspector is injected into the site you are looking at, and a path would tell it
 your home directory. File names, which come from the site's own content, tell it

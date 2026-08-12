@@ -55,6 +55,21 @@ async function captureSelection(): Promise<void> {
   await harness.session.queue.drain();
 }
 
+/** Bring a tab forward. Sections live in tabs now, not one long scroll. */
+async function openTab(name: string): Promise<void> {
+  await harness.session.page.getByRole('tab', { name, exact: true }).click();
+}
+
+/** Is a section expanded? Headings are toggles; the caret is decorative. */
+async function sectionOpen(title: string): Promise<boolean> {
+  return harness.session.page.evaluate((name) => {
+    const shadow = document.querySelector('[data-ui-atlas-overlay]')?.shadowRoot;
+    const headings = Array.from(shadow?.querySelectorAll('.ua-section__heading') ?? []);
+    const target = headings.find((h) => (h.textContent ?? '').includes(name));
+    return target?.getAttribute('aria-expanded') === 'true';
+  }, title);
+}
+
 async function readRunCaptures(): Promise<CaptureRecord[]> {
   const result = await readCaptures(harness.session.writer.paths.capturesJsonl);
   expect(result.invalidLines).toHaveLength(0);
@@ -104,27 +119,17 @@ describe('the guided flow', () => {
     expect(steps[0]?.text).toContain('never clicks the page');
   });
 
-  it('hides and shows the instructions without losing the flow line', async () => {
+  it('keeps the instructions closed by default, one click from the heading', async () => {
     await harness.session.navigate(harness.url('/states.html'));
     await harness.session.overlay.waitForMount();
 
-    const toggle = harness.session.page.getByRole('button', { name: 'Hide', exact: true });
-    await toggle.click();
-    expect(
-      await harness.session.page.evaluate(() => {
-        const shadow = document.querySelector('[data-ui-atlas-overlay]')?.shadowRoot;
-        return (shadow?.querySelector('.ua-steps') as HTMLElement | null)?.hidden ?? null;
-      }),
-    ).toBe(true);
+    // 274px of onboarding on every run was more than a quarter of the panel.
+    expect(await sectionOpen('How this works')).toBe(false);
     expect((await flowLine()).text).toContain('Press Inspect');
 
-    await harness.session.page.getByRole('button', { name: 'Show', exact: true }).click();
-    expect(
-      await harness.session.page.evaluate(() => {
-        const shadow = document.querySelector('[data-ui-atlas-overlay]')?.shadowRoot;
-        return (shadow?.querySelector('.ua-steps') as HTMLElement | null)?.hidden ?? null;
-      }),
-    ).toBe(false);
+    await harness.session.page.getByRole('button', { name: /How this works/u }).click();
+    expect(await sectionOpen('How this works')).toBe(true);
+    expect((await flowLine()).text).toContain('Press Inspect');
   });
 
   it('offers tree navigation as buttons, disabled until there is a selection', async () => {
@@ -169,7 +174,7 @@ describe('the guided flow', () => {
     const flow = await flowLine();
     expect(flow.badge).toBe('Step 4 of 5');
     expect(flow.text).toContain('on /states.html');
-    expect(flow.text).toContain('Output section');
+    expect(flow.text).toContain('Output tab');
   });
 });
 
@@ -180,6 +185,9 @@ describe('the Output section', () => {
     await harness.session.page.getByRole('button', { name: 'Inspect', exact: true }).click();
     await selectMenuButton();
     await captureSelection();
+    // Capturing brings the Output tab forward by itself only once the summary
+    // has been asked for; until then the user is still on Capture.
+    await openTab('Output');
   }
 
   /** The file rows as the panel actually renders them. */
@@ -320,40 +328,66 @@ describe('the panel fits on screen', () => {
     expect(fit.bottom).toBeLessThanOrEqual(fit.windowHeight);
   });
 
-  it('collapses the sections you visit occasionally, and keeps their headings', async () => {
+  it('keeps the whole main loop in one tab', async () => {
     await harness.session.navigate(harness.url('/states.html'));
     await harness.session.overlay.waitForMount();
 
-    const sections = await harness.session.page.evaluate(() => {
+    // Select-then-capture is the one sequence this tool exists for. A tab
+    // boundary in the middle of it would be worse than the scrolling tabs
+    // replaced, so Mode, Element, States and Capture all live together.
+    const headings = await harness.session.page.evaluate(() => {
       const shadow = document.querySelector('[data-ui-atlas-overlay]')?.shadowRoot;
-      return Array.from(shadow?.querySelectorAll('.ua-section__heading') ?? []).map((heading) => ({
-        title: heading.textContent?.replace(/[▾▸]/g, '').trim() ?? '',
-        open: heading.getAttribute('aria-expanded') === 'true',
-      }));
+      return Array.from(shadow?.querySelectorAll('.ua-tabpanel .ua-section__heading') ?? []).map(
+        (heading) => heading.textContent?.replace(/[▾▸]/g, '').trim() ?? '',
+      );
     });
-
-    const byTitle = new Map(sections.map((item) => [item.title, item.open]));
-    // The main path stays open; every heading is present either way, so nothing
-    // becomes unfindable by being collapsed.
-    expect(byTitle.get('Mode')).toBe(true);
-    expect(byTitle.get('Capture')).toBe(true);
-    expect(byTitle.get('Output')).toBe(true);
-    expect(byTitle.get('Shortcuts')).toBe(false);
-    expect(byTitle.get('Queue')).toBe(false);
+    expect(headings).toEqual(['Mode', 'Element', 'States to capture', 'Capture']);
   });
 
-  it('opens a collapsed section when its heading is pressed', async () => {
+  it('shows one tab at a time, and remembers a section\u2019s state across a switch', async () => {
     await harness.session.navigate(harness.url('/states.html'));
     await harness.session.overlay.waitForMount();
 
-    await harness.session.page.getByRole('button', { name: 'Shortcuts' }).click();
-    const open = await harness.session.page.evaluate(() => {
+    await openTab('Viewport');
+    expect(await sectionOpen('Viewport')).toBe(false);
+    await harness.session.page.getByRole('button', { name: /Viewport/u }).last().click();
+    expect(await sectionOpen('Viewport')).toBe(true);
+
+    // Switching away and back moves the section element; it does not rebuild it.
+    await openTab('Capture');
+    await openTab('Viewport');
+    expect(await sectionOpen('Viewport')).toBe(true);
+  });
+
+  it('shrinks to the essentials, and gives the capture buttons back', async () => {
+    await harness.session.navigate(harness.url('/states.html'));
+    await harness.session.overlay.waitForMount();
+
+    const height = async (): Promise<number> =>
+      harness.session.page.evaluate(() => {
+        const shadow = document.querySelector('[data-ui-atlas-overlay]')?.shadowRoot;
+        return Math.round(
+          (shadow?.querySelector('.ua-panel') as HTMLElement).getBoundingClientRect().height,
+        );
+      });
+
+    const full = await height();
+    await harness.session.page.getByRole('button', { name: '▴', exact: true }).click();
+    const compact = await height();
+    expect(compact).toBeLessThan(full);
+
+    // The capture row is moved, not copied: exactly one of it, either way.
+    const rows = await harness.session.page.evaluate(() => {
       const shadow = document.querySelector('[data-ui-atlas-overlay]')?.shadowRoot;
-      const headings = Array.from(shadow?.querySelectorAll('.ua-section__heading') ?? []);
-      const target = headings.find((h) => (h.textContent ?? '').includes('Shortcuts'));
-      return target?.getAttribute('aria-expanded') === 'true';
+      return shadow?.querySelectorAll('.ua-compact .ua-row').length ?? 0;
     });
-    expect(open).toBe(true);
+    expect(rows).toBe(1);
+    expect(
+      await harness.session.page.getByRole('button', { name: /^Capture /u }).first().isVisible(),
+    ).toBe(true);
+
+    await harness.session.page.getByRole('button', { name: '▾', exact: true }).click();
+    expect(await height()).toBe(full);
   });
 
   it('keeps the folder button on screen after the panel is dragged down', async () => {
@@ -392,21 +426,24 @@ describe('the panel fits on screen', () => {
     expect(harness.opened[0]).toBe(harness.session.writer.paths.runDir);
   });
 
-  it('reveals a collapsed section when its own button fills it', async () => {
+  it('brings the tab forward when a button fills a section behind it', async () => {
     await harness.session.navigate(harness.url('/states.html'));
     await harness.session.overlay.waitForMount();
 
-    const isOpen = async (title: string): Promise<boolean> =>
-      harness.session.page.evaluate((name) => {
-        const shadow = document.querySelector('[data-ui-atlas-overlay]')?.shadowRoot;
-        const headings = Array.from(shadow?.querySelectorAll('.ua-section__heading') ?? []);
-        const target = headings.find((h) => (h.textContent ?? '').includes(name));
-        return target?.getAttribute('aria-expanded') === 'true';
-      }, title);
-
-    expect(await isOpen('Animation')).toBe(false);
     await harness.session.page.getByRole('button', { name: 'Animation…', exact: true }).click();
-    // A list rendered into a collapsed section reads as "nothing happened".
-    await expect.poll(() => isOpen('Animation'), { timeout: 10_000 }).toBe(true);
+    // Revealing a collapsed section is not enough once tabs exist: content
+    // rendered into a tab you are not looking at reads as "nothing happened".
+    await expect
+      .poll(
+        () =>
+          harness.session.page.evaluate(() => {
+            const shadow = document.querySelector('[data-ui-atlas-overlay]')?.shadowRoot;
+            const active = shadow?.querySelector('.ua-tab--active');
+            return active?.textContent ?? '';
+          }),
+        { timeout: 10_000 },
+      )
+      .toBe('Animation');
+    expect(await sectionOpen('Animation')).toBe(true);
   });
 });

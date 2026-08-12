@@ -104,7 +104,7 @@ export function nextStep(input: FlowInput): FlowAdvice {
         total: FLOW_TOTAL,
         text:
           `${countCaptures(input.capturedHere)} on ${input.pageLabel}. ` +
-          'Check the Output section to see what was written, and what each file is called.',
+          'Open the Output tab to see what was written, and what each file is called.',
       };
     }
 
@@ -161,15 +161,15 @@ export const FLOW_INSTRUCTIONS: ReadonlyArray<{ step: number; title: string; det
     step: 4,
     title: 'Review',
     detail:
-      'The Output section lists what was written and what each file is called — names come ' +
+      'The Output tab lists what was written and what each file is called — names come ' +
       'from the element itself, like button--save-changes--hover.png.',
   },
   {
     step: 5,
     title: 'Open',
     detail:
-      'Open folder reveals the run on disk; Open report builds a page showing every capture ' +
-      'side by side. Both also print the path in the terminal.',
+      '📁 Folder in the title bar reveals the run on disk from anywhere; Open report builds a ' +
+      'page showing every capture side by side. Both print the path in the terminal too.',
   },
 ];
 

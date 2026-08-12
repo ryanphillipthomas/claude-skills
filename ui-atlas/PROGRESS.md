@@ -40,7 +40,7 @@ npm test
 
 ```
 Test Files  45 passed (45)
-     Tests  565 passed | 3 skipped (568)
+     Tests  566 passed | 3 skipped (569)
   Duration  ~310s
 ```
 
@@ -89,7 +89,7 @@ the phase 1 exit criterion. Nothing is unverified now.
 | `integration/animation-panel` | 9 | **phase 4, seventh slice**: the panel driven through the real overlay — what it lists, the action each row gets, no row without a reason, listing changing nothing, a sample that restores, a recording that is not called a sample, canvas named with an action, an honest refusal when the animation has gone, and the keyboard route |
 | `unit/naming` | 31 | slug composition and what it refuses to invent, word-boundary trimming, stem sanitising that keeps `--`, the index's grouping, descriptions and relative links |
 | `unit/flow` | 13 | what the panel says at each point in the sequence, and that every step it points at has an instruction |
-| `integration/guided-flow` | 20 | **eighth slice**: the flow line through a real browser at each step, the instructions and their current-step marking, tree navigation as buttons, the count after a real capture, and the filenames, sidecar and index the run writes |
+| `integration/guided-flow` | 21 | **eighth slice**: the flow line through a real browser at each step, the instructions and their current-step marking, tree navigation as buttons, the count after a real capture, and the filenames, sidecar and index the run writes |
 | `unit/signin` | 19 | what a storage state drops and when that matters, login-path matching, and the three-valued verdict with its evidence |
 | `integration/doctor` | 10 | **tenth slice**: the request behind an "Unexpected token" error found, the HTML identified as a challenge, the page's own error captured, nothing reported for a page that works, and query strings kept out of the output |
 | `integration/signin` | 12 | **ninth and eleventh slices**: the page-side probes against real pages — a login page read as signed out, a way out read as signed in, an ordinary page read as unclear, a hidden password field ignored, a redirect noticed, IndexedDB/sessionStorage actually found, a challenge page recognised by its markup and its wording, neither an ordinary nor a sign-in page mistaken for one, and a challenged crawl stopping with zero pages and the warning in `run.json` |
@@ -1544,6 +1544,63 @@ And a worse one: collapsing the Animation section by default meant pressing
 tests went red, which is exactly right — a button that produces a result you
 cannot see is worse than a button that does nothing, because it looks like
 nothing happened. Sections now open themselves when content arrives.
+
+## A panel the size of what you are doing (fifteenth slice)
+
+Done and covered by `tests/integration/guided-flow.test.ts`. The last slice
+capped the height and moved the folder button to the title bar; a screenshot
+showed it was still cut off, so this time the panel was **measured** before
+anything was changed.
+
+| | |
+| --- | --- |
+| Window | 1000px |
+| Panel | **970px — 97% of the window** |
+| "How this works" | **274px — 28% of the panel** |
+| Everything else | ~630px |
+
+Two causes, both now addressed: the panel had no height of its own and simply
+grew to fill the viewport, and a quarter of it was onboarding text shown
+expanded on every single run.
+
+### Four tabs, and the main loop inside one of them
+
+Capture, Viewport, Animation, Output — one group renders at a time. The result
+is 370px on the first tab, 523px on Capture-with-animations, 220px compact.
+
+**The first grouping was wrong and testing found it.** It split Mode and Element
+under "Inspect" and the states and shutter under "Capture", which meant
+selecting an element and then photographing it — the one sequence this tool
+exists for — crossed a tab boundary. Tabs that interrupt the main path are worse
+than the scrolling they replace. Mode, Element, States and Capture now live
+together, and a test asserts exactly that list in exactly that order.
+
+### Instructions collapsed, and only one way to collapse them
+
+274px of onboarding, on every run, when the flow line above already says what to
+do next. The heading stays visible, so it is one click away.
+
+That exposed a duplicate: the section heading collapses its contents, *and*
+there was a Hide/Show button inside doing the same thing with its own state. The
+inner button is gone.
+
+### A cap, a handle, and a compact mode
+
+The panel asks for 620px rather than the window, and the bottom edge is
+draggable — resizing is the honest answer to "how tall should this be?", because
+only the person looking at it knows. The title bar's **▴** shrinks it to the
+flow line and the capture buttons.
+
+Compact mode **moves** the capture row rather than copying it. Two rows of
+buttons both claiming to capture would be two things to keep in sync, and one of
+them would eventually lie.
+
+### The rule that generalised
+
+The last slice taught sections to open themselves when content arrives. Tabs
+need the same rule one level up: pressing **Animation…** now brings the Animation
+tab forward, because content rendered into a tab you are not looking at is just
+as invisible as content in a collapsed section.
 
 ## Where this leaves the project
 
