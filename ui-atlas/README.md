@@ -590,6 +590,54 @@ None of this makes UI Atlas better at *getting* signed in. It still types
 nothing, submits nothing, and evades nothing — `--persistent` only keeps more of
 what your own hands achieved. A site that blocks automation still blocks it.
 
+### When a page says something inscrutable
+
+```bash
+npm run ui-atlas -- doctor https://example.com/dashboard
+npm run ui-atlas -- doctor https://example.com/dashboard --mode profile --profile my-profile
+```
+
+`Unexpected token '<', "<!DOCTYPE "... is not valid JSON` is **the site's own
+error**, not UI Atlas's: one of its `fetch` calls asked for JSON and received an
+HTML page. That message names neither the request nor what the HTML was, so a
+bot challenge and an expired session look identical.
+
+`doctor` loads the page and says which:
+
+```
+requested https://example.com/dashboard
+document status 200
+
+! A bot challenge answered a data request (https://example.com/api/me:
+  "Just a moment…"). UI Atlas has no way around that and will not get one.
+
+1 request(s) worth looking at:
+  [html-for-json] 403 fetch https://example.com/api/me
+      the page asked for data and received an HTML document — this is what
+      produces "Unexpected token '<'"
+      body: "Just a moment…"
+
+the page's own scripts threw:
+  Unexpected token '<', "<!doctype "... is not valid JSON
+
+sign-in: signed-out
+  a sign-in control is on the page ("Sign in")
+```
+
+It captures nothing and writes no run — it is a read. Query strings are stripped
+from every URL it prints, because they carry tokens. Exit code 1 when it found
+something, so it can gate a script.
+
+The two answers it separates:
+
+- **a sign-in page came back** — your saved session is not signed in as far as
+  the server is concerned. Re-save it, with `--persistent` if `auth save` said
+  this site needs it.
+- **a bot challenge came back** — the site is refusing automated browsers. UI
+  Atlas has no evasion and will not get any. `--mode attach` against a Chrome
+  you launched and signed into yourself is the only remaining option, and it is
+  not guaranteed to work either.
+
 ## Output
 
 ```

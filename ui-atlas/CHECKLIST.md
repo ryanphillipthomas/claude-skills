@@ -408,6 +408,25 @@ page returned 200, and the artifacts were of a signed-out site.
       log *and* the run warnings, so `run.json` carries it too
 - [x] `clean` mode is never checked — it is expected to be signed out
 
+## Saying what actually failed (tenth slice)
+
+`Unexpected token '<', "<!DOCTYPE "` is the site's own error, and it names
+neither the request nor what came back — so a bot challenge and an expired
+session look identical.
+
+- [x] `ui-atlas doctor <url>` watches a page load and reports the requests that
+      were refused, failed, or answered with HTML where data was asked for
+- [x] `html-for-json` is not conditioned on the status: an interstitial commonly
+      returns 200, which is exactly why the failure is confusing
+- [x] HTML bodies read down to their title, because the body is what identifies
+      a challenge versus a login page
+- [x] One-sentence conclusion naming which, or plainly declining to name one
+- [x] The page's own error printed verbatim, beside the request that caused it
+- [x] Query strings stripped from every URL; JSON bodies never previewed
+- [x] Writes nothing — no run, no captures. Exit 1 when it found something
+- [x] Fixture reproducing the real failure: a 200 document whose fetch receives
+      text/html and throws
+
 ### Still to build
 
 (nothing in the brief)

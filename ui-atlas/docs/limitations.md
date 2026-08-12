@@ -366,6 +366,26 @@ See [ADR 28](adr/0028-a-saved-sign-in-is-checked-not-assumed.md).
   nothing and evades nothing. A site that blocks automated browsers still blocks
   it, and `--persistent` only preserves more of what you did by hand.
 
+## Boundaries of `doctor`
+
+See [ADR 29](adr/0029-a-page-that-fails-should-say-what-failed.md).
+
+- **It reports one page load.** A failure that only happens after a click, or
+  on the fifth page of a flow, is not seen.
+- **"Bot challenge" and "sign-in page" are read from the returned HTML's own
+  words** — titles like "Just a moment", "Access denied", "Sign in". An
+  interstitial that says none of those is reported as HTML-where-data-was-asked
+  for, without a name for it.
+- **It cannot see what the page never requested.** A framework that swallows a
+  failure and renders an empty state produces no finding.
+- **Bodies are read only for HTML responses**, and only the title or first
+  sentence is kept. It never prints a JSON body, which could be your data.
+- **Query strings are stripped from every URL it prints.** That also means two
+  requests to the same path with different parameters look identical in the
+  output.
+- **It fixes nothing.** Naming a bot challenge does not get past it, and UI
+  Atlas will not gain evasion.
+
 ## Boundaries of capture names and the index
 
 See [ADR 26](adr/0026-captures-are-named-from-what-they-already-know.md).

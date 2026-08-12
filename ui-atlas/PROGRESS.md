@@ -3,8 +3,9 @@
 Running log for the build. Updated after each milestone so an interrupted
 session is recoverable.
 
-**Last updated:** 2026-08-12, after the sign-in check landed. The brief is
-delivered; the last two slices are usability work on top of it.
+**Last updated:** 2026-08-12, after `doctor` landed. The brief is delivered;
+the last three slices are usability work on top of it, each one driven by a
+real failure during real use.
 
 ## Status
 
@@ -24,7 +25,8 @@ Two more slices followed the first real external runs. The eighth: guided flow,
 buttons for everything the keyboard could reach, and filenames derived from what
 each capture already knows about itself. The ninth: a saved sign-in that is
 checked rather than assumed, after the same authentication failure happened
-repeatedly and always looked like something else.
+repeatedly and always looked like something else. The tenth: `doctor`, which
+says what actually failed when a page reports something inscrutable.
 
 ```
 npm install
@@ -37,8 +39,8 @@ npm test
 `npm test` (builds, then Vitest — unit and browser integration):
 
 ```
-Test Files  43 passed (43)
-     Tests  520 passed | 3 skipped (523)
+Test Files  44 passed (44)
+     Tests  526 passed | 3 skipped (529)
   Duration  ~310s
 ```
 
@@ -90,6 +92,7 @@ the phase 1 exit criterion. Nothing is unverified now.
 | `integration/guided-flow` | 9 | **eighth slice**: the flow line through a real browser at each step, the instructions and their current-step marking, tree navigation as buttons, the count after a real capture, and the filenames, sidecar and index the run writes |
 | `unit/signin` | 14 | what a storage state drops and when that matters, login-path matching, and the three-valued verdict with its evidence |
 | `integration/signin` | 7 | **ninth slice**: the page-side probes against real pages — a login page read as signed out, a way out read as signed in, an ordinary page read as unclear, a hidden password field ignored, a redirect noticed, and IndexedDB/sessionStorage actually found |
+| `integration/doctor` | 6 | **tenth slice**: the request behind an "Unexpected token" error found, the HTML identified as a challenge, the page's own error captured, nothing reported for a page that works, and query strings kept out of the output |
 | `integration/external-smoke` | 3 skipped | read-only public-site checks; skip without network |
 
 `npm run typecheck` passes for all thirteen packages and for the test sources.
@@ -1225,6 +1228,77 @@ sentence as the person who watched it run.
 It does not make UI Atlas better at getting signed in. It still types nothing,
 submits nothing and evades nothing. `--persistent` only keeps more of what your
 own hands achieved, and a site that blocks automation still blocks it.
+
+## Saying what actually failed (tenth slice)
+
+Done and covered by `tests/integration/doctor.test.ts`. See
+[ADR 29](docs/adr/0029-a-page-that-fails-should-say-what-failed.md).
+
+The same message kept coming back from real use:
+
+```
+Error: Unexpected token '<', "<!DOCTYPE "... is not valid JSON
+Trace ID: -
+```
+
+It is the site's own JavaScript — a `fetch` asked for JSON and got an HTML
+document — and everything that matters is missing from it: which request, what
+the HTML was, and therefore why.
+
+### Why that gap costs an afternoon
+
+Three unrelated causes produce that identical sentence: a bot challenge answered
+an API call, the session expired and the API redirected to a sign-in page, or
+the endpoint failed behind a friendly error page. The first cannot be fixed by
+this tool at all; the second is fixed by re-saving the profile. Telling someone
+to sign in again when they are being challenged is a wasted afternoon, and the
+message gives no way to tell.
+
+ADR 28 made the sign-in state legible. This makes the network legible, which is
+the layer the symptom actually lives in.
+
+### What it reports
+
+`watchPage` attaches to `response`, `requestfailed`, `pageerror` and `console`
+before navigation and returns a `stop` the command calls once the page settled.
+A response is worth reporting when it is `unauthorised` (401/403/407),
+`rate-limited` (429), a `server-error` (5xx), a `request-failed`, or —
+the one this exists for — `html-for-json`: a `fetch`/`xhr` request answered with
+`text/html`.
+
+`html-for-json` is deliberately **not** conditioned on the status. An edge layer
+commonly returns its interstitial with a 200, which is exactly why the failure
+is so confusing.
+
+### The body is the answer
+
+`403 fetch https://example.com/api/me` still does not say whether that was a
+challenge or a login page. So HTML bodies are read, reduced to their title, and
+printed — `body: "Just a moment…"` — and `summarise` (pure, tested without a
+browser) turns that into the one sentence needed:
+
+> A bot challenge answered a data request. UI Atlas has no way around that and
+> will not get one.
+
+When it matches neither vocabulary it says plainly that HTML came back where
+data was expected, and stops, rather than inventing a cause.
+
+### What it refuses to print
+
+Every URL is reduced to origin plus pathname, with a bare `?…` where parameters
+were. Tokens and session ids live in query strings, and a diagnostic is
+something people paste into chat windows. Only HTML bodies are previewed, never
+JSON — a JSON body is the user's data.
+
+It writes nothing at all: no run directory, no captures. It deliberately does
+not reuse `AtlasSession`, because a diagnosis has to work on a page too broken
+to capture.
+
+### What it does not do
+
+It diagnoses; it does not fix. Naming a bot challenge does not get past one, and
+this tool will not gain evasion. The most useful thing it can do in that case is
+say so in one sentence.
 
 ## Where this leaves the project
 

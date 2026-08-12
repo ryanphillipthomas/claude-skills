@@ -6,6 +6,7 @@ import { ANIMATIONS_HELP, runAnimations } from './commands/animations.js';
 import { AUTH_HELP, runAuth } from './commands/auth.js';
 import { CAPTURE_HELP, runCapture } from './commands/capture.js';
 import { CRAWL_HELP, runCrawl } from './commands/crawl.js';
+import { DOCTOR_HELP, runDoctor } from './commands/doctor.js';
 import { INSPECT_HELP, runInspect } from './commands/inspect.js';
 import { REPORT_HELP, runReport } from './commands/report.js';
 import { TOKENS_HELP, runTokens } from './commands/tokens.js';
@@ -18,7 +19,9 @@ Commands
   capture <url>                 one-shot non-interactive capture
   report  <run-directory>       summarise a run
   auth save <profile> <url>     sign in by hand and store the session
+  auth check <profile> <url>    is that stored session still signed in?
   auth clear <profile>          delete a stored session and profile
+  doctor <url>                  say what actually went wrong loading a page
   crawl <site-config.yml|url>   visit same-origin pages and record them
   animations <url>              list the page's animations and how samplable each is
   tokens <url> [more urls...]   count the computed values a design system is made of
@@ -38,6 +41,7 @@ const COMMAND_HELP: Record<string, string> = {
   report: REPORT_HELP,
   auth: AUTH_HELP,
   crawl: CRAWL_HELP,
+  doctor: DOCTOR_HELP,
   animations: ANIMATIONS_HELP,
   tokens: TOKENS_HELP,
 };
@@ -86,6 +90,8 @@ export async function run(options: RunOptions): Promise<number> {
         return await runAuth(args, logger);
       case 'crawl':
         return await runCrawl(args, logger);
+      case 'doctor':
+        return await runDoctor(args, logger);
       case 'animations':
         return await runAnimations(args, logger);
       case 'tokens':

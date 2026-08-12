@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Broken API — UI Atlas fixture</title>
+    <link rel="stylesheet" href="/base.css" />
+  </head>
+  <body>
+    <!--
+      Reproduces the failure `doctor` exists to explain: the document loads with
+      a 200, and then the page's own code asks for data, receives an HTML
+      interstitial, and throws.
+
+      The error the user sees names neither the request nor what came back,
+      which is exactly why it is impossible to tell a bot challenge from an
+      expired session by looking at it.
+
+      Not linked from index.html, so the crawl tests are unaffected.
+    -->
+    <main>
+      <h1>Dashboard</h1>
+      <p data-testid="api-status">Loading…</p>
+    </main>
+
+    <script>
+      // `challenge.html` is served as text/html, so `.json()` throws with the
+      // same message a real edge layer produces.
+      fetch('/challenge.html')
+        .then((response) => response.json())
+        .then(() => {
+          document.querySelector('[data-testid="api-status"]').textContent = 'Loaded';
+        })
+        .catch((error) => {
+          document.querySelector('[data-testid="api-status"]').textContent = 'Failed';
+          // Rethrow out of the promise so it surfaces as a page error, the way
+          // an unhandled framework fetch does.
+          setTimeout(() => {
+            throw error;
+          }, 0);
+        });
+    </script>
+  </body>
+</html>

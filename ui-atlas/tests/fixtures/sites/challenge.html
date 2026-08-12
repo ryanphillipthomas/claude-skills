@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Just a moment…</title>
+  </head>
+  <body>
+    <!--
+      Stands in for the interstitial an edge layer serves instead of the data a
+      page asked for: a bot challenge, a WAF block, an expired-session redirect.
+      Served as text/html, which is the whole point — a `fetch(...).json()`
+      against this throws `Unexpected token '<', "<!DOCTYPE "`.
+
+      Not linked from index.html: the crawl tests assert on what the link graph
+      reaches, and this is fetched directly by the tests that want it.
+    -->
+    <h1>Checking your browser before you continue</h1>
+    <p>This process is automatic.</p>
+  </body>
+</html>
