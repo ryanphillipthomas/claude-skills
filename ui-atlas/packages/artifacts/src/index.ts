@@ -1,5 +1,7 @@
 export * from './atomic.js';
 export * from './ids.js';
+export * from './index-doc.js';
+export * from './naming.js';
 export * from './paths.js';
 export * from './png.js';
 export * from './read.js';

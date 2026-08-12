@@ -340,6 +340,44 @@ See [ADR 25](adr/0025-the-animation-button-is-a-list-not-a-shutter.md).
 - **Nothing in the panel is named for you.** It shows what the inventory said,
   in the inventory's words.
 
+## Boundaries of capture names and the index
+
+See [ADR 26](adr/0026-captures-are-named-from-what-they-already-know.md).
+
+- **A name is derived, never invented.** It comes from the element's ARIA role,
+  its accessible name or text excerpt, and the state that was applied. A capture
+  with none of those gets a *shorter* name — `div--default.png` — rather than a
+  guessed one. Nothing is sent anywhere to produce a name.
+- **Renaming a file by hand does not update anything else.** `captures.jsonl`,
+  the `.json` sidecar beside the image and `index.md` all keep the original
+  path. Rename the sidecar to match if you want the pair to stay together. Both
+  indexes say so at the top.
+- **Names follow the site's content.** A button whose label changes gets a
+  different filename on the next run. `captures.jsonl` is the stable record —
+  capture ids did not change, only the filenames did.
+- **Collisions are resolved by order.** Two captures a person would give the
+  same name get `-2`, `-3` in the order they were written; which one is
+  unsuffixed depends on which ran first. The sidecar beside each says which is
+  which.
+- **The index describes what was recorded, not what is on disk now.** It is
+  rebuilt from `captures.jsonl` at the end of a run. Files added, removed or
+  renamed afterwards are not noticed until another run rewrites it.
+- **A capture that produced no file is listed, not hidden**, under "Not captured
+  here" with its reason. A gap you can see beats a gap you have to notice.
+
+## Boundaries of the guided flow
+
+See [ADR 27](adr/0027-the-panel-says-what-to-do-next.md).
+
+- **The flow describes the main sequence only.** Animations, viewport presets
+  and the responsive set are branches off it, not steps in it, so the step
+  numbers do not count them.
+- **The capture count is per page load and per route, not per run.** It counts
+  what this toolbar has captured from the page the browser is on. Reloading the
+  page starts it again; the run's own totals are in `run.json`.
+- **The instructions panel does not remember being hidden.** Persisting it would
+  mean writing to the site's own storage, which this tool does not do.
+
 ## Things the tool reports that surprise people
 
 - **`focus` and `focus-visible` can produce identical images.** Chromium decides

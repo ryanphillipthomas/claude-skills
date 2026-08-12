@@ -351,6 +351,39 @@ is still empty and no non-`GET` request was issued.
 
 **The brief is delivered through phase 4.**
 
+## Usability — flow, buttons and file names (eighth slice)
+
+Asked for after the first real external run: the shortcuts were hard, there was
+nothing telling you what to do, and the output was a wall of `cap-7f3a91.png`.
+
+- [x] Filenames derived from the record itself: `button--save-changes--hover.png`
+      from the element's role, accessible name and applied state
+- [x] Nothing invented — a capture with no name gets a **shorter** name, never a
+      guessed one, and no image leaves the machine
+- [x] Animation frames zero-padded (`frame-000`…`frame-100`) so a listing sorts
+      in the order the frames happen
+- [x] `--` separates parts, `-` separates words: `sanitizeFileStem` keeps the
+      boundary that `sanitizeSegment` would collapse
+- [x] Collisions get `-2`, `-3` from a registry the writer owns, re-seeded from
+      `captures.jsonl` on resume so a restart cannot overwrite earlier captures
+- [x] `index.md` at the run root and in each route folder, listing every file
+      with a sentence saying what is in it
+- [x] Captures that produced no file listed too, under "Not captured here", with
+      the reason
+- [x] Both indexes say plainly that renaming does not update `captures.jsonl`
+      or the sidecar
+- [x] An unwritable index is a run warning, never a failed run
+- [x] A flow line at the top of the panel that changes with state, from a pure
+      `nextStep` function
+- [x] Three numbered steps, with the instructions panel marking the current one
+- [x] The capture button's states named in the flow line, so Capture is never a
+      surprise
+- [x] Progress while the queue is busy, and a "keep going" line with a count
+      once something has been captured on this page
+- [x] Tree navigation (parent / child / previous / next) as buttons; the arrow
+      keys are now a shortcut for a visible control, not the only way in
+- [x] The count follows single-page-app route changes rather than going stale
+
 ### Still to build
 
 (nothing in the brief)

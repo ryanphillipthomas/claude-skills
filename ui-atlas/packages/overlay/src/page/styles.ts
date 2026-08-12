@@ -133,6 +133,37 @@ button.ua-btn[disabled] { opacity: 0.45; cursor: not-allowed; }
 button.ua-btn--previewing { background: #db2777; border-color: #ec4899; color: #ffffff; }
 button.ua-btn--primary { background: #db2777; border-color: #ec4899; }
 button.ua-btn--primary:hover { background: #be185d; }
+button.ua-btn--quiet { background: transparent; border-color: transparent; color: #7c8aa5; padding: 2px 4px; }
+button.ua-btn--quiet:hover { background: #1e293b; color: #e2e8f0; }
+
+/* What to do next. Deliberately the loudest thing in the panel. */
+.ua-flow {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 9px;
+  border-radius: 8px;
+  background: #10233f;
+  border: 1px solid #1d4ed8;
+  color: #dbeafe;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.ua-flow[data-step="continue"] { background: #0d2a1e; border-color: #15803d; color: #bbf7d0; }
+.ua-flow[data-step="working"] { background: #2a2410; border-color: #a16207; color: #fef08a; }
+.ua-flow[data-step="connect"] { background: #1a1f2b; border-color: #334155; color: #94a3b8; }
+.ua-flow__step {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  opacity: 0.75;
+  font-weight: 600;
+}
+
+.ua-steps__list { margin: 0; padding-left: 18px; display: grid; gap: 4px; color: #94a3b8; font-size: 11px; line-height: 1.45; }
+.ua-steps__list li strong { color: #cbd5f5; }
+.ua-steps__list li.ua-steps__item--current { color: #dbeafe; }
+.ua-steps__list li.ua-steps__item--current strong { color: #93c5fd; }
 
 .ua-kv { display: grid; grid-template-columns: 84px 1fr; gap: 2px 8px; }
 .ua-kv dt { color: #7c8aa5; }

@@ -34,6 +34,31 @@ export function sanitizeSegment(input: string, fallback = 'unnamed'): string {
   return out;
 }
 
+/**
+ * Like `sanitizeSegment`, but preserves `--` so a composed filename stem keeps
+ * the separator that tells its parts apart: `button--save-changes--hover`
+ * rather than `button-save-changes-hover`, where a hyphenated name and a
+ * boundary would be indistinguishable.
+ *
+ * Every other guarantee is the same: no separators, no traversal, no reserved
+ * device name, never empty.
+ */
+export function sanitizeFileStem(input: string, fallback = 'capture'): string {
+  const collapsed = input
+    .normalize('NFKD')
+    .replace(/\p{M}+/gu, '')
+    .replace(/[^A-Za-z0-9._-]+/g, '-')
+    // Three or more hyphens can only come from mangling; two are a separator.
+    .replace(/-{3,}/g, '--')
+    .replace(/^[-.]+/, '')
+    .replace(/[-.]+$/, '');
+
+  let out = collapsed.slice(0, MAX_SEGMENT_LENGTH).replace(/[-.]+$/, '');
+  if (out.length === 0 || out === '.' || out === '..') out = fallback;
+  if (RESERVED_NAMES.has(out.toLowerCase())) out = `${out}-x`;
+  return out;
+}
+
 function shortHash(input: string, length = 8): string {
   return createHash('sha256').update(input).digest('hex').slice(0, length);
 }

@@ -117,6 +117,22 @@ function makeRecord(runId: string, overrides: Partial<CaptureRecord> = {}): Capt
   };
 }
 
+async function freshWriter(runId = newRunId()): Promise<RunWriter> {
+  const writer = new RunWriter(
+    dir,
+    emptyManifest({
+      runId,
+      project: 'fixture',
+      command: 'test',
+      toolVersion: '0.0.0',
+      baseViewport: VIEWPORT,
+      browser: { engine: 'chromium', mode: 'clean', headless: true },
+    }),
+  );
+  await writer.init();
+  return writer;
+}
+
 describe('RunWriter', () => {
   it('writes a manifest, screenshots, sidecars and JSONL', async () => {
     const runId = newRunId();
@@ -193,6 +209,98 @@ describe('RunWriter', () => {
     const broken = makeRecord(runId) as unknown as Record<string, unknown>;
     broken['capturedAt'] = 'not-a-timestamp';
     await expect(writer.addCapture(broken as unknown as CaptureRecord)).rejects.toThrow(UiAtlasError);
+  });
+
+  it('writes a descriptive filename when the capture supplies one', async () => {
+    const writer = await freshWriter();
+    const image = await writer.writeScreenshot(
+      {
+        routeKey: 'local-root',
+        viewportLabel: 'desktop',
+        captureId: 'cap-1',
+        stem: 'button--save-changes--hover',
+      },
+      PNG_2x2,
+    );
+    expect(image.relativePath).toBe(
+      'screenshots/local-root/desktop/button--save-changes--hover.png',
+    );
+  });
+
+  it('suffixes a repeated name rather than overwriting the first capture', async () => {
+    const writer = await freshWriter();
+    const target = {
+      routeKey: 'local-root',
+      viewportLabel: 'desktop',
+      stem: 'button--save--default',
+    };
+    const first = await writer.writeScreenshot({ ...target, captureId: 'cap-1' }, PNG_2x2);
+    const second = await writer.writeScreenshot({ ...target, captureId: 'cap-2' }, PNG_2x2);
+    const third = await writer.writeScreenshot({ ...target, captureId: 'cap-3' }, PNG_2x2);
+
+    expect([first, second, third].map((image) => image.relativePath)).toEqual([
+      'screenshots/local-root/desktop/button--save--default.png',
+      'screenshots/local-root/desktop/button--save--default-2.png',
+      'screenshots/local-root/desktop/button--save--default-3.png',
+    ]);
+  });
+
+  it('lets the same name live in two different viewport folders', async () => {
+    const writer = await freshWriter();
+    const stem = 'button--save--default';
+    const desktop = await writer.writeScreenshot(
+      { routeKey: 'local-root', viewportLabel: 'desktop', captureId: 'cap-1', stem },
+      PNG_2x2,
+    );
+    const mobile = await writer.writeScreenshot(
+      { routeKey: 'local-root', viewportLabel: 'mobile', captureId: 'cap-2', stem },
+      PNG_2x2,
+    );
+    expect(desktop.relativePath).toBe('screenshots/local-root/desktop/button--save--default.png');
+    expect(mobile.relativePath).toBe('screenshots/local-root/mobile/button--save--default.png');
+  });
+
+  it('keeps names claimed before an interruption claimed after a resume', async () => {
+    const runId = newRunId();
+    const writer = await freshWriter(runId);
+    const stem = 'button--save--default';
+    const before = await writer.writeScreenshot(
+      { routeKey: 'local-root', viewportLabel: 'desktop', captureId: 'cap-1', stem },
+      PNG_2x2,
+    );
+    await writer.addCapture(makeRecord(runId, { image: before }));
+
+    const resumed = await RunWriter.resume(dir, 'fixture', runId);
+    const after = await resumed.writeScreenshot(
+      { routeKey: 'local-root', viewportLabel: 'desktop', captureId: 'cap-2', stem },
+      PNG_2x2,
+    );
+    expect(after.relativePath).toBe('screenshots/local-root/desktop/button--save--default-2.png');
+  });
+
+  it('writes an index at the run root and one in each route folder', async () => {
+    const runId = newRunId();
+    const writer = await freshWriter(runId);
+    const image = await writer.writeScreenshot(
+      {
+        routeKey: 'local-root',
+        viewportLabel: 'desktop',
+        captureId: 'cap-1',
+        stem: 'button--save-changes--hover',
+      },
+      PNG_2x2,
+    );
+    await writer.addCapture(makeRecord(runId, { image }));
+    await writer.finalize();
+
+    const runIndex = await readFile(join(writer.paths.runDir, 'index.md'), 'utf8');
+    expect(runIndex).toContain('screenshots/local-root/index.md');
+
+    const routeIndex = await readFile(
+      join(writer.paths.screenshotsDir, 'local-root', 'index.md'),
+      'utf8',
+    );
+    expect(routeIndex).toContain('desktop/button--save-changes--hover.png');
   });
 
   it('keeps reading a JSONL file that contains one corrupt line', async () => {

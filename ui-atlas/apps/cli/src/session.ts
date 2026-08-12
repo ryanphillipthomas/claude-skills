@@ -13,6 +13,7 @@ import {
   newPageId,
   newRunId,
   newSessionToken,
+  recordingSlug,
   routeKeyFromUrl,
   RunWriter,
 } from '@ui-atlas/artifacts';
@@ -766,6 +767,7 @@ export class AtlasSession {
                 routeKey: routeKeyFromUrl(this.page.url()),
                 viewportLabel: viewportLabel(this.viewport),
                 captureId,
+                stem: recordingSlug(),
               },
               await readFile(recording.path),
               {

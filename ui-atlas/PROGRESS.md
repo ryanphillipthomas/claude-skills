@@ -3,7 +3,8 @@
 Running log for the build. Updated after each milestone so an interrupted
 session is recoverable.
 
-**Last updated:** 2026-08-11, after the toolbar's Animation panel landed. The brief is delivered.
+**Last updated:** 2026-08-12, after the guided flow and readable filenames
+landed. The brief is delivered; this slice is usability work on top of it.
 
 ## Status
 
@@ -19,6 +20,10 @@ observed-value extraction, the animation inventory during a crawl, and the
 toolbar's Animation panel. **Everything the brief scopes is built** — the last
 item on its own list was the Animation button, and it is no longer disabled.
 
+An eighth slice followed the first real external run: guided flow, buttons for
+everything the keyboard could reach, and filenames derived from what each
+capture already knows about itself.
+
 ```
 npm install
 npm run build
@@ -30,9 +35,9 @@ npm test
 `npm test` (builds, then Vitest — unit and browser integration):
 
 ```
-Test Files  38 passed (38)
-     Tests  442 passed | 3 skipped (445)
-  Duration  ~296s
+Test Files  41 passed (41)
+     Tests  499 passed | 3 skipped (502)
+  Duration  ~310s
 ```
 
 On a networked machine the three external smoke tests run instead of skipping:
@@ -42,7 +47,7 @@ the phase 1 exit criterion. Nothing is unverified now.
 | Suite | Tests | What it proves |
 | --- | --- | --- |
 | `unit/paths` | 14 | segment sanitising, route keys, artifact-root escape rejection |
-| `unit/artifacts` | 10 | atomic writes, JSONL, PNG headers, record validation, corrupt-line tolerance |
+| `unit/artifacts` | 15 | atomic writes, JSONL, PNG headers, record validation, corrupt-line tolerance, descriptive filenames, collision suffixes surviving a resume, the indexes |
 | `unit/identity` | 16 | generated-id detection, hashed classes, scoring, fingerprint stability |
 | `unit/config` | 14 | defaults, deep merge, prototype-pollution rejection, YAML/JSON loading |
 | `unit/runtime` | 25 | deadlines, queue serialisation and isolation, bridge auth/validation, CLI args, redaction, run summary, shortcuts |
@@ -78,6 +83,9 @@ the phase 1 exit criterion. Nothing is unverified now.
 | `unit/tokens` | 24 | colour/length/font normalisation, category mapping, counting across pages, truncation warnings, near duplicates reported and never merged |
 | `integration/tokens` | 9 | **phase 4, fifth slice**: browser defaults excluded, script/style never read, the page unchanged either side, the per-page cap, the fixture's real colours, the CLI across several pages and past an unreachable one, a whole-site crawl scan, and doing nothing when switched off |
 | `integration/animation-panel` | 9 | **phase 4, seventh slice**: the panel driven through the real overlay — what it lists, the action each row gets, no row without a reason, listing changing nothing, a sample that restores, a recording that is not called a sample, canvas named with an action, an honest refusal when the animation has gone, and the keyboard route |
+| `unit/naming` | 31 | slug composition and what it refuses to invent, word-boundary trimming, stem sanitising that keeps `--`, the index's grouping, descriptions and relative links |
+| `unit/flow` | 12 | what the panel says at each point in the sequence, and that every step it points at has an instruction |
+| `integration/guided-flow` | 9 | **eighth slice**: the flow line through a real browser at each step, the instructions and their current-step marking, tree navigation as buttons, the count after a real capture, and the filenames, sidecar and index the run writes |
 | `integration/external-smoke` | 3 skipped | read-only public-site checks; skip without network |
 
 `npm run typecheck` passes for all thirteen packages and for the test sources.
@@ -1027,14 +1035,129 @@ that time on the page's own clock. Restoration never promised to stop time. What
 it does promise is that nothing is left held — so the test now requires no
 animation to read `paused` (a failed restore) or `idle` (a cancel never undone).
 
+## Guided flow and readable filenames (eighth slice)
+
+Done and covered by `tests/unit/naming.test.ts`, `tests/unit/flow.test.ts` and
+`tests/integration/guided-flow.test.ts`. See
+[ADR 26](docs/adr/0026-captures-are-named-from-what-they-already-know.md) and
+[ADR 27](docs/adr/0027-the-panel-says-what-to-do-next.md).
+
+This came out of the first real run against an external site. Four things were
+asked for: the shortcuts are hard, there are no instructions, there is no sense
+of flow, and the output is disorganised — with a suggestion that Claude could
+look at the images and name them.
+
+### The finding that reordered the work
+
+**Most of the naming problem was already solvable locally.** Every capture
+already stores the element's ARIA role, its accessible name, a text excerpt and
+the state that was applied — the inspector reads all of them to score locators.
+So `cap-7f3a91.png` could be `button--save-changes--hover.png` with nothing sent
+anywhere. AI was only ever needed for the residue: wrapper divs and sections
+with no accessible name.
+
+Having seen that, the ask changed to *keep them organised so a manual rename is
+easy* — so there is no AI pass, and the README's opening promise ("no cloud
+account, no AI service") is untouched.
+
+### Names
+
+`captureSlug` composes `<subject>--<label>--<state>` from fields the record
+already carries. `button--save-changes--hover.png`,
+`checkbox--email-me-about-updates--checked.png`, `viewport--default.png`.
+
+Four decisions worth keeping:
+
+- **Nothing is invented.** A capture with no accessible name and no text gets a
+  *shorter* name (`div--default.png`), never a guessed one.
+- **Frames are zero-padded** — `frame-050` sorts between `frame-000` and
+  `frame-100`, where `50` would sort after `100`.
+- **`--` separates parts, `-` separates words.** `sanitizeSegment` collapses
+  hyphen runs, which would turn `button--save-changes--hover` into
+  `button-save-changes-hover` and lose the boundary. `sanitizeFileStem` relaxes
+  that one rule and keeps every other guarantee.
+- **Collisions get `-2`, `-3`** from a registry `RunWriter` owns. Two "Save"
+  buttons on one page is ordinary, and a collision would have silently
+  overwritten an image *and* its sidecar.
+
+The registry is re-seeded from `captures.jsonl` on resume. Without that, a
+resumed run would write `button--save--hover.png` straight over the one it
+already had and the earlier record would point at the later image. A test kills
+and resumes a writer to prove it does not.
+
+### Organisation
+
+The folder shape was already right — `screenshots/<route>/<viewport>/` — what
+was missing was a way to read it. `finalize()` now writes `index.md` at the run
+root and one inside each route folder, listing every file with a sentence saying
+what is in it. Captures that produced **no** file are listed too, under "Not
+captured here", with the reason.
+
+Both indexes say plainly that renaming a file does not update `captures.jsonl`
+or the sidecar beside it. That is the honest caveat for the workflow this exists
+for: the names are a starting point a human is expected to improve.
+
+An unwritable index is a run warning, not a failed run — the captures and their
+sidecars are already on disk by then.
+
+### Flow
+
+`nextStep` is a pure function from the panel's state to one sentence and a
+position. It renders above everything else, because it answers the question a
+person opens the panel with, and the answer should not sit below the controls it
+is about.
+
+| State | It says |
+| --- | --- |
+| not connected | *Waiting for the UI Atlas session. Nothing is being captured yet.* |
+| nothing selected | *Press Inspect, then move the pointer over the page…* |
+| inspecting, nothing selected | *Click the element you want…* |
+| selected | *Pick the states you want, then press Capture. Right now: default, hover.* |
+| jobs in flight | *Capturing 3 jobs… files land in this run as they finish.* |
+| captured here | *4 captures so far on /pricing. Select the next element, or open another page…* |
+
+Two things this buys beyond instruction: **the capture button is never a
+surprise**, because the line names the states it is about to take; and
+**progress beats instruction**, so while the queue works it says what is
+happening rather than repeating what to do.
+
+Three numbered steps, not four — choosing states and pressing Capture happens in
+one place at one time, and splitting it would have been a number that looked
+like progress without being any. A test asserts every position `nextStep` can
+return has a matching instruction, so the highlight can never point at nothing.
+
+### Buttons
+
+Walking the DOM tree was arrow-keys-only, which meant it may as well not have
+existed: the operation you want immediately after clicking slightly the wrong
+thing had no visible control at all. Parent, child, previous and next are now
+buttons, disabled until there is a selection. The arrow keys are unchanged, and
+are now the shortcut for a visible control rather than the only way in.
+
+The count is of **captures**, not jobs — a failed job captured nothing, and a
+three-state set produces three — attributed to the page recorded when the
+capture was *asked for*, since a single-page app can navigate while the queue
+works. The overlay watches for route changes in the frame loop it already runs,
+so the count does not go stale on a route change.
+
+### One bug caught by writing the test for it
+
+A route index sits under `screenshots/<route>/`, but recordings live under
+`animations/<route>/`. Prefix-stripping produced a link that resolved to
+nothing. `relativise` now computes a real relative path and climbs out with
+`../../` where it has to.
+
 ## Where this leaves the project
 
 **The brief is delivered.** Phases 0 through 4 are complete and every item on the
 brief's own list is built, including the Animation button that had been disabled
-since phase 1.
+since phase 1. The eighth slice is usability work on top of a delivered brief,
+driven by what the first real external run felt like to use.
 
 Anything further is new scope rather than an unfinished milestone:
 
+- a `relink` command, so renaming a file by hand could update `captures.jsonl`,
+  the sidecar and the index together instead of the index warning about it
 - perceptual near-duplicate hashing (the report groups by exact image hash today)
 - sitemap seeding, and dedup by page structural fingerprint
 - `captureResponsive` during a crawl (the step validates and reports that it was

@@ -20,8 +20,9 @@ import {
 import { existsSync } from 'node:fs';
 import { readFile, rm } from 'node:fs/promises';
 import { appendJsonLine, atomicWriteFile, ensureDir, sha256 } from './atomic.js';
+import { groupForIndex, renderRouteIndex, renderRunIndex } from './index-doc.js';
 import { pngDimensions } from './png.js';
-import { resolveWithinRoot, sanitizeSegment, toRecordPath } from './paths.js';
+import { resolveWithinRoot, sanitizeFileStem, sanitizeSegment, toRecordPath } from './paths.js';
 import { readCaptures, readPages, readRunManifest } from './read.js';
 import { formatIssues } from './validate.js';
 
@@ -70,6 +71,12 @@ export interface ScreenshotTarget {
   routeKey: string;
   viewportLabel: string;
   captureId: string;
+  /**
+   * Readable filename stem, from `captureSlug`. The capture id is used when
+   * this is absent — an opaque name is worse than a descriptive one, but it is
+   * still a name, and nothing may go unwritten for want of one.
+   */
+  stem?: string | undefined;
 }
 
 /**
@@ -82,6 +89,12 @@ export class RunWriter {
   private manifest: RunManifest;
   private counts = { captured: 0, failed: 0, skipped: 0, pages: 0 };
   private initialised = false;
+  /**
+   * Every `<dir>/<stem>` this run has already used. Descriptive names collide —
+   * two "Save" buttons on one page at one viewport is ordinary — and a
+   * collision would silently overwrite an artifact *and* its sidecar.
+   */
+  private readonly claimedStems = new Set<string>();
 
   constructor(outputRoot: string, manifest: RunManifest) {
     const parsed = RunManifestSchema.safeParse(manifest);
@@ -133,6 +146,12 @@ export class RunWriter {
       if (record.status === 'captured') writer.counts.captured += 1;
       else if (record.status === 'failed') writer.counts.failed += 1;
       else writer.counts.skipped += 1;
+
+      // Names claimed before the interruption stay claimed, or the resumed run
+      // would write `button--save--hover.png` straight over the one it already
+      // has and the earlier record would point at the later image.
+      const artifact = record.image?.relativePath ?? record.video?.relativePath;
+      if (artifact !== undefined) writer.claimedStems.add(stripExtension(artifact));
     }
     writer.counts.pages = pages.records.length;
 
@@ -175,14 +194,61 @@ export class RunWriter {
     await atomicWriteFile(this.paths.runManifest, `${JSON.stringify(this.manifest, null, 2)}\n`);
   }
 
-  /** Absolute path a screenshot for `target` must be written to. */
+  /**
+   * The directory a capture belongs in: one folder per route, one per viewport
+   * inside it. This is the organisation, and it is deliberately the same shape
+   * for stills and recordings so that "everything from this page at this size"
+   * is a single folder in each tree.
+   */
+  private captureDir(root: string, target: ScreenshotTarget): { absolute: string; relative: string } {
+    const route = sanitizeSegment(target.routeKey, 'route');
+    const viewport = sanitizeSegment(target.viewportLabel, 'viewport');
+    return {
+      absolute: resolveWithinRoot(root, route, viewport),
+      relative: `${toRecordPath(this.paths.runDir, root)}/${route}/${viewport}`,
+    };
+  }
+
+  /**
+   * Reserve a filename stem in a directory, adding `-2`, `-3`… when the name is
+   * taken. The suffix is the honest thing to do: these really are two different
+   * captures that a human would give the same name, and the sidecar beside each
+   * says which is which.
+   */
+  private claimStem(dirRelative: string, target: ScreenshotTarget): string {
+    const desired = target.stem === undefined ? undefined : sanitizeFileStem(target.stem, '');
+    const base =
+      desired === undefined || desired.length === 0
+        ? sanitizeSegment(target.captureId, 'capture')
+        : desired;
+
+    for (let attempt = 1; attempt <= 500; attempt += 1) {
+      const stem = attempt === 1 ? base : `${base}-${String(attempt)}`;
+      const key = `${dirRelative}/${stem}`;
+      if (!this.claimedStems.has(key)) {
+        this.claimedStems.add(key);
+        return stem;
+      }
+    }
+    // Beyond absurd, but a capture is never lost for want of a name: the
+    // capture id is unique by construction.
+    const stem = `${base}-${sanitizeSegment(target.captureId, 'capture')}`;
+    this.claimedStems.add(`${dirRelative}/${stem}`);
+    return stem;
+  }
+
+  /**
+   * Absolute path a screenshot for `target` must be written to. Pure: it does
+   * not reserve the name, so callers that need uniqueness go through
+   * `writeScreenshot`.
+   */
   screenshotPath(target: ScreenshotTarget): string {
-    return resolveWithinRoot(
-      this.paths.screenshotsDir,
-      sanitizeSegment(target.routeKey, 'route'),
-      sanitizeSegment(target.viewportLabel, 'viewport'),
-      `${sanitizeSegment(target.captureId, 'capture')}.png`,
-    );
+    const dir = this.captureDir(this.paths.screenshotsDir, target);
+    const stem =
+      target.stem === undefined
+        ? sanitizeSegment(target.captureId, 'capture')
+        : sanitizeFileStem(target.stem, sanitizeSegment(target.captureId, 'capture'));
+    return resolveWithinRoot(dir.absolute, `${stem}.png`);
   }
 
   /**
@@ -194,7 +260,9 @@ export class RunWriter {
     bytes: Buffer,
   ): Promise<CaptureRecord['image'] & object> {
     this.assertReady();
-    const absolute = this.screenshotPath(target);
+    const dir = this.captureDir(this.paths.screenshotsDir, target);
+    const stem = this.claimStem(dir.relative, target);
+    const absolute = resolveWithinRoot(dir.absolute, `${stem}.png`);
     const { width, height } = pngDimensions(bytes);
     const written = await atomicWriteFile(absolute, bytes);
     return {
@@ -207,12 +275,12 @@ export class RunWriter {
   }
 
   videoPath(target: ScreenshotTarget): string {
-    return resolveWithinRoot(
-      this.paths.animationsDir,
-      sanitizeSegment(target.routeKey, 'route'),
-      sanitizeSegment(target.viewportLabel, 'viewport'),
-      `${sanitizeSegment(target.captureId, 'capture')}.webm`,
-    );
+    const dir = this.captureDir(this.paths.animationsDir, target);
+    const stem =
+      target.stem === undefined
+        ? sanitizeSegment(target.captureId, 'capture')
+        : sanitizeFileStem(target.stem, sanitizeSegment(target.captureId, 'capture'));
+    return resolveWithinRoot(dir.absolute, `${stem}.webm`);
   }
 
   /**
@@ -248,7 +316,8 @@ export class RunWriter {
     meta: Omit<Screencast, 'relativePath' | 'sha256' | 'byteLength' | 'format'>,
   ): Promise<Screencast> {
     this.assertReady();
-    const absolute = this.videoPath(target);
+    const dir = this.captureDir(this.paths.animationsDir, target);
+    const absolute = resolveWithinRoot(dir.absolute, `${this.claimStem(dir.relative, target)}.webm`);
     const written = await atomicWriteFile(absolute, bytes);
     return {
       ...meta,
@@ -278,10 +347,7 @@ export class RunWriter {
     // tree is ever separated from the metadata that explains it.
     const artifact = value.image?.relativePath ?? value.video?.relativePath;
     if (artifact !== undefined) {
-      const sidecar = resolveWithinRoot(
-        this.paths.runDir,
-        `${artifact.replace(/\.(png|webm)$/i, '')}.json`,
-      );
+      const sidecar = resolveWithinRoot(this.paths.runDir, `${stripExtension(artifact)}.json`);
       await atomicWriteFile(sidecar, `${JSON.stringify(value, null, 2)}\n`);
     }
 
@@ -350,6 +416,39 @@ export class RunWriter {
     return parsed.data;
   }
 
+  /**
+   * Write `index.md` at the run root and one inside every route's screenshot
+   * folder, listing what was captured and what each file is of.
+   *
+   * Re-read from `captures.jsonl` rather than accumulated in memory, so the
+   * index describes what is actually recorded — including a run that was
+   * resumed, whose earlier captures this process never saw.
+   */
+  async writeIndexes(): Promise<{ runIndex: string; routeIndexes: string[] }> {
+    this.assertReady();
+    const [captures, pages] = await Promise.all([
+      readCaptures(this.paths.capturesJsonl),
+      readPages(this.paths.pagesJsonl),
+    ]);
+    const routes = groupForIndex(captures.records, pages.records);
+
+    const runIndex = resolveWithinRoot(this.paths.runDir, 'index.md');
+    await atomicWriteFile(runIndex, renderRunIndex({ manifest: this.manifest, routes }));
+
+    const routeIndexes: string[] = [];
+    for (const route of routes) {
+      if (route.entries.length === 0 && route.missing.length === 0) continue;
+      const path = resolveWithinRoot(
+        this.paths.screenshotsDir,
+        sanitizeSegment(route.routeKey, 'route'),
+        'index.md',
+      );
+      await atomicWriteFile(path, renderRouteIndex(route));
+      routeIndexes.push(path);
+    }
+    return { runIndex, routeIndexes };
+  }
+
   /** The reviewable recipe skeleton. Plain text, written whole. */
   async writeSuggestedRecipes(text: string): Promise<string> {
     this.assertReady();
@@ -378,7 +477,7 @@ export class RunWriter {
     if (!this.manifest.warnings.includes(warning)) this.manifest.warnings.push(warning);
   }
 
-  /** Rewrite run.json with final counts. Safe to call more than once. */
+  /** Rewrite run.json with final counts, and the indexes. Safe to call twice. */
   async finalize(extra: { finishedAt?: string; browserVersion?: string } = {}): Promise<RunManifest> {
     const finishedAt = extra.finishedAt ?? new Date().toISOString();
     this.manifest = {
@@ -390,6 +489,18 @@ export class RunWriter {
         ...(extra.browserVersion === undefined ? {} : { version: extra.browserVersion }),
       },
     };
+
+    // Written before the manifest, so a failure here still gets recorded in it.
+    // An unwritable index is never worth failing a finished run over: the
+    // captures and their sidecars are already on disk.
+    try {
+      await this.writeIndexes();
+    } catch (error) {
+      this.addWarning(
+        `index.md could not be written: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+
     const parsed = RunManifestSchema.parse(this.manifest);
     this.manifest = parsed;
     await this.writeManifest();
@@ -399,6 +510,14 @@ export class RunWriter {
   snapshotCounts(): { captured: number; failed: number; skipped: number; pages: number } {
     return { ...this.counts };
   }
+}
+
+/**
+ * Drop a known artifact extension. Used for both the sidecar path and the name
+ * registry so the two cannot disagree about what a capture is called.
+ */
+function stripExtension(relativePath: string): string {
+  return relativePath.replace(/\.(png|webm)$/i, '');
 }
 
 export function emptyManifest(input: {

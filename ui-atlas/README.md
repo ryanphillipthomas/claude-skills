@@ -39,6 +39,25 @@ npm run ui-atlas -- inspect https://example.com
 Opens a clean Chromium window with the inspector injected and runs until you
 close the browser.
 
+**There are three steps, and the panel tells you which one you are on.**
+
+1. **Inspect** — turns the pointer into a picker. It highlights what is under it
+   and never clicks the page.
+2. **Select** — click to lock onto an element. The panel shows the locator that
+   will find it again and how many things on the page match it. The
+   `↑ Parent` / `↓ Child` / `← Previous` / `→ Next` buttons adjust the selection
+   when you catch slightly the wrong thing.
+3. **Capture** — pick the states you want and press Capture.
+
+A line at the top of the panel says what to do next, and changes as you go:
+while captures are running it says so, and once you have captured something it
+turns into *"4 captures so far on /pricing — select the next element, or open
+another page."* The "How this works" section repeats the three steps and marks
+the one you are on; press **Hide** if you do not want it.
+
+Every control has a button. The keyboard shortcuts are faster once you know
+them, and none of them is the only way to reach anything:
+
 | Key | Action |
 | --- | --- |
 | `Alt`/`Option` + `I` | toggle inspect mode |
@@ -531,6 +550,7 @@ ui-atlas-output/
   <project>/
     <run-id>/
       run.json                                        run manifest
+      index.md                                        every capture, with what it is
       captures.jsonl                                  one record per capture
       pages.jsonl                                     one record per page visit
       crawl-state.json                                resumable crawl frontier
@@ -538,18 +558,43 @@ ui-atlas-output/
       suggested-recipes.yml                           a recipe skeleton to review
       traces/<page-id>.zip                            failures only; can contain cookies
       animations.jsonl                                described animations, sampled or not
-      screenshots/<route>/<viewport>/<capture-id>.png
-      screenshots/<route>/<viewport>/<capture-id>.json   metadata beside the image
-      animations/<route>/<viewport>/<capture-id>.webm    recordings, when --video asked for one
-      animations/<route>/<viewport>/<capture-id>.json    metadata beside the recording
+      screenshots/<route>/index.md                       this page's captures
+      screenshots/<route>/<viewport>/<name>.png
+      screenshots/<route>/<viewport>/<name>.json         metadata beside the image
+      animations/<route>/<viewport>/<name>.webm           recordings, when --video asked for one
+      animations/<route>/<viewport>/<name>.json           metadata beside the recording
       tokens.json                                        observed values with counts
       report/index.html                                  browsable report
 ```
 
+### File names
+
+`<name>` is derived from what the capture already knows about itself — the
+element's ARIA role, its accessible name and the state that was applied:
+
+```
+screenshots/localhost-4173-pricing/desktop/
+  button--save-changes--default.png
+  button--save-changes--hover.png
+  checkbox--email-me-about-updates--checked.png
+  viewport--default.png
+```
+
+Nothing is guessed and no image is sent anywhere: a capture with no accessible
+name and no text gets a **shorter** name (`div--default.png`), never an invented
+one. Repeats within a folder get `-2`, `-3`. Animation frames are zero-padded
+(`frame-000` … `frame-100`) so a listing sorts them in the order they happen.
+
+These names are a starting point you are expected to improve by hand. `index.md`
+at the run root — and one inside each route folder — lists every file with a
+sentence saying what is in it, so a renaming pass has a map. **Renaming a file
+does not update `captures.jsonl` or the `.json` sidecar beside it**; rename the
+sidecar to match if you want the pair to stay together.
+
 Every write is atomic: a temporary file in the same directory, fsynced,
 checksummed, then renamed. A capture that failed or was skipped is written as a
 record too — with a stable error code and no image — so nothing disappears
-silently.
+silently. Those appear in `index.md` under "Not captured here", with the reason.
 
 Each record carries the URL, route key, viewport (including whether it was real
 mobile emulation), the state and **how it was reached**
