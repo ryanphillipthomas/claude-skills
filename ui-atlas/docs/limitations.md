@@ -366,6 +366,29 @@ See [ADR 28](adr/0028-a-saved-sign-in-is-checked-not-assumed.md).
   nothing and evades nothing. A site that blocks automated browsers still blocks
   it, and `--persistent` only preserves more of what you did by hand.
 
+## Being blocked by a site
+
+- **UI Atlas has no evasion and will not be given any.** No fingerprint
+  spoofing, no stealth patches, no CAPTCHA solving, no proxy rotation. A site
+  that has decided it does not want automated browsers gets to have that.
+- **A challenge is detected, named, and then obeyed.** Every run checks its
+  first page in every browser mode; a `crawl` stops rather than starting.
+  Retrying is what turns a soft challenge into a hard block, so nothing here
+  retries.
+- **Detection is structural first, wording second.** `#challenge-form`,
+  `.cf-browser-verification` and their relatives survive translation; the
+  wording list does not. An interstitial with neither is reported as an
+  ordinary page.
+- **A challenge and a signed-out session are told apart deliberately**, because
+  they need opposite responses: one is fixed by signing in again, the other
+  cannot be fixed here at all.
+- **`--mode attach` is the only remaining route**, and it is not a bypass: it
+  drives a browser you launched and signed into yourself. It is lower fidelity
+  (the attached browser's extensions, flags and profile all affect rendering)
+  and it is not guaranteed to work. Chrome 136+ refuses
+  `--remote-debugging-port` on the default profile, so it needs its own
+  `--user-data-dir`.
+
 ## Boundaries of `doctor`
 
 See [ADR 29](adr/0029-a-page-that-fails-should-say-what-failed.md).

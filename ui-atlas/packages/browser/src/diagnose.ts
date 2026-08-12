@@ -247,6 +247,24 @@ export function summarise(diagnosis: PageDiagnosis, signedOut?: boolean): string
     (finding) => finding.kind === 'unauthorised' || finding.kind === 'rate-limited',
   );
 
+  // A block on the document itself is a different shape from a block on a data
+  // request — the page never loads at all — and it was previously invisible
+  // here, because only `html-for-json` findings were checked for challenge
+  // wording. It is the more important case: nothing on the site was reached.
+  const blocked = diagnosis.findings.find(
+    (finding) =>
+      finding.kind !== 'html-for-json' &&
+      finding.resourceType === 'document' &&
+      looksLikeChallenge(finding.preview),
+  );
+  if (blocked !== undefined) {
+    lines.push(
+      `The page itself was answered with a challenge (${String(blocked.status ?? 0)}: ` +
+        `"${blocked.preview ?? ''}"). The site is refusing an automated browser — ` +
+        'this is not a sign-in problem, and re-saving a profile will not help.',
+    );
+  }
+
   if (htmlForJson.length > 0) {
     const challenge = htmlForJson.find((finding) => looksLikeChallenge(finding.preview));
     const login = htmlForJson.find((finding) => looksLikeLoginPage(finding.preview));

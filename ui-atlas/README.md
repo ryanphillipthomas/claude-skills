@@ -590,6 +590,61 @@ None of this makes UI Atlas better at *getting* signed in. It still types
 nothing, submits nothing, and evades nothing — `--persistent` only keeps more of
 what your own hands achieved. A site that blocks automation still blocks it.
 
+### When the site refuses the browser
+
+Some sites block automated browsers outright. Cloudflare and its equivalents
+serve an interstitial — *"Just a moment…"*, *"Checking your browser"*,
+*"Access denied"* — instead of the site, and no amount of re-saving a profile
+changes that.
+
+Every run checks for this on its first page, in **every** browser mode, and says
+so:
+
+```
+✖ grok.com is serving a challenge page instead of the site: the page contains
+  #challenge-form; the page title is "Just a moment…"
+  ! This is the site refusing an automated browser, not a sign-in problem.
+    Re-saving the profile will not help.
+  ! Stop running against this host for now — repeated attempts are what turn a
+    soft challenge into a hard block on your address.
+  ! UI Atlas has no evasion and will not be given any: no fingerprint spoofing,
+    no stealth patches, no CAPTCHA solving.
+  ! The one legitimate route left is --mode attach.
+```
+
+A `crawl` **stops** at that point rather than starting, because fetching the
+same interstitial fifty more times is worthless as reference material and is the
+surest way to turn a soft challenge into a hard block.
+
+Detection uses the challenge's own machinery (`#challenge-form`,
+`.cf-browser-verification`) as well as its wording, so a translated interstitial
+is still recognised.
+
+#### `--mode attach`: your browser, not ours
+
+```bash
+# a Chrome you launch, on a profile directory of its own
+"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
+  --remote-debugging-port=9222 \
+  --user-data-dir="$HOME/.ui-atlas-chrome"
+
+# sign in by hand in that window, then
+npm run ui-atlas -- doctor https://example.com --mode attach --cdp-endpoint http://127.0.0.1:9222
+```
+
+This is not evasion: it is your own browser, which you are entitled to use,
+driven rather than imitated. It often gets past a soft challenge because nothing
+about the browser is unusual — it is a real Chrome with your real profile.
+
+Two practical notes. Chrome 136 and later **refuse** `--remote-debugging-port`
+on the default profile, so `--user-data-dir` is required, and you will sign in
+again in that fresh profile. And attach mode is lower fidelity by design: the
+attached browser's extensions, flags and profile all affect rendering, so
+captures are less deterministic than `clean` mode.
+
+If a site blocks attach mode too, it has decided it does not want automated
+access, and that is the end of the road here.
+
 ### When a page says something inscrutable
 
 ```bash

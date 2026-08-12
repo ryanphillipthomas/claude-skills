@@ -1,7 +1,16 @@
 import type { Page } from 'playwright';
-import { judgeSignIn, probeSignIn, type SignInVerdict } from '@ui-atlas/browser';
+import {
+  CHALLENGE_ADVICE,
+  judgeSignIn,
+  probeChallenge,
+  probeSignIn,
+  type SignInVerdict,
+} from '@ui-atlas/browser';
 import type { BrowserMode } from '@ui-atlas/protocol';
 import type { Logger } from './logger.js';
+
+/** `challenged` is not a sign-in state; it is the site refusing the browser. */
+export type RunGateVerdict = SignInVerdict | 'challenged';
 
 export interface SignInCheckInput {
   page: Page;
@@ -26,7 +35,19 @@ export interface SignInCheckInput {
  * Only runs when the run is *using* saved auth. A `clean`-mode run is expected
  * to be signed out, and warning about it would be noise.
  */
-export async function checkSignIn(input: SignInCheckInput): Promise<SignInVerdict | undefined> {
+export async function checkSignIn(input: SignInCheckInput): Promise<RunGateVerdict | undefined> {
+  // A challenge is checked for in every mode, including `clean`. Being signed
+  // out in a clean run is expected; being refused entry is not, and it is the
+  // one finding worth interrupting any run for.
+  const challenge = await probeChallenge(input.page).catch(() => undefined);
+  if (challenge?.challenged === true) {
+    const message = `${safeHost(input.url)} is serving a challenge page instead of the site: ${challenge.evidence.join('; ')}`;
+    input.logger.error(message);
+    for (const line of CHALLENGE_ADVICE) input.logger.warn(`  ${line}`);
+    input.addWarning?.(message);
+    return 'challenged';
+  }
+
   if (input.mode !== 'profile' && input.mode !== 'storage-state') return undefined;
 
   let reading;
@@ -57,4 +78,13 @@ export async function checkSignIn(input: SignInCheckInput): Promise<SignInVerdic
     input.logger.info(`sign-in check for ${label}: signed in`);
   }
   return reading.verdict;
+}
+
+/** Host only. The path of a challenged URL is not worth printing twice. */
+function safeHost(rawUrl: string): string {
+  try {
+    return new URL(rawUrl).host;
+  } catch {
+    return rawUrl;
+  }
 }

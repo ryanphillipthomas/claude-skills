@@ -238,3 +238,69 @@ function stripHash(rawUrl: string): string {
   const index = rawUrl.indexOf('#');
   return index === -1 ? rawUrl : rawUrl.slice(0, index);
 }
+
+/* -------------------------------------------------------------------------- */
+/* Whether the site is refusing the browser itself                             */
+/* -------------------------------------------------------------------------- */
+
+export interface ChallengeReading {
+  challenged: boolean;
+  evidence: string[];
+}
+
+/**
+ * Detect an interstitial that is refusing the *browser*, not the session.
+ *
+ * This matters more than it looks. A signed-out page and a challenge page both
+ * fail to show you the site, but the responses are opposite: one is fixed by
+ * signing in again, and the other cannot be fixed here at all. Reporting a
+ * challenge as "signed out" sends someone round a loop of re-saving profiles
+ * that were never the problem — and each attempt is another automated request
+ * against a host that has already decided it does not want them.
+ */
+export async function probeChallenge(page: Page): Promise<ChallengeReading> {
+  const found = await page
+    .evaluate((): { markers: string[]; title: string; heading: string } => {
+      // Structural markers first: these are the challenge's own machinery, and
+      // unlike wording they do not change with the site's language.
+      const selectors = [
+        '#challenge-form',
+        '#cf-challenge-running',
+        '#challenge-running',
+        '.cf-browser-verification',
+        '#cf-please-wait',
+        '[data-translate="checking_browser"]',
+        'form[action*="__cf_chl"]',
+      ];
+      const markers = selectors.filter((selector) => document.querySelector(selector) !== null);
+
+      const heading = document.querySelector('h1, h2')?.textContent ?? '';
+      return {
+        markers,
+        title: document.title.slice(0, 120),
+        heading: heading.replace(/\s+/g, ' ').trim().slice(0, 120),
+      };
+    })
+    .catch(() => ({ markers: [], title: '', heading: '' }));
+
+  const evidence: string[] = [];
+  for (const marker of found.markers) evidence.push(`the page contains ${marker}`);
+
+  const wording =
+    /just a moment|checking your browser|verify you are human|verifying you are human|are you a robot|unusual traffic|attention required|access denied|enable javascript and cookies to continue|ray id/i;
+  if (wording.test(found.title)) evidence.push(`the page title is "${found.title}"`);
+  else if (wording.test(found.heading)) evidence.push(`the page says "${found.heading}"`);
+
+  return { challenged: evidence.length > 0, evidence };
+}
+
+/**
+ * What to tell someone who has been challenged. One place, because the wrong
+ * advice here is expensive: retrying is exactly what makes it worse.
+ */
+export const CHALLENGE_ADVICE = [
+  'This is the site refusing an automated browser, not a sign-in problem. Re-saving the profile will not help.',
+  'Stop running against this host for now — repeated attempts are what turn a soft challenge into a hard block on your address.',
+  'UI Atlas has no evasion and will not be given any: no fingerprint spoofing, no stealth patches, no CAPTCHA solving.',
+  'The one legitimate route left is --mode attach, driving a Chrome you launched and signed into yourself.',
+];

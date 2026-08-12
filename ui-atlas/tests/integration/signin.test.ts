@@ -1,6 +1,34 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { assessStorage, judgeSignIn, probeSignIn, probeStorage } from '@ui-atlas/browser';
-import { startHarness, type TestHarness } from '../support/harness.js';
+import {
+  assessStorage,
+  CHALLENGE_ADVICE,
+  judgeSignIn,
+  probeChallenge,
+  probeSignIn,
+  probeStorage,
+} from '@ui-atlas/browser';
+import { readdirSync, statSync } from 'node:fs';
+import { join } from 'node:path';
+import { readRunManifest } from '@ui-atlas/artifacts';
+import { run } from '../../apps/cli/src/index.js';
+import { createLogger } from '../../apps/cli/src/logger.js';
+import {
+  makeOutputDir,
+  removeDir,
+  startFixtureServer,
+  startHarness,
+  type TestHarness,
+} from '../support/harness.js';
+
+function findRunDir(root: string, project = 'fixture'): string {
+  const projectDir = join(root, project);
+  const runs = readdirSync(projectDir).filter((name) =>
+    statSync(join(projectDir, name)).isDirectory(),
+  );
+  const runId = runs.sort().at(-1);
+  if (runId === undefined) throw new Error(`no run directory under ${projectDir}`);
+  return join(projectDir, runId);
+}
 
 /**
  * The sign-in check against real pages in a real browser. The pure judgement is
@@ -94,5 +122,64 @@ describe('the storage probe', () => {
     const assessment = assessStorage(await probeStorage(harness.session.page), 3);
     expect(assessment.recommendPersistent).toBe(false);
     expect(assessment.dropped).toEqual([]);
+  });
+});
+
+describe('being refused entry, which is not a sign-in problem', () => {
+  it('recognises a challenge page by its own machinery and its wording', async () => {
+    await harness.session.navigate(harness.url('/blocked.html'));
+
+    const reading = await probeChallenge(harness.session.page);
+    expect(reading.challenged).toBe(true);
+    // Both signals: the marker survives a translated site, the wording does not.
+    expect(reading.evidence.join(' ')).toContain('#challenge-form');
+    expect(reading.evidence.join(' ')).toContain('Just a moment');
+  });
+
+  it('does not call an ordinary page a challenge', async () => {
+    await harness.session.navigate(harness.url('/states.html'));
+    expect((await probeChallenge(harness.session.page)).challenged).toBe(false);
+  });
+
+  it('does not call a sign-in page a challenge — the two need opposite responses', async () => {
+    await harness.session.navigate(harness.url('/signin.html'));
+    expect((await probeChallenge(harness.session.page)).challenged).toBe(false);
+  });
+
+  it('never advises retrying, which is what makes a block worse', () => {
+    const advice = CHALLENGE_ADVICE.join(' ');
+    expect(advice).toContain('Re-saving the profile will not help');
+    expect(advice).toContain('Stop running against this host');
+    expect(advice).toContain('no evasion');
+  });
+});
+
+describe('a crawl against a host that is refusing the browser', () => {
+  it('stops before crawling instead of fetching the interstitial fifty times', async () => {
+    const server = await startFixtureServer();
+    const outputRoot = await makeOutputDir('crawl-challenged');
+    const quiet = createLogger({ level: 'error', write: () => undefined });
+    try {
+      const code = await run({
+        argv: [
+          'crawl', server.url('/blocked.html'),
+          '--project', 'fixture',
+          '--output', outputRoot,
+          '--headless',
+        ],
+        logger: quiet,
+      });
+      expect(code).toBe(1);
+
+      // The run directory is still finalised — the warning is the artifact, and
+      // it belongs in run.json where someone reading later will find it.
+      const runDir = findRunDir(outputRoot);
+      const manifest = await readRunManifest(join(runDir, 'run.json'));
+      expect(manifest.warnings.join(' ')).toContain('challenge page');
+      expect(manifest.counts?.pages ?? 0).toBe(0);
+    } finally {
+      await removeDir(outputRoot);
+      await server.close();
+    }
   });
 });

@@ -445,6 +445,22 @@ session look identical.
 - [x] The warning distinguishes "never signed in" from "directory left by an
       earlier run", so it does not imply the user never tried
 
+## Being blocked, named and obeyed (eleventh slice)
+
+- [x] `probeChallenge` separate from the sign-in check and run first — a
+      challenge and a signed-out session need opposite responses
+- [x] Runs in every browser mode, including `clean`: being signed out in a clean
+      run is expected, being refused entry is not
+- [x] Structural markers before wording, so a translated interstitial is still
+      recognised
+- [x] Neither an ordinary page nor a sign-in page mistaken for a challenge
+- [x] A challenged crawl stops before crawling, finalises the run so the warning
+      lands in `run.json`, and exits 1 with zero pages
+- [x] `doctor` names a challenge served as the document itself, not only as the
+      answer to a data request
+- [x] One exported advice list that never says "try again", and says plainly
+      that this tool has no evasion and will not be given any
+
 ### Still to build
 
 (nothing in the brief)

@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Just a moment…</title>
+  </head>
+  <body>
+    <!--
+      A challenge page as the *document*, rather than as the answer to a data
+      request. This is the shape that stops a run: nothing on the site was
+      reached at all, and every further page would fetch this same interstitial.
+
+      Carries both signals the detector looks for — the structural marker,
+      which does not change with the site's language, and the wording, which
+      does. Not linked from index.html, so the crawl link graph is unchanged.
+    -->
+    <div class="cf-browser-verification" id="cf-challenge-running">
+      <h1>Checking your browser before accessing the site</h1>
+      <form id="challenge-form" action="/blocked.html?__cf_chl_f_tk=x" method="post"></form>
+      <p>This process is automatic. Your browser will redirect shortly.</p>
+    </div>
+  </body>
+</html>

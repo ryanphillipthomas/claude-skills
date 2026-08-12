@@ -40,7 +40,7 @@ npm test
 
 ```
 Test Files  44 passed (44)
-     Tests  535 passed | 3 skipped (538)
+     Tests  540 passed | 3 skipped (543)
   Duration  ~310s
 ```
 
@@ -90,9 +90,9 @@ the phase 1 exit criterion. Nothing is unverified now.
 | `unit/naming` | 31 | slug composition and what it refuses to invent, word-boundary trimming, stem sanitising that keeps `--`, the index's grouping, descriptions and relative links |
 | `unit/flow` | 12 | what the panel says at each point in the sequence, and that every step it points at has an instruction |
 | `integration/guided-flow` | 9 | **eighth slice**: the flow line through a real browser at each step, the instructions and their current-step marking, tree navigation as buttons, the count after a real capture, and the filenames, sidecar and index the run writes |
-| `unit/signin` | 14 | what a storage state drops and when that matters, login-path matching, and the three-valued verdict with its evidence |
-| `integration/signin` | 7 | **ninth slice**: the page-side probes against real pages — a login page read as signed out, a way out read as signed in, an ordinary page read as unclear, a hidden password field ignored, a redirect noticed, and IndexedDB/sessionStorage actually found |
-| `integration/doctor` | 6 | **tenth slice**: the request behind an "Unexpected token" error found, the HTML identified as a challenge, the page's own error captured, nothing reported for a page that works, and query strings kept out of the output |
+| `unit/signin` | 19 | what a storage state drops and when that matters, login-path matching, and the three-valued verdict with its evidence |
+| `integration/doctor` | 10 | **tenth slice**: the request behind an "Unexpected token" error found, the HTML identified as a challenge, the page's own error captured, nothing reported for a page that works, and query strings kept out of the output |
+| `integration/signin` | 12 | **ninth and eleventh slices**: the page-side probes against real pages — a login page read as signed out, a way out read as signed in, an ordinary page read as unclear, a hidden password field ignored, a redirect noticed, IndexedDB/sessionStorage actually found, a challenge page recognised by its markup and its wording, neither an ordinary nor a sign-in page mistaken for one, and a challenged crawl stopping with zero pages and the warning in `run.json` |
 | `integration/external-smoke` | 3 skipped | read-only public-site checks; skip without network |
 
 `npm run typecheck` passes for all thirteen packages and for the test sources.
@@ -1351,6 +1351,49 @@ The marker holds a timestamp and an origin. No cookies, no tokens, no headers.
 It diagnoses; it does not fix. Naming a bot challenge does not get past one, and
 this tool will not gain evasion. The most useful thing it can do in that case is
 say so in one sentence.
+
+## Being blocked, named and obeyed (eleventh slice)
+
+Done and covered by `tests/integration/signin.test.ts`. See
+[ADR 30](docs/adr/0030-a-challenge-is-obeyed-not-worked-around.md).
+
+The grok.com thread ended where these threads end: Cloudflare started serving a
+challenge instead of the site. That is not a bug to fix, and the useful work is
+entirely in how the tool behaves when it happens.
+
+### A challenge and a signed-out session need opposite responses
+
+Both fail to show you the site. One is fixed by signing in again; the other
+cannot be fixed here at all. Reporting a challenge as "signed out" sends someone
+round a loop of re-saving profiles that were never the problem — and every
+attempt is another automated request against a host that has already said no.
+
+So `probeChallenge` is separate from `judgeSignIn`, runs **first**, and runs in
+every browser mode including `clean`: being signed out in a clean run is
+expected, being refused entry is not.
+
+### Structure before wording
+
+Detection looks for the challenge's own machinery — `#challenge-form`,
+`.cf-browser-verification`, `form[action*="__cf_chl"]` — before it looks at
+wording. Markup survives translation; "Just a moment" does not. A test requires
+that neither an ordinary page nor a sign-in page is mistaken for a challenge.
+
+### The crawl stops
+
+Fetching the same interstitial fifty more times is worthless as reference
+material and is the surest way to turn a soft challenge into a hard block on
+your address. A challenged crawl finalises its run — the warning belongs in
+`run.json`, where whoever reads the artifacts later will find it — and exits 1
+with zero pages. A test asserts exactly that.
+
+### The advice never says "try again"
+
+`CHALLENGE_ADVICE` is one exported list, because the wrong words here are
+expensive. It says the profile is not the problem, that repeated attempts make
+it worse, that this tool has no evasion and will not be given any, and that
+`--mode attach` — driving a browser you launched and signed into yourself — is
+the one legitimate route left. A test requires it never advises retrying.
 
 ## Where this leaves the project
 

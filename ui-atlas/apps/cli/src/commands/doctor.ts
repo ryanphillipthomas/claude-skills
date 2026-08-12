@@ -1,6 +1,8 @@
 import {
+  CHALLENGE_ADVICE,
   judgeSignIn,
   launchSession,
+  probeChallenge,
   probeSignIn,
   probeStorage,
   resolveViewport,
@@ -75,6 +77,17 @@ export async function runDoctor(args: ParsedArgs, logger: Logger): Promise<numbe
 
     const reading = judgeSignIn(await probeSignIn(page, url).catch(() => emptySignals(url)));
     report(diagnosis, logger, reading.verdict === 'signed-out');
+
+    // Asked of the rendered page, so it catches a challenge that arrived as a
+    // 200 with a JavaScript interstitial — which the network view alone cannot
+    // tell from an ordinary page.
+    const challenge = await probeChallenge(page).catch(() => undefined);
+    if (challenge?.challenged === true) {
+      logger.info('');
+      logger.warn(`this host is challenging the browser: ${challenge.evidence.join('; ')}`);
+      for (const line of CHALLENGE_ADVICE) logger.warn(`  ${line}`);
+      return 1;
+    }
 
     logger.info('');
     logger.info(`sign-in: ${reading.verdict}`);

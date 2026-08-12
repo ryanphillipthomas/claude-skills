@@ -268,10 +268,11 @@ export async function runCrawl(args: ParsedArgs, logger: Logger): Promise<number
   // the whole run. This loads the first seed once; the crawler loads it again,
   // which is a page view spent to save twenty minutes.
   const firstSeed = seedsForRun[0];
-  if (firstSeed !== undefined && (config.browser.mode === 'profile' || config.browser.mode === 'storage-state')) {
+  if (firstSeed !== undefined) {
+    let gate: Awaited<ReturnType<typeof checkSignIn>>;
     try {
       await page.goto(firstSeed, { waitUntil: config.settle.loadState });
-      await checkSignIn({
+      gate = await checkSignIn({
         page,
         url: firstSeed,
         mode: config.browser.mode,
@@ -282,6 +283,20 @@ export async function runCrawl(args: ParsedArgs, logger: Logger): Promise<number
     } catch {
       // Unreachable seeds are the crawler's problem to report, with retries and
       // a page record. Failing here would rob it of both.
+      gate = undefined;
+    }
+
+    // A challenge stops the run. Crawling on would fetch the same interstitial
+    // fifty more times, which is both worthless as reference material and the
+    // surest way to turn a soft challenge into a hard block on this address.
+    if (gate === 'challenged') {
+      await browser.close().catch(() => undefined);
+      await writer.finalize({
+        ...(browser.browserVersion === undefined ? {} : { browserVersion: browser.browserVersion }),
+      });
+      logger.error('stopping before the crawl: this host is refusing automated browsers');
+      logger.info(`artifacts: ${writer.paths.runDir}`);
+      return 1;
     }
   }
 
