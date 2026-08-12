@@ -97,13 +97,27 @@ export async function runDoctor(args: ParsedArgs, logger: Logger): Promise<numbe
       logger.info('  (this run used a clean browser, so being signed out is expected)');
     }
 
-    // Only worth saying when a storage state is what is actually in use. Told
-    // to someone already running `--mode profile`, it is advice to do what they
-    // are doing — which is worse than silence, because it looks like a finding.
+    // `unclear` on its own reads as a problem, and often is not one: plenty of
+    // signed-in apps keep the only way out behind an avatar menu this cannot
+    // see. Saying what *else* was true is the honest way to distinguish "cannot
+    // tell" from "cannot tell, and nothing looks wrong".
+    if (reading.verdict === 'unclear' && diagnosis.findings.every((f) => f.kind === 'cancelled')) {
+      logger.info(
+        '  nothing here indicates a problem: no request was refused, nothing was ' +
+          'challenged, and no sign-in control is on the page',
+      );
+    }
+
+    // Only worth saying when a storage state is, or is about to be, what
+    // carries the session. Told to someone running `--mode profile` or
+    // `--mode attach`, it is advice to do what they are already doing — worse
+    // than silence, because it reads as a finding.
     const storage = await probeStorage(page).catch(() => undefined);
     const droppable =
       storage !== undefined && (storage.indexedDbNames.length > 0 || storage.sessionStorageKeys > 0);
-    if (droppable && storage !== undefined && config.browser.mode !== 'profile') {
+    const stateIsRelevant =
+      config.browser.mode === 'storage-state' || config.browser.mode === 'clean';
+    if (droppable && storage !== undefined && stateIsRelevant) {
       logger.info('');
       logger.info('this origin keeps state a storage state cannot carry:');
       if (storage.indexedDbNames.length > 0) {

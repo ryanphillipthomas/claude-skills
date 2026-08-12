@@ -461,6 +461,20 @@ session look identical.
 - [x] One exported advice list that never says "try again", and says plainly
       that this tool has no evasion and will not be given any
 
+## Attach mode, tested (twelfth slice)
+
+- [x] The attached browser survives the run — verified against a real browser
+      with a debugging port, not assumed from the docs
+- [x] A context is closed only if we created it; the user's is never ours
+- [x] The browser's own context is used, since a fresh one would have none of
+      the cookies that are the entire reason to attach
+- [x] A second attached run starts rather than dying on a duplicate binding
+- [x] Injected scripts declared as outliving the run, because the context is
+      not ours to clean up
+- [x] `doctor` no longer offers storage-state advice in attach or profile mode
+- [x] `unclear` with no refused requests and no challenge says so, instead of
+      reading as a problem
+
 ### Still to build
 
 (nothing in the brief)

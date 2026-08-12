@@ -39,8 +39,8 @@ npm test
 `npm test` (builds, then Vitest — unit and browser integration):
 
 ```
-Test Files  44 passed (44)
-     Tests  540 passed | 3 skipped (543)
+Test Files  45 passed (45)
+     Tests  545 passed | 3 skipped (548)
   Duration  ~310s
 ```
 
@@ -93,6 +93,7 @@ the phase 1 exit criterion. Nothing is unverified now.
 | `unit/signin` | 19 | what a storage state drops and when that matters, login-path matching, and the three-valued verdict with its evidence |
 | `integration/doctor` | 10 | **tenth slice**: the request behind an "Unexpected token" error found, the HTML identified as a challenge, the page's own error captured, nothing reported for a page that works, and query strings kept out of the output |
 | `integration/signin` | 12 | **ninth and eleventh slices**: the page-side probes against real pages — a login page read as signed out, a way out read as signed in, an ordinary page read as unclear, a hidden password field ignored, a redirect noticed, IndexedDB/sessionStorage actually found, a challenge page recognised by its markup and its wording, neither an ordinary nor a sign-in page mistaken for one, and a challenged crawl stopping with zero pages and the warning in `run.json` |
+| `integration/attach` | 5 | attach mode against a real browser with a debugging port: the attached browser survives the run, its own context is used rather than a fresh one, the determinism warning is raised, a second attached run starts, and injected scripts are declared as outliving the run |
 | `integration/external-smoke` | 3 skipped | read-only public-site checks; skip without network |
 
 `npm run typecheck` passes for all thirteen packages and for the test sources.
@@ -1394,6 +1395,48 @@ expensive. It says the profile is not the problem, that repeated attempts make
 it worse, that this tool has no evasion and will not be given any, and that
 `--mode attach` — driving a browser you launched and signed into yourself — is
 the one legitimate route left. A test requires it never advises retrying.
+
+## Attach mode, tested against a browser it does not own (twelfth slice)
+
+Done and covered by `tests/integration/attach.test.ts`.
+
+Attach mode got someone past a Cloudflare challenge for the first time — real
+Chrome, real profile, signed in by hand — and it had no tests at all. It is also
+the only mode where the context **belongs to somebody else and outlives the
+run**, which is exactly the thing worth pinning down.
+
+### A guess, corrected by testing it
+
+The `close()` handler carried the comment *"Never close a browser we did not
+start"* directly above a call to `browser.close()`. That reads like a bug, and I
+wrote a fix and a commit message claiming it took the user's window down with
+the run.
+
+Then I tested it: launch a browser with a debugging port, attach, close the
+session, and check. **The window survives with its pages intact** —
+`browser.close()` on a CDP connection disconnects rather than shutting down. The
+comment and the code agreed after all; only the comment was ambiguous.
+
+The lesson is the ordinary one: the plausible story was wrong, and five minutes
+of a real browser settled what an hour of reading could not. The fix that
+remained is narrow and correct — close a context only if we created it — and
+the behaviour is now pinned by a test that would fail loudly if a future
+Playwright changed it.
+
+### A second test premise that was also wrong
+
+`exposeBinding` throws on a name already registered, and this context persists
+between runs, so a second attached run looked certain to die on start-up. It
+does not: Playwright clears the binding on disconnect. The test now asserts the
+outcome — a second attached run starts — which holds whether or not the
+registration throws, and the launcher still converts an "already registered"
+failure into a warning in case that changes.
+
+### What attach mode now says about itself
+
+Injected scripts go into the user's own context and stay there until it closes,
+so the session says so rather than leaving it to be discovered. The
+determinism warning was already there and is now asserted.
 
 ## Where this leaves the project
 

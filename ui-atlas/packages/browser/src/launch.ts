@@ -223,9 +223,44 @@ async function attachOverCdp(options: LaunchOptions): Promise<BrowserSession> {
       cause,
     });
   }
+  // The signed-in context is the reason to attach at all, so the existing one
+  // is reused rather than creating a fresh (cookie-less) context.
   const existing = browser.contexts()[0];
   const context = existing ?? (await browser.newContext());
-  await applyContextExtras(context, options);
+
+  const warnings = [
+    'attach mode is experimental: the attached browser\'s extensions, flags and profile ' +
+      'affect rendering, so captures are less deterministic than clean mode.',
+  ];
+
+  // Unlike every other mode, this context belongs to the user and outlives the
+  // run, so its state carries between runs. Playwright turns out to clear a
+  // binding on disconnect, so a second attached run re-registers cleanly — but
+  // `exposeBinding` throws outright on a duplicate name, so the failure is
+  // converted to a warning rather than killing a run if that ever changes.
+  try {
+    await applyContextExtras(context, options);
+  } catch (cause) {
+    const message = cause instanceof Error ? cause.message : String(cause);
+    if (/already registered|has been already/i.test(message)) {
+      warnings.push(
+        'this browser context already carries UI Atlas bindings from an earlier attached run; ' +
+          'reusing them. Close and reopen the Chrome window for a clean slate.',
+      );
+    } else {
+      throw new UiAtlasError('browser.launch-failed', 'could not prepare the attached context', {
+        detail: { cdpEndpoint: config.cdpEndpoint },
+        cause,
+      });
+    }
+  }
+
+  if ((options.initScripts ?? []).length > 0) {
+    warnings.push(
+      'scripts were injected into your own browser context and stay until you close it. ' +
+        'Close the Chrome window when you are finished.',
+    );
+  }
 
   return {
     mode: 'attach',
@@ -233,12 +268,13 @@ async function attachOverCdp(options: LaunchOptions): Promise<BrowserSession> {
     context,
     browserVersion: browser.version(),
     headless: false,
-    warnings: [
-      'attach mode is experimental: the attached browser\'s extensions, flags and profile ' +
-        'affect rendering, so captures are less deterministic than clean mode.',
-    ],
+    warnings,
     close: async () => {
-      // Never close a browser we did not start.
+      // `close()` on a CDP-connected browser disconnects rather than shutting
+      // the browser down — verified in `tests/integration/attach.test.ts`,
+      // which attaches to a real browser and requires its pages to survive.
+      // A context we created ourselves is ours to close; the user's is not.
+      if (existing === undefined) await context.close().catch(() => undefined);
       await browser.close().catch(() => undefined);
     },
   };
