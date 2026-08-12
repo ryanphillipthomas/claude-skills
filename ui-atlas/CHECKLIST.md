@@ -1,8 +1,10 @@
 # Implementation checklist
 
-Phases 0 through 3 are complete. Phase 4 is in progress: the animation
-inventory and deterministic frame sampling are both done. What is still unbuilt
-is listed in [docs/limitations.md](docs/limitations.md).
+Phases 0 through 4 are complete. Phase 4 shipped in six slices: the animation
+inventory, deterministic frame sampling, provoked (hover/focus) motion, the
+screencast fallback, observed-value extraction, and the animation inventory
+during a crawl. What is still unbuilt is listed in
+[docs/limitations.md](docs/limitations.md).
 
 ## Phase 0 — foundation
 
@@ -113,7 +115,7 @@ Met, end to end, in `tests/integration/report.test.ts`.
 - [x] Declarative `recipes:` in the site config, validated before execution
 - [x] Steps: `select`, `click`, `hover`, `focus`, `press`, `scroll`, `scrollTo`,
       `waitFor`, `waitForUrl`, `waitMs`, `capture`, `captureStates`,
-      `captureResponsive`
+      `captureResponsive`, `captureAnimation` (added in phase 4)
 - [x] Closed target vocabulary — `role`+`name`, `testId`, `text`, `label`,
       `placeholder`, `css` — resolving through Playwright locator engines, with
       no route from a recipe to arbitrary page JavaScript
@@ -253,13 +255,105 @@ is still empty and no non-`GET` request was issued.
       reversed iterations, a page-set playback rate, a pseudo-element target
 - [x] Frames of one animation grouped by `set: { kind: 'animation' }`
 
-### Still to build in phase 4
+## Phase 4 — provoked motion (third slice)
 
-- [ ] Hover-transition sampling (enter hover, discover what appeared, sample)
-- [ ] Optional video/screencast fallback for motion that is not keyframable
-- [ ] The toolbar's Animation button, still disabled
-- [ ] First-pass design-token extraction and duplicate component grouping
-- [ ] Wiring the animation inventory into `crawl`
+- [x] `captureAnimation` recipe step: inventory, provoke, inventory, and the
+      difference is what that interaction started
+- [x] `hover` and `focus` only — the step **cannot click**, asserted against
+      `destructive.html`'s audit log
+- [x] The diff identifies an animation by what it is, not by index or id, and
+      compares as a multiset so duplicates are not collapsed
+- [x] Every member of a group is paused first, then all are seeked to the *same
+      absolute time* and photographed once
+- [x] `progress` is a fraction of the interaction's span, and a member that ends
+      earlier says so in `limitations`
+- [x] Offsets are seeked in ascending order, because a finished CSS transition
+      leaves `getAnimations()` and a backwards seek then shows the wrong moment
+- [x] Animations restored, *then* the provocation released, so the transition
+      running backwards is never photographed
+- [x] Release runs in a `finally`, so a capture that throws still lets go
+- [x] Only the provoked group is frozen; the page's own animations keep running
+- [x] The provoked animations are written to `animations.jsonl`
+
+## Phase 4 — the screencast fallback (fourth slice)
+
+- [x] `animations <url> --video` records the motion no seek can reproduce:
+      `infinite` and `indeterminate` animations, and canvas/WebGL/video elements
+- [x] **A recording carries no `progress`.** An `animation-video` record has no
+      `AnimationSample` at all, because there is no honest progress for motion
+      that never ends
+- [x] Scroll-driven animations are refused with their reason: nothing scrolls
+      during a recording, so the video would be a still that looks like a failure
+- [x] Its own short-lived browser context, because Playwright records a context
+      and only writes the file on close; `leadInMs` reports what that costs
+- [x] Hard bounds: `maxDurationMs` with `truncated` when it bites, and `maxBytes`
+      checked by `stat` before the file is read
+- [x] Over budget is a `skipped` record with `capture.over-budget`, never a
+      silent absence
+- [x] No frame rate is written, because Playwright does not expose one
+- [x] The scratch directory lives inside the run and is removed either way
+- [x] Metadata sidecar beside the recording, as beside a screenshot
+- [x] The report plays it where a thumbnail would go, with controls only in the
+      detail panel
+
+## Phase 4 — observed-value extraction (fifth slice)
+
+- [x] `ui-atlas tokens <url> [more urls...]` reads every element's computed
+      style and counts what turns up
+- [x] `crawl --tokens` scans every page a crawl visits into one artifact,
+      because a design system is not visible from one page
+- [x] **Candidates, not tokens.** No `name` field anywhere, asserted by a test;
+      `tokens.json` carries a note saying so in the artifact itself
+- [x] Values that mean nobody decided anything are dropped in the page
+- [x] Colours separated by use — text, background, border — rather than gathered
+      by type; candidates keyed by category *and* kind
+- [x] Opaque colours normalised to hex, alpha preserved, sub-pixel lengths
+      rounded to 0.1px, font stacks collapsed to one comparable string
+- [x] Near-duplicates reported and never merged, and only at the same opacity
+- [x] Both caps — per-page elements and per-category tail — add a warning naming
+      what was left out
+- [x] The report's **Values** tab, with a swatch guarded by shape rather than
+      trusted: the only capture-derived string that reaches a style attribute
+- [x] Read-only: a test snapshots the DOM, focus and scroll either side of a scan
+- [x] Duplicate component grouping across routes — already worked, since
+      `groupComponents` keys by structural fingerprint with no route in the key
+
+**Phase 4 is complete.**
+
+## Phase 4 — the animation inventory during a crawl (sixth slice)
+
+- [x] `crawl --animations` runs the same inventory on every page, into
+      `animations.jsonl`, keyed by route
+- [x] It describes and nothing else: no pausing, no seeking, no capture, proved
+      by the infinite fixture animation still reading `running`
+- [x] Needs no probe injected, unlike an element capture
+- [x] Runs before recipes, so it describes the page as served
+- [x] Per-page cap, reported on the page record it is about
+- [x] Run-level cap, raised once in the run warnings rather than buried on
+      whichever page tripped it
+- [x] The unobservable-motion notice aggregated across the crawl and raised once
+      with a route count, instead of once per page
+
+## Phase 4 — the toolbar's Animation panel (seventh slice)
+
+- [x] The Animation button **lists** rather than captures: which animation you
+      mean is a question only a list can answer, and most cannot be sampled
+- [x] Each row gets the one action that would work — `Sample`, `Record`, or
+      neither with the inventory's own reason. No row is a dead end
+- [x] Scroll-driven and instant animations are offered nothing, with the reason
+- [x] Canvas, WebGL and video counted and named, with `Record the page`
+- [x] Listing is a read: nothing paused, seeked or captured, asserted by a test
+- [x] Re-found by fingerprint at capture time, not by the index it was listed
+      at, so a page that changed yields "no longer running" not the wrong frame
+- [x] `Alt`+`A` opens the panel, for the same reason the button does
+- [x] `capabilities.animation` is true; one new bridge method,
+      `animation/inventory`, and `CaptureRequest.animationId`
+
+**The brief is delivered through phase 4.**
+
+### Still to build
+
+(nothing in the brief)
 
 ## Still out of scope
 

@@ -5,6 +5,7 @@ import {
   OVERLAY_HOST_ATTRIBUTE,
 } from '@ui-atlas/protocol/constants';
 import type {
+  AnimationInventoryResult,
   ElementProbe,
   HostEvent,
   OverlayBootstrap,
@@ -89,6 +90,11 @@ class OverlayApp {
           onClearSelection: () => this.clearSelection(),
           onToggleBoxModel: (next) => this.highlight.setOptions({ showBoxModel: next }),
           onPreviewState: (state) => void this.previewState(state),
+          onListAnimations: () => void this.listAnimations(),
+          onSampleAnimation: (id, label) =>
+            void this.requestAnimationCapture('animation-frame', id, `sample · ${label}`),
+          onRecordAnimation: (id, label) =>
+            void this.requestAnimationCapture('animation-video', id, `record · ${label}`),
         })
       : undefined;
   }
@@ -196,6 +202,44 @@ class OverlayApp {
   /* ---------------------------------------------------------------------- */
   /* Host operations                                                         */
   /* ---------------------------------------------------------------------- */
+
+  /**
+   * Ask the host what is moving here. It reads the page's own animation state
+   * and changes nothing, so this is safe to press at any time.
+   */
+  private async listAnimations(): Promise<void> {
+    this.toolbar?.setAnimationsPending(true);
+    try {
+      const result = await this.bridge.call<AnimationInventoryResult>('animation/inventory', {});
+      this.toolbar?.setAnimations(result);
+    } catch (error) {
+      this.toolbar?.setAnimations(undefined);
+      this.toolbar?.notice('error', describe(error));
+    }
+  }
+
+  private async requestAnimationCapture(
+    kind: 'animation-frame' | 'animation-video',
+    animationId: string | undefined,
+    label: string,
+  ): Promise<void> {
+    const params: Record<string, unknown> = {
+      kind,
+      states: ['default'],
+      includeOverlay: false,
+      responsive: false,
+      label,
+    };
+    if (animationId !== undefined) params['animationId'] = animationId;
+
+    try {
+      const result = await this.bridge.call<{ jobs: QueueJob[] }>('capture/request', params);
+      for (const job of result.jobs) this.jobs.set(job.id, job);
+      this.toolbar?.renderJobs([...this.jobs.values()]);
+    } catch (error) {
+      this.toolbar?.notice('error', describe(error));
+    }
+  }
 
   private async requestCapture(intent: CaptureIntent): Promise<void> {
     const params: Record<string, unknown> = {
@@ -365,7 +409,9 @@ class OverlayApp {
       }
       if (matchesCombo(event, this.shortcuts['captureAnimation'] ?? 'Alt+A')) {
         event.preventDefault();
-        this.toolbar?.notice('info', 'Animation capture lands in a later phase.');
+        // Lists rather than captures: which animation you meant is a question
+        // only the list can answer, and most of them cannot be sampled at all.
+        void this.listAnimations();
         return;
       }
 

@@ -3,19 +3,21 @@
 Running log for the build. Updated after each milestone so an interrupted
 session is recoverable.
 
-**Last updated:** 2026-08-11, after animation frame sampling landed.
+**Last updated:** 2026-08-11, after the toolbar's Animation panel landed. The brief is delivered.
 
 ## Status
 
-Phases 0, 1, 2 and 3 are complete and their exit criteria pass, with one
+Phases 0 through 4 are complete and their exit criteria pass, with one
 environment-bound gap recorded below. Phase 3 shipped in six slices: the bounded
 frontier, declarative interaction recipes, the suggested-interaction inventory,
 worker concurrency with per-origin throttling, retry with status-aware backoff,
 and trace-on-failure. The repository is buildable, tested and documented.
 
-Phase 4 is under way: the animation inventory and deterministic frame sampling
-are both done. Hover-transition sampling, the screencast fallback and
-design-system extraction are still to come.
+**Phase 4 is complete**, in seven slices: the animation inventory, deterministic
+frame sampling, provoked hover/focus motion, the screencast fallback,
+observed-value extraction, the animation inventory during a crawl, and the
+toolbar's Animation panel. **Everything the brief scopes is built** — the last
+item on its own list was the Animation button, and it is no longer disabled.
 
 ```
 npm install
@@ -28,9 +30,9 @@ npm test
 `npm test` (builds, then Vitest — unit and browser integration):
 
 ```
-Test Files  31 passed (31)
-     Tests  349 passed | 3 skipped (352)
-  Duration  ~222s
+Test Files  38 passed (38)
+     Tests  442 passed | 3 skipped (445)
+  Duration  ~296s
 ```
 
 On a networked machine the three external smoke tests run instead of skipping:
@@ -52,8 +54,8 @@ the phase 1 exit criterion. Nothing is unverified now.
 | `integration/faults` | 6 | detachment, navigation mid-capture, write failure, dead browser, destructive controls |
 | `integration/frames-shadow` | 5 | same- and cross-origin iframes, open and closed shadow DOM |
 | `integration/responsive` | 8 | five-viewport matrix, real mobile emulation, per-viewport reload, hidden/not-present outcomes |
-| `integration/report` | 7 | **phase 2 exit criterion**: the generated report driven in a real browser, including script injection |
-| `unit/reporter` | 13 | escaping, view model, matrix grouping, duplicate grouping |
+| `integration/report` | 9 | **phase 2 exit criterion**: the generated report driven in a real browser, including script injection |
+| `unit/reporter` | 14 | escaping, view model, matrix grouping, duplicate grouping, recordings in the allowlist |
 | `integration/state-preview` | 10 | live state preview: apply, hold, release, swap, forced undo, capture isolation |
 | `unit/crawl` | 43 | canonicalisation, path globs, link policy, frontier, budgets, in-flight vs committed, resume round-trip |
 | `integration/crawl` | 12 | **phase 3, first slice**: the fixture link graph, the empty click log, budgets, redirects on and off origin, dry run, concurrent and resumed runs through the CLI |
@@ -67,11 +69,18 @@ the phase 1 exit criterion. Nothing is unverified now.
 | `integration/retry` | 8 | **phase 3, fifth slice**: recovery after two failures, giving up honestly, no retry on 404, `Retry-After` honoured and clamped, origin backoff reported once, retries not eating the page budget, the run deadline winning |
 | `integration/traces` | 8 | **phase 3, sixth slice**: nothing written for a healthy crawl, a trace for an unreachable page and for a failed recipe, no trace for a 404, `maxTraces`, and the report not leaking `tracePath` |
 | `unit/animation` | 14 | sampleability rules, scroll beating every other signal, summaries, unobservable-motion wording |
-| `integration/animation` | 7 | **phase 4, first slice**: every kind of motion on the fixture, the scroll-driven verdict, the hover transition's honest absence, nothing perturbed, canvas/video counted, frames reached, end to end through the CLI |
+| `integration/animation` | 13 | **phase 4, first and sixth slices**: every kind of motion on the fixture, the scroll-driven verdict, the hover transition's honest absence, nothing perturbed, canvas/video counted, frames reached, end to end through the CLI — plus the crawl seam: every page described, nothing perturbed, off by default, the unobservable notice raised once for the run, and both caps reported where each belongs |
 | `integration/animation-sampling` | 8 | **phase 4, second slice**: only sampleable animations sampled, seek arithmetic, restoration after a full pass and after a thrown capture, the right animation of two sharing a name, the element really moving, real frames through the CLI |
+| `unit/animation-diff` | 10 | what an interaction started: index-independence, multiset counting, per-element and per-frame separation |
+| `integration/provoked-animation` | 13 | **phase 4, third slice**: the two transitions one hover starts, the group on one clock, the page's own animations left running, restore then release, no reverse frame, ascending seeks, an interaction that starts nothing, release after a thrown capture, and the step's inability to click |
+| `unit/screencast` | 12 | what a recording would be of, how long it needs, and everything it refuses |
+| `integration/screencast` | 7 | **phase 4, fourth slice**: a real webm of the infinite animation, the record refusing to look like a sample, the sidecar, canvas and video as subjects, a page that needs no recording, an over-budget discard, and no scratch left behind |
+| `unit/tokens` | 24 | colour/length/font normalisation, category mapping, counting across pages, truncation warnings, near duplicates reported and never merged |
+| `integration/tokens` | 9 | **phase 4, fifth slice**: browser defaults excluded, script/style never read, the page unchanged either side, the per-page cap, the fixture's real colours, the CLI across several pages and past an unreachable one, a whole-site crawl scan, and doing nothing when switched off |
+| `integration/animation-panel` | 9 | **phase 4, seventh slice**: the panel driven through the real overlay — what it lists, the action each row gets, no row without a reason, listing changing nothing, a sample that restores, a recording that is not called a sample, canvas named with an action, an honest refusal when the animation has gone, and the keyboard route |
 | `integration/external-smoke` | 3 skipped | read-only public-site checks; skip without network |
 
-`npm run typecheck` passes for all twelve packages and for the test sources.
+`npm run typecheck` passes for all thirteen packages and for the test sources.
 
 ## Exit criteria
 
@@ -706,22 +715,332 @@ animations shows the others wherever they happened to be. Freezing everything
 would produce a composite moment that never existed — a bigger lie, not a
 smaller one.
 
-## Next smallest milestone
+## Provoked motion (phase 4, third slice)
 
-**Hover-transition sampling**, which closes the loop between recipes and motion.
+Done and covered by `tests/unit/animation-diff.test.ts` and
+`tests/integration/provoked-animation.test.ts`. See
+[ADR 22](docs/adr/0022-provoked-motion-is-sampled-as-one-group.md).
 
-1. A transition does not exist until something provokes it, which is why the
-   inventory legitimately cannot see one on a page at rest.
-2. The shape: enter hover, re-run the inventory, diff against the pre-hover list
-   to find what *appeared*, and sample only those. `motion.html`'s
-   `transition-swatch` is the fixture, and the inventory test already proves the
-   before/after asymmetry the diff depends on.
-3. It belongs behind a recipe step rather than a new command — `hover` already
-   exists as a step, so this is `captureAnimation` alongside `captureStates`.
-4. The restore story gets one step longer: release the hover as well as the
-   animation, and the transition that then runs *backwards* must not be
-   photographed as though it were the forward one.
+The `captureAnimation` recipe step reaches the motion the previous two slices
+could not: the transition that does not exist until something provokes it, which
+is most of the motion in a design system.
 
-After that: the bounded screencast fallback for motion that cannot be
-represented as keyframes (`animation-video` is still a stub), then first-pass
-design-token extraction and duplicate component grouping, which closes phase 4.
+```yaml
+- captureAnimation: { hover: { testId: product-card }, kind: element }
+```
+
+All four points of the plan this replaces are done, and two of them changed
+shape once the browser had a say:
+
+1. The step takes an inventory, hovers or focuses, takes another, and **the
+   difference is what that interaction started**.
+2. The provocation lives *inside* the step rather than beside it. A separate
+   `hover` step would throw away the before-list, and a 200ms transition
+   provoked by one step has usually finished by the time the next runs.
+3. `hover` and `focus` only: the step **cannot click**. A test points it at
+   `destructive.html`'s *Delete account* button and requires the audit log empty.
+4. Animations restored first, provocation released second, both in a `finally`.
+   The reverse transition is never photographed because every frame is taken
+   before the release.
+
+### The design decision that was not in the plan
+
+**A group is one picture.** Hovering the fixture swatch starts two transitions —
+`transform` and `background-color` — at the same instant. Sampling them one at a
+time, the way ADR 21 samples ambient animations, would produce a frame with the
+transform half way and the colour still at its start: a composite that never
+existed.
+
+So every member is paused first, then all of them are seeked to the **same
+absolute time** and photographed once. `progress` therefore means a fraction of
+the interaction's span here, not of one animation's iteration — a deliberate
+divergence from ADR 21, because for a group the only meaningful "50%" is the
+same instant for every member.
+
+### The defect the browser taught us
+
+Seeking to 100% **removes a CSS transition from `getAnimations()` outright** —
+it is finished, and a transition has nothing to fill with, so the browser drops
+it. Everything after that seek then addresses an animation the document no
+longer has: no error, no movement, and a frame that looks exactly like every
+other frame while showing the end state.
+
+`--offsets 1,0.5,0` was therefore a silent wrong-frame bug. Offsets are now
+seeked in ascending order whatever order they were written in, which is the one
+order in which every frame is the moment it claims to be, and nothing is lost
+because each frame carries its own offset. The test requires the middle frame to
+be genuinely in the middle; removing the sort turns it red.
+
+### And one caveat that was a false alarm
+
+`limitationsFor` warns that `fill: backwards` means 100% may show the
+un-animated element. True for a CSS animation, wrong for a transition: past its
+end a transition falls back to the underlying style, and while the hover is
+still applied that style *is* the value it was transitioning to. The warning is
+suppressed for transitions, so the frame most likely to be looked at no longer
+carries a false alarm.
+
+### One test premise that was wrong
+
+The freeze test asserted both transitions were `paused` in every frame. They are
+not present at all in the 100% frame — see above — and the element correctly
+shows its end state without them. The test now requires them paused in every
+frame where they still exist, and requires that to be all but the last, so it
+cannot pass vacuously.
+
+### One dependency added
+
+`@ui-atlas/crawler` now depends on `@ui-atlas/animation`. The probe stayed
+injected because it was one function; this is a whole capability, and injecting
+it would have scattered the interesting logic across the wiring.
+
+## The screencast fallback (phase 4, fourth slice)
+
+Done and covered by `tests/unit/screencast.test.ts` and
+`tests/integration/screencast.test.ts`. See
+[ADR 23](docs/adr/0023-a-recording-is-a-fallback-not-a-sample.md).
+
+`ui-atlas animations <url> --video` records the motion the previous three slices
+could describe and never show. `animation-video` was a stub throwing "not
+implemented yet" since phase 0 defined the capture kinds.
+
+The plan's four points, and how each turned out:
+
+1. **What it records.** `infinite` and `indeterminate` animations plus canvas,
+   WebGL and video elements — but **not** `scroll-driven`, which was in the plan
+   and should not have been. Nothing scrolls during a recording, so the video
+   would be a still, and a still that looks exactly like a recording that failed
+   is worse than an honest absence. It is refused with that reason.
+2. **Its own context.** Playwright records a browser context rather than a page
+   and only writes the file when the context closes, exactly as the plan said. So
+   a recording opens a short-lived context and loads the page again. The cost is
+   reported rather than hidden: the file begins with that second page load, and
+   `leadInMs` says how far in the part you asked about starts. A persistent
+   profile cannot create a sibling context, so it warns and skips.
+3. **Hard bounds.** `maxDurationMs` caps the window and sets `truncated` when it
+   bites; `maxBytes` is checked by `stat` before the file is read, so a runaway
+   recording cannot become a runaway allocation on its way to being rejected.
+   Over budget is a `skipped` record with a new `capture.over-budget` code —
+   a budget doing its job is not a broken run, and a silent absence would look
+   identical to never having tried.
+4. **Not a sample.** Carried through, more strictly than planned — see below.
+
+### Two corrections to the plan
+
+**`AnimationSample.method: 'screencast'` is not what a recording needs.** The
+plan assumed the enum member was waiting for this. It is not: an
+`AnimationSample` requires a `progress` and a `currentTimeMs`, and there is no
+honest value for either when the subject repeats forever. So an
+`animation-video` record carries **no `animation` field at all** — a `Screencast`
+instead, saying what the recording is of and what it does not promise. A test
+asserts the absence directly. The enum member stays unused.
+
+**The frame rate cannot be "recorded rather than assumed".** Playwright does not
+expose the rate it recorded at, and decoding the WebM to find out is a bigger
+dependency than this slice earns. So none is written, and a limitation says
+times read off the file are approximate. A plausible `fps: 25` would be a number
+that reads like a measurement and is not one.
+
+### One defect, found by a test that could no longer click
+
+A `<video controls>` inside a gallery card swallowed the click that opens the
+detail panel — a card and a matrix cell are both `<button>`s. Player controls now
+appear only in the detail panel, backed by `pointer-events: none` on the preview.
+It looked like a broken test and was a broken UI.
+
+### One test premise that was wrong
+
+The first assertion required the recording's subjects not to mention
+`finite-swatch`, to prove the infinite `drift` was recorded and the finite one
+was not. But `"infinite-swatch"` *contains* `"finite-swatch"`. The subject list
+was right all along; the assertion now compares the whole list exactly.
+
+## Observed-value extraction (phase 4, fifth slice)
+
+Done and covered by `tests/unit/tokens.test.ts` and
+`tests/integration/tokens.test.ts`. See
+[ADR 24](docs/adr/0024-observed-values-are-candidates-not-tokens.md).
+
+`ui-atlas tokens <url>` and `crawl --tokens` read every element's computed style
+and count what turns up, into `tokens.json` and the report's **Values** tab.
+
+The plan's four points:
+
+1. **The raw material.** Reading captured elements' `styleDelta` would only ever
+   describe the handful of things somebody photographed. The scan reads *every*
+   element instead, which is one page-side evaluation and gives real frequencies.
+2. **The property set and the artifact**, as planned — colour, background,
+   border, radius, spacing, typography, shadow.
+3. **The framing**, carried all the way through. See below.
+4. **Duplicate grouping across routes was already done.** See below.
+
+### The framing is the feature
+
+"#2563eb appears on 34 elements" is a fact; "this is your primary colour" is a
+judgement. There is **no `name` field anywhere** in the artifact, and a test
+asserts its absence. The schema is `DesignTokenCandidate`, the report tab is
+called *Values* rather than *Tokens*, and `tokens.json` carries a `note` saying
+what it is and is not, so the file is honest read with no other context.
+
+Three decisions follow from it:
+
+- **Values that mean nobody decided anything are dropped** — a transparent
+  background, a zero margin, `font-style: normal`. They are the most common
+  computed values on any page, and this is the whole difference between a list
+  of design decisions and a list of browser defaults.
+- **Near-duplicates are reported and never merged.** Two colours one channel
+  apart are usually a rounding error and occasionally deliberate. The counts are
+  the evidence that answers which, and merging would destroy exactly that.
+- **Every truncation says so.** Both the per-page element cap and the
+  per-category tail cap add a warning naming what was left out.
+
+### One correction to the plan
+
+**Cross-route component grouping already worked.** The plan assumed it was
+missing and would need a new key. `groupComponents` keys an element group by
+`element:<structural fingerprint>` with no route in it, so the same component
+captured on four routes has always been one group. Nothing to build; the
+assumption was simply wrong.
+
+### Two defects, both found by a test
+
+1. **The examples cap was only applied when merging**, not when a value was
+   first seen. The page-side cap happened to be the same number by
+   configuration, so the bound held by coincidence rather than by construction.
+2. **Hex colours were not normalised**, so `#2563EB` and `#2563eb` would have
+   been two values. Chromium always answers in `rgb()`, so this never fires in
+   practice — but a function that is right about its input rather than right
+   about its current caller is the difference between a bug and a near miss.
+   Hex parsing was added, including `#abc` and `#rrggbbaa`.
+
+### The one guarded string in the report
+
+The Values tab paints colour swatches, which means a capture-derived string
+reaching a `style` attribute — the only place in the whole report that happens.
+It is matched against `#rrggbb` or `rgba(n, n, n, a)` rather than trusted, and a
+test feeds it a `color(display-p3 …)` and requires the row to render with no
+swatch at all.
+
+## The animation inventory during a crawl (phase 4, sixth slice)
+
+Done and covered by the second `describe` block in
+`tests/integration/animation.test.ts`.
+
+`crawl --animations` runs the phase-4 inventory on every page a crawl visits,
+into `animations.jsonl` keyed by route, so "what moves on this site" is
+answerable from one run. It reuses the seam the interaction inventory and the
+style scan already use — `runInventory` / `runTokens` / `runAnimations`, all
+called before recipes so each describes the page as served.
+
+Three things it deliberately does *not* do:
+
+- **It never samples.** Photographing motion costs a pause, a seek and a
+  screenshot per frame; that is a `captureAnimation` recipe step or the one-shot
+  command, not something a crawl spends on every page unasked.
+- **It needs no probe injected**, unlike an element capture, because it reads
+  the page's own animation state rather than describing an element.
+- **It leaves the page alone**, proved by the fixture's infinite `drift` still
+  reading `running` in its record.
+
+### Where a warning belongs turned out to be the design question
+
+Two caps, and they are not the same kind of fact:
+
+- The **per-page cap** ("motion.html has 300 animations; only the first 200 were
+  recorded") is about that page, so it travels with the page record.
+- The **run-level cap** ("the inventory reached its 5000 record budget") is about
+  the run. Attached to whichever page happened to trip it, it would be one line
+  inside one page record and easy to miss entirely, so it is raised once in the
+  run warnings.
+
+The same reasoning moved the unobservable-motion notice. "This page contains 2
+canvas elements whose motion cannot be described" is true of every page of a
+canvas-driven site; said fifty times it buries everything else. It is counted
+across the crawl and raised once, with a route count.
+
+### One test premise that was wrong, twice over
+
+The first crawl tests found zero animations, then found the caps' warnings
+missing. Neither was a code fault:
+
+1. The budget was `maxPages: 6`, and the fixture pages with motion are the
+   eighth and ninth discovered. The crawl never reached them. Raised to cover
+   the whole fixture.
+2. The warnings were asserted on `result.warnings` — but the per-page cap is a
+   page-record warning, which is correct. The run-level cap genuinely was in the
+   wrong place, and moving it is the change above. So one half of the premise
+   was wrong and the other half found a real defect.
+
+## The toolbar's Animation panel (phase 4, seventh slice)
+
+Done and covered by `tests/integration/animation-panel.test.ts`. See
+[ADR 25](docs/adr/0025-the-animation-button-is-a-list-not-a-shutter.md).
+
+The Animation button has been disabled since phase 1. It is not any more, and
+what it does is **list**, not photograph.
+
+### Why a list and not a shutter
+
+Every other capture button photographs something immediately, and can, because
+what to photograph is unambiguous. An animation button has no such answer: a
+page has several animations, the user means one, and **most of them cannot be
+sampled at all**. The fixture alone has an infinite one, a scroll-driven one and
+a multi-iteration one. A button that shot "the animation" would have to guess
+which, then fail for most pages.
+
+So the panel lists what moves and gives each row the one action that would work:
+
+| Verdict | The row shows |
+| --- | --- |
+| `sampleable` | **Sample** — a seek reproduces the frame every time |
+| `infinite`, `indeterminate` | **Record** — a seek cannot, but a recording shows it |
+| `scroll-driven` | nothing — a recording of a page not scrolling is a still |
+| `instant` | nothing — there are no intermediate frames |
+
+Every row without an action carries the **inventory's own reason**, the same
+sentence the `animations` command prints. A test requires no row to be a dead
+end: an action, or a reason, never neither.
+
+Canvas, WebGL and video are counted and named too, with **Record the page** —
+without that, `media.html` would show an empty panel, and "nothing is animating"
+on a canvas-driven page is a lie of omission.
+
+### Two things that make it safe
+
+**Listing is a read.** Pressing the button pauses nothing, seeks nothing and
+captures nothing. A test presses it and then requires every animation still
+unpaused and the queue still empty. That is what makes a panel a reasonable
+thing to put behind a button.
+
+**An animation is re-found by fingerprint at capture time**, not by the index it
+was listed at. Seconds pass between listing and clicking, and a transition that
+ends in that time takes every index after it along. A test cancels every
+animation between the two and requires the job to fail with *"no longer running
+on this page"* rather than produce a confident frame of the wrong one.
+
+### One test premise that was wrong
+
+The sampling test compared every animation's play state either side of the
+capture and required them identical. They are not: sampling takes a couple of
+seconds, and the fixture's finite 1200ms animation legitimately *finishes* in
+that time on the page's own clock. Restoration never promised to stop time. What
+it does promise is that nothing is left held — so the test now requires no
+animation to read `paused` (a failed restore) or `idle` (a cancel never undone).
+
+## Where this leaves the project
+
+**The brief is delivered.** Phases 0 through 4 are complete and every item on the
+brief's own list is built, including the Animation button that had been disabled
+since phase 1.
+
+Anything further is new scope rather than an unfinished milestone:
+
+- perceptual near-duplicate hashing (the report groups by exact image hash today)
+- sitemap seeding, and dedup by page structural fingerprint
+- `captureResponsive` during a crawl (the step validates and reports that it was
+  unavailable)
+- extension packaging, distributed workers, CDP forced pseudo-states
+
+The one environment-bound gap is unchanged and recorded under Exit criteria: the
+three external-site smoke tests skip themselves in a sandbox with no outbound
+browser network access.

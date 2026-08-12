@@ -16,11 +16,13 @@ in its `warnings` or its `error`.
 | Worker concurrency | **Built.** `--concurrency <n>` runs isolated workers, each with its own context. `perPageDelayMs` is enforced per origin across all of them. Details below. |
 | Retry and backoff | **Built.** Bounded retries with jitter for timeouts and 5xx; a 429 or 503 holds the whole origin back, honouring `Retry-After`. Details below. |
 | Trace on failure | **Built.** `--trace-on-failure` keeps a Playwright trace for unreachable pages and for pages a recipe failed on. Off by default: a trace can contain session cookies. Details below. |
-| Animation inventory | **Built.** `ui-atlas animations <url>` lists every animation the Web Animations API can see and says how samplable each is. It reads and only reads. Details below. |
+| Animation inventory | **Built.** `ui-atlas animations <url>` lists every animation the Web Animations API can see and says how samplable each is, and `crawl --animations` does the same for every page of a site. It reads and only reads. Details below. |
 | Animation frame sampling | **Built.** `animations --sample` photographs the sampleable animations at chosen offsets and restores them. Details below. |
-| Animation video / screencast | Not built. `animation-video` still reports that it is unimplemented; it is for motion that cannot be represented as keyframes. |
-| Design-system extraction | Not built. Token extraction and duplicate component grouping are the rest of phase 4. |
+| Provoked motion | **Built.** The `captureAnimation` recipe step hovers or focuses, works out which animations that started, photographs them as one moment and puts them back. It can never click. Details below. |
+| Animation video / screencast | **Built.** `animations --video` records the motion no seek can reproduce, for a bounded window. A recording is not a sample and says so. Details below. |
+| Design-system extraction | **Built.** `ui-atlas tokens <url>` and `crawl --tokens` count every element's computed values. Observations with counts, not a design system: nothing is named. Duplicate component grouping already spanned routes. Details below. |
 | CDP forced pseudo-states | Not implemented. `focus-visible` is reached with a real keyboard interaction or reported as `skipped` — never faked. |
+| Toolbar Animation panel | **Built.** The Animation button lists what moves and offers each row the one action that would work. Details below. |
 | Chrome extension packaging | Not required and not built. |
 
 ## Boundaries of what is possible
@@ -183,16 +185,25 @@ See [ADR 20](adr/0020-animation-inventory-describes-without-touching.md).
 - **A `requestAnimationFrame` loop is equally invisible**, and unlike a canvas
   there is nothing to count. Script-driven motion simply will not appear.
 - **A hover transition does not exist on a page at rest**, so it is absent from
-  the inventory of a page nobody has touched. Provoking one is a recipe's job.
-  The fixture proves both halves: absent at rest, present after a hover.
+  the inventory of a page nobody has touched. Provoking one is the
+  `captureAnimation` recipe step's job, below. The fixture proves both halves:
+  absent at rest, present after a hover.
 - **Only what is running when the page settles is listed.** An animation that
   starts later, or one already finished and garbage-collected, is not there.
 - **`sampleable` is a statement about determinism, not about usefulness.** It
   says a seek would reproduce a frame; it does not promise the frame is
   interesting.
-- **Nothing is wired into `crawl` yet.** The inventory is a one-shot command; a
-  site-wide animation inventory would be a small addition alongside the
-  interaction inventory.
+- **During a crawl it describes and nothing else.** `crawl --animations` runs
+  the same inventory on every page, but never samples: photographing motion
+  costs a pause, a seek and a screenshot per frame, which is a
+  `captureAnimation` recipe step or the one-shot command, not something a crawl
+  spends on every page unasked.
+- **Two caps, reported in different places.** The per-page cap is a fact about
+  that page and travels with its page record; the run-level cap is a fact about
+  the run and is raised once in the run warnings.
+- **The unobservable-motion notice is aggregated across a crawl.** Said per page
+  it would be true of every page of a canvas-driven site and would bury
+  everything else, so it is counted and raised once with a route count.
 
 ## Boundaries of frame sampling
 
@@ -215,10 +226,119 @@ See [ADR 21](adr/0021-frame-sampling-restores-what-it-moves.md).
 - **A resumed animation continues from where it was paused.** The `startTime` is
   restored so it goes back on the same clock, but wall-clock time spent
   sampling is not replayed.
-- **`animation-video` is not implemented.** A screencast fallback is for motion
-  that cannot be represented as keyframes; nothing here needs it yet.
 - **CDP animation control is not used.** The Web Animations API answers both the
   inventory and the sampling question on its own.
+
+## Boundaries of the screencast fallback (`--video`)
+
+See [ADR 23](adr/0023-a-recording-is-a-fallback-not-a-sample.md).
+
+- **A recording is not a sample.** It carries no `progress` and no
+  `currentTimeMs`, because there is no honest one for an animation that never
+  ends. Recording again gives a different file.
+- **Scroll-driven animations are refused.** Nothing scrolls during a recording,
+  so the video would be a still — indistinguishable from a recording that
+  failed, which is worse than an honest absence.
+- **`sampleable` and `instant` animations are refused too**, the first because
+  exact frames say more, the second because there is nothing in between to show.
+- **The file begins with a page load.** Playwright records a browser *context*
+  and only writes the file when it closes, so a recording needs a context of its
+  own and a second navigation. `leadInMs` says how far in the window starts.
+- **A persistent profile cannot record**, because it owns its only context. That
+  is a warning and a skip, like single-worker fallback in a crawl.
+- **The frame rate is unknown and is not written.** Playwright does not expose
+  it, and decoding the WebM to find out is out of scope. Times read off the file
+  are approximate.
+- **An over-budget recording is discarded**, and recorded as `skipped` with
+  `capture.over-budget`. The bytes are checked by `stat` before the file is
+  read, so a runaway recording does not become a runaway allocation.
+- **It is a one-shot `animations` feature**, not a crawl feature. Recording every
+  page of a crawl is a different budget conversation.
+- **Nothing trims the file.** The lead-in is reported, not removed; trimming
+  would mean decoding and re-encoding.
+
+## Boundaries of provoked motion (`captureAnimation`)
+
+See [ADR 22](adr/0022-provoked-motion-is-sampled-as-one-group.md).
+
+- **It hovers or focuses, and can never click.** A click is the one interaction
+  that changes the world, so it stays a step somebody wrote on purpose. A test
+  points this step at `destructive.html`'s *Delete account* button and requires
+  the audit log to stay empty.
+- **`progress` means something different here.** For a group it is a fraction of
+  the *interaction's whole span*, not of one animation's iteration, because two
+  transitions from one hover are one picture and must share a clock. A member
+  with a shorter duration reaches its end partway through and holds it, which is
+  what the page does; the frame says so.
+- **Offsets are seeked in ascending order whatever order they were written in.**
+  A CSS transition leaves `getAnimations()` the moment it finishes, so a
+  backwards seek lands on an animation the document no longer has and silently
+  photographs the wrong moment.
+- **An interaction that restarts an animation already running is invisible to
+  it.** The diff answers "what appeared", and a re-run looks identical to being
+  left alone.
+- **Letting go of a hover is `mouse.move(0, 0)`.** There is no `unhover`, so a
+  page with something interactive in its top-left corner gets that hovered
+  instead.
+- **The reverse transition is never photographed.** Releasing runs the
+  transition backwards; every frame is taken strictly before the release.
+- **Only the provoked group is frozen.** The page's own animations keep running,
+  for the same reason as above, and a test requires it.
+- **One interaction per step.** Motion that needs a sequence — hover, then wait,
+  then hover a child — is out of reach; write the sequence as steps and accept
+  that only the last provocation is diffed.
+
+## Boundaries of observed-value extraction (`tokens`)
+
+See [ADR 24](adr/0024-observed-values-are-candidates-not-tokens.md).
+
+- **These are candidates, not tokens.** Nothing is named, because naming is a
+  judgement. `tokens.json` has no `name` field anywhere, and a test asserts it.
+- **Values that mean nobody decided anything are dropped** — a transparent
+  background, a zero margin, `font-style: normal`. They are the most common
+  computed values on any page, and keeping them would bury everything real.
+- **Only computed values are seen**, so CSS custom properties are invisible as
+  properties: `var(--brand)` arrives already resolved. The value is right; the
+  fact that the site already has a name for it is not visible here.
+- **A value is counted once per element, not once per rule.** Ten elements
+  sharing a class contribute ten.
+- **Elements that are not visible are still read.** A hover menu at rest is
+  `display: none` and its computed colours are real decisions, so a page with a
+  large hidden mega-menu weights towards it.
+- **Near-duplicates are reported and never merged.** Two colours one channel
+  apart may be a mistake or may be deliberate; the counts are the evidence, and
+  merging would destroy them.
+- **Colours are only compared at the same opacity.** A 50% overlay is not a
+  mistyped solid.
+- **A colour space the parser does not understand** — `color(display-p3 …)`,
+  `color-mix(…)` — is counted but cannot be compared channel by channel, and
+  gets no swatch in the report.
+- **Both caps are visible.** The per-page element cap and the per-category tail
+  cap each add a warning naming what was left out.
+- **Nothing is captured.** The `tokens` command writes no `captures.jsonl`.
+- **Pseudo-element styles are not read.** `::before` content is often decorative
+  and often carries a colour; `getComputedStyle` needs to be asked for it
+  separately, and it is not.
+
+## Boundaries of the toolbar's Animation panel
+
+See [ADR 25](adr/0025-the-animation-button-is-a-list-not-a-shutter.md).
+
+- **It lists the page as it is now.** It does not update itself when the page
+  changes; *Refresh* re-reads it. Live-updating would mean watching every
+  document for animation events, which is a much larger promise than a list.
+- **A hover transition is still absent**, for the reason it is absent from the
+  inventory: it does not exist until something provokes it. Reaching one from
+  the toolbar would need the panel to hold a hover while it listed, which is the
+  `captureAnimation` recipe step's job.
+- **Recording from the toolbar opens a second browser context** and loads the
+  page again, visibly, in an interactive session. A persistent profile cannot
+  create that context and the job fails saying so.
+- **An animation is re-found by fingerprint at capture time**, not by the index
+  it was listed at. A page that changed in between yields "no longer running"
+  rather than a confident frame of whatever now sits at that index.
+- **Nothing in the panel is named for you.** It shows what the inventory said,
+  in the inventory's words.
 
 ## Things the tool reports that surprise people
 

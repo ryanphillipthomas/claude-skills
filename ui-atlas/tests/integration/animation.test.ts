@@ -1,10 +1,11 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { readdirSync, statSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Browser, Page } from 'playwright';
 import { chromium } from 'playwright';
 import { inventoryAnimations } from '@ui-atlas/animation';
+import { CrawlAnimationInventory, Crawler, type CrawlResult } from '@ui-atlas/crawler';
 import { buildFramePath } from '@ui-atlas/identity';
 import { settlePage } from '@ui-atlas/settle';
 import type { AnimationRecord } from '@ui-atlas/protocol';
@@ -17,6 +18,7 @@ import {
   testConfig,
   type FixtureServer,
 } from '../support/harness.js';
+import { startCrawlHarness, type CrawlHarness } from '../support/crawl-harness.js';
 
 let server: FixtureServer;
 let browser: Browser;
@@ -248,4 +250,122 @@ describe('animation inventory', () => {
       await removeDir(outputRoot);
     }
   });
+});
+
+describe('the animation inventory during a crawl', () => {
+  const open: CrawlHarness[] = [];
+
+  afterEach(async () => {
+    while (open.length > 0) await open.pop()?.dispose();
+  });
+
+  /** Seeded at the fixture index, which links to every other page. */
+  async function crawl(
+    animationOverrides: Record<string, unknown> = { enabled: true },
+    crawlOverrides: Record<string, unknown> = {},
+  ): Promise<{ test: CrawlHarness; result: CrawlResult }> {
+    const test = await startCrawlHarness({ server });
+    open.push(test);
+    const config = testConfig({
+      crawl: {
+        seeds: [test.url('/')],
+        perPageDelayMs: 0,
+        // The whole fixture: motion.html and media.html are the eighth and
+        // ninth pages discovered, so a smaller budget never reaches the motion.
+        budgets: { maxDepth: 1, maxPages: 15 },
+        animations: animationOverrides,
+        ...crawlOverrides,
+      },
+    });
+    const result = await new Crawler({
+      page: test.page,
+      writer: test.writer,
+      runId: test.runId,
+      config,
+      animations: new CrawlAnimationInventory({
+        config: config.crawl.animations,
+        runId: test.runId,
+      }),
+    }).run();
+    return { test, result };
+  }
+
+  it('describes every page it visits, and says which route each came from', async () => {
+    const { test, result } = await crawl();
+
+    expect(result.animations.length).toBeGreaterThanOrEqual(3);
+    const routes = new Set(result.animations.map((record) => record.routeKey));
+    expect(routes.size).toBeGreaterThanOrEqual(1);
+    expect(result.animations.every((record) => record.runId === test.runId)).toBe(true);
+    expect(result.animations.some((record) => record.sampleability === 'infinite')).toBe(true);
+    expect(result.animations.some((record) => record.sampleability === 'sampleable')).toBe(true);
+
+    // Written where the one-shot command writes them, so a site-wide inventory
+    // is read exactly like a page-wide one.
+    const text = await readFile(test.writer.paths.animationsJsonl, 'utf8');
+    expect(text.trim().split('\n')).toHaveLength(result.animations.length);
+  }, 90_000);
+
+  it('describes and nothing else', async () => {
+    const { test, result } = await crawl();
+
+    // The infinite `drift` is still running: an inventory that paused what it
+    // was describing would report a page that no longer exists.
+    const infinite = result.animations.find(
+      (record) => record.target?.testId === 'infinite-swatch',
+    );
+    expect(infinite?.playState).toBe('running');
+
+    // Nothing was photographed, and nothing was submitted anywhere.
+    expect(readdirSync(test.writer.paths.runDir)).not.toContain('captures.jsonl');
+    expect(test.requests.filter((request) => request.method !== 'GET')).toEqual([]);
+  }, 90_000);
+
+  it('does nothing at all when it is switched off', async () => {
+    const { test, result } = await crawl({ enabled: false });
+    expect(result.animations).toEqual([]);
+    expect(readdirSync(test.writer.paths.runDir)).not.toContain('animations.jsonl');
+  }, 90_000);
+
+  it('mentions motion it cannot see once for the run, not once per page', async () => {
+    const { result } = await crawl();
+
+    // media.html has canvas and video elements. The per-page notice would be
+    // true of every page of a canvas-driven site; said fifty times it buries
+    // everything else, so it is counted and raised once with a route count.
+    const notices = result.warnings.filter((warning) =>
+      warning.includes('the Web Animations API cannot describe'),
+    );
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toContain('route(s) contain');
+    expect(notices[0]).toContain('canvas element(s)');
+  }, 90_000);
+
+  it('stops at the run budget and says so at the run level', async () => {
+    const { result } = await crawl({ enabled: true, maxTotal: 2 });
+    expect(result.animations).toHaveLength(2);
+
+    // A run-level budget belongs to the run. Attached to whichever page
+    // happened to trip it, it would be one line inside one page record.
+    const notices = result.warnings.filter((warning) => warning.includes('record budget'));
+    expect(notices).toHaveLength(1);
+  }, 90_000);
+
+  it('caps one busy page, and says so on that page', async () => {
+    const { result } = await crawl({ enabled: true, maxPerPage: 1 });
+    const perRoute = new Map<string, number>();
+    for (const record of result.animations) {
+      perRoute.set(record.routeKey, (perRoute.get(record.routeKey) ?? 0) + 1);
+    }
+    expect(perRoute.size).toBeGreaterThan(0);
+    for (const count of perRoute.values()) expect(count).toBe(1);
+
+    // This one is a fact about a page, so it travels with the page record
+    // rather than being lifted to the run.
+    const capped = result.pages.filter((page) =>
+      page.warnings.some((warning) => warning.includes('only the first 1')),
+    );
+    expect(capped.length).toBeGreaterThan(0);
+    expect(result.warnings.some((warning) => warning.includes('only the first 1'))).toBe(false);
+  }, 90_000);
 });

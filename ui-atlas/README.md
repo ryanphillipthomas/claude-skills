@@ -8,8 +8,9 @@ No cloud account, no AI service, no browser extension, no database server.
 Everything runs on your machine and writes plain files.
 
 **Current release: the guided inspector, responsive replay, the report, a
-bounded crawler with declarative interaction recipes, and animation inventory
-plus frame sampling.** Design-system extraction is still to come — see
+bounded crawler with declarative interaction recipes, animation inventory with
+frame sampling and a screencast fallback, and observed-value extraction.** What
+each of those does *not* promise is written down in
 [docs/limitations.md](docs/limitations.md).
 
 ## Requirements
@@ -44,7 +45,7 @@ close the browser.
 | `Alt`/`Option` + `C` | capture the selected element |
 | `Alt`/`Option` + `V` | capture the viewport |
 | `Alt`/`Option` + `R` | capture a responsive set |
-| `Alt`/`Option` + `A` | animation capture *(phase 4)* |
+| `Alt`/`Option` + `A` | list what is animating, and what can be done with each |
 | `Escape` | leave inspect mode, then clear the selection |
 | Arrow keys | move the selection to parent / child / sibling |
 | `Alt`/`Option` + click | let the click through to the page instead of selecting |
@@ -52,6 +53,16 @@ close the browser.
 In the toolbar you get the element's tag, role, accessible name, size and
 chosen locator (with its score and the reasons behind it), viewport presets and
 a custom size, capture buttons, and the capture queue.
+
+**The Animation panel lists rather than shoots.** Every other capture button
+photographs something immediately; this one cannot, because a page has several
+animations and most of them cannot be sampled at all. So it lists what moves and
+offers each row the one action that would work: **Sample** where a seek
+reproduces the frame, **Record** where it cannot, and neither — with the
+inventory's own reason — where nothing honest is possible. Canvas, WebGL and
+video are named too, with **Record the page**, because "nothing is animating" on
+a canvas-driven page is a lie of omission. Pressing it changes nothing: no
+animation is paused, seeked or captured until you pick a row.
 
 **The state chips are live.** Clicking `hover` both adds it to the capture set
 and applies it to the page in front of you, held until you click it off. The
@@ -110,9 +121,9 @@ Open it straight from disk — no server, no network requests, nothing to instal
   comparing is always side by side. Cells that were skipped say *why* (hidden at
   this viewport, not present, locator matched several elements) instead of
   showing a blank.
-- **Gallery, Duplicates, Issues, Pages** — a flat grid, images that came out
-  byte-identical, everything that failed or was skipped or raised a warning, and
-  the page visits.
+- **Gallery, Duplicates, Issues, Values, Pages** — a flat grid, images that came
+  out byte-identical, everything that failed or was skipped or raised a warning,
+  the observed computed values with counts and swatches, and the page visits.
 - **Detail panel** — click any capture for its locator candidates with scores and
   the reasons behind them, the computed-style delta with colour swatches, the
   readiness checks and their timings, and exactly what the tool did to reach the
@@ -347,13 +358,19 @@ could be sampled at a chosen point and give the same frame every time:
 and no screenshot is taken — a test snapshots every animation's play state and
 playback rate before and after a pass and requires them identical.
 
-Written to `animations.jsonl`. Two gaps it tells you about rather than hiding:
+Written to `animations.jsonl`. `crawl --animations` runs the same inventory on
+every page a crawl visits, so "what moves on this site" is answerable from one
+run — describing only, never sampling: photographing motion costs a pause, a
+seek and a screenshot per frame, which is not something a crawl should spend on
+every page unasked.
+
+Two gaps it tells you about rather than hiding:
 
 - **Canvas, WebGL and video are not `Animation`s**, so `getAnimations` cannot
   see them. Those elements are counted and named, because "no animations found"
   on a canvas-driven page is a lie of omission.
 - **A hover transition does not exist on a page at rest**, so it will not
-  appear. Provoking one is a recipe's job.
+  appear. Provoking one is the `captureAnimation` recipe step's job, below.
 
 ### Animation frames
 
@@ -384,6 +401,116 @@ Only the animation being sampled is paused. A page with several running
 animations shows the others wherever they happened to be — freezing everything
 would produce a composite moment that never existed.
 
+### Hover and focus transitions
+
+Most of the motion in a design system is not running when a page loads. A hover
+transition does not *exist* until something provokes it, which is why the
+inventory above cannot see one. The `captureAnimation` recipe step can:
+
+```yaml
+crawl:
+  recipes:
+    - name: card-hover
+      match: '/products/**'
+      steps:
+        - captureAnimation: { hover: { testId: product-card }, kind: element }
+```
+
+It takes an inventory, hovers (or focuses), takes another, and **the difference
+is what that interaction started**. Those animations are photographed at each
+offset, put back, and only then is the hover released.
+
+- **It can never click.** `hover` and `focus`, and nothing else — a click is the
+  one interaction that can change the world, so it stays a step somebody wrote
+  on purpose. A test points this step at `destructive.html`'s *Delete account*
+  button and requires the audit log to stay empty afterwards.
+- **A group is one picture.** Hovering typically starts several transitions at
+  once — `transform` and `background-color`, say. They are seeked to the *same
+  moment* and photographed together, because a frame with the transform half way
+  and the colour still at its start is a composite that never existed. `progress`
+  is therefore a fraction of the whole interaction here, not of one animation's
+  iteration.
+- **The way back is never photographed.** Letting go of a hover runs the
+  transition *backwards*; every frame is taken strictly before the release.
+- **Offsets are seeked in ascending order** whatever order you write them in. A
+  CSS transition leaves `getAnimations()` the instant it finishes, so a backwards
+  seek lands on an animation the document no longer has and quietly shows the
+  wrong moment.
+
+The animations it provoked are written to `animations.jsonl` like any others, so
+"what does this card do when you point at it" is answerable without opening an
+image.
+
+### Recording what cannot be sampled
+
+```bash
+npm run ui-atlas -- animations https://example.com --video
+npm run ui-atlas -- animations https://example.com --video --video-ms 3000
+```
+
+Three slices of animation work all refuse to photograph motion they cannot
+photograph honestly, which leaves a list of things the tool can describe and
+never show: an animation that repeats forever, one whose duration is `auto`, and
+the canvas, WebGL and `requestAnimationFrame` motion no animation list can see.
+`--video` records those, for a bounded window.
+
+**A recording is not a sample**, and the record does not let it pass as one. It
+carries no `progress` — there is no honest progress for something that never
+ends — only what the recording is *of*, how long it ran, and what it does not
+promise. Recording again gives a different file.
+
+- **Scroll-driven animations are deliberately left out.** Nothing scrolls during
+  a recording, so the video would be a still — which looks exactly like a
+  recording that failed, and a broken-looking artifact is worse than an honest
+  absence.
+- **It needs a browser context of its own**, because Playwright records a
+  context rather than a page and only writes the file when that context closes.
+  So the file begins with a second page load, and `leadInMs` says how far in the
+  part you asked about starts.
+- **Every bound is hard.** `maxDurationMs` caps the window, and a window cut
+  short says `truncated`. A file over `maxBytes` is discarded and recorded as
+  *skipped* with `capture.over-budget` — a budget doing its job is not a broken
+  run, and a silent absence would look identical to never having tried.
+- **The frame rate is not recorded**, because Playwright does not expose it.
+  Times read off the file are approximate, and the record says so rather than
+  printing a plausible number nobody measured.
+
+The report plays the recording where a thumbnail would go, with the player
+controls in the detail panel.
+
+### What a site is made of
+
+```bash
+npm run ui-atlas -- tokens https://example.com
+npm run ui-atlas -- tokens https://example.com/a https://example.com/b
+npm run ui-atlas -- crawl site.yml --tokens
+```
+
+Reads every element's computed style and counts what turns up: colours,
+backgrounds, borders, radii, spacing, typography and shadows. Written to
+`tokens.json`, and shown in the report's **Values** tab with swatches.
+
+**These are observations, not a design system.** "#2563eb appears on 34
+elements" is a fact; "this is your primary colour" is a judgement, and this
+makes none — nothing in the artifact has a name, because naming is yours to do.
+
+- **Values nobody decided are left out.** A transparent background, a zero
+  margin, `font-style: normal`. They are the most common computed values on any
+  page and none of them is a design decision; without dropping them the list is
+  mostly browser defaults.
+- **Colours are separated by use.** "What colour is the text" and "what colour
+  is behind it" are different questions, so `color` and `background-color` are
+  different categories.
+- **Near-duplicates are reported and never merged.** Two colours one channel
+  apart are usually a rounding error and occasionally deliberate — and the
+  counts are the evidence that answers which. Merging them would destroy exactly
+  that, so both survive and the pair is flagged.
+- **Every truncation says so.** A per-page element cap and a per-category tail
+  cap both bound the work, and both add a warning naming what was left out.
+
+`crawl --tokens` scans every page a crawl visits into one artifact, because a
+design system is not visible from a single page.
+
 ### Authentication
 
 ```bash
@@ -410,9 +537,12 @@ ui-atlas-output/
       interactions.jsonl                              inventoried controls, classified
       suggested-recipes.yml                           a recipe skeleton to review
       traces/<page-id>.zip                            failures only; can contain cookies
-      animations.jsonl                                described animations, never sampled
+      animations.jsonl                                described animations, sampled or not
       screenshots/<route>/<viewport>/<capture-id>.png
       screenshots/<route>/<viewport>/<capture-id>.json   metadata beside the image
+      animations/<route>/<viewport>/<capture-id>.webm    recordings, when --video asked for one
+      animations/<route>/<viewport>/<capture-id>.json    metadata beside the recording
+      tokens.json                                        observed values with counts
       report/index.html                                  browsable report
 ```
 

@@ -55,6 +55,29 @@ capture:
     offsets: [0, 0.25, 0.5, 0.75, 1]
     maxAnimations: 10
     kind: element # element | viewport
+    # The fallback for motion no seek can reproduce: an animation that repeats
+    # forever, one whose duration is `auto`, and canvas/WebGL/video elements.
+    # `--video` switches it on for one run.
+    #
+    # A recording is NOT a sample. It carries no progress, because there is no
+    # honest progress for something that never ends, and re-recording gives a
+    # different file. Scroll-driven animations are deliberately left out: nothing
+    # scrolls during a recording, so the video would be a still that looks
+    # exactly like a recording that failed.
+    #
+    # It needs a browser context of its own, because Playwright records a context
+    # rather than a page and only writes the file when that context closes. So
+    # the file starts with a second page load, and `leadInMs` on the record says
+    # how far in the part you asked about begins.
+    video:
+      enabled: false
+      # An infinite animation has no end, so the tool supplies one and says so.
+      maxDurationMs: 5000
+      # Checked on disk before the file is read. Over budget it is discarded and
+      # the capture is recorded as skipped, never silently absent.
+      maxBytes: 10000000
+      # Loops of a repeating animation to try to fit in the window.
+      iterations: 3
 
 browser:
   # clean | profile | storage-state | attach
@@ -149,11 +172,37 @@ crawl:
   #         - hover: { role: button, name: Menu }
   #         - waitFor: { role: navigation }
   #         - capture: { kind: viewport, label: nav-open }
+  #
+  # `captureAnimation` reaches motion that does not exist until something
+  # provokes it — a hover transition is absent from a page at rest. It hovers or
+  # focuses (never clicks), works out which animations that started, photographs
+  # them as one moment at each offset, puts them back and lets go. Offsets here
+  # are fractions of the whole interaction, not of one animation's iteration,
+  # because two transitions from one hover are one picture.
+  #
+  #   recipes:
+  #     - name: card-hover
+  #       match: '/**'
+  #       steps:
+  #         - captureAnimation: { hover: { testId: product-card }, kind: element }
   recipes: []
   # Lists each page's interactive controls and classifies what each is likely to
   # do — navigation, inert, mutation or unknown. It reads and nothing else: no
   # clicking, no hovering. Writes interactions.jsonl plus a suggested-recipes.yml
   # you can review and edit. `--inventory` switches it on for one run.
+  # Lists each page's animations and how samplable each one is, into
+  # animations.jsonl. It DESCRIBES: nothing is paused, seeked or captured, which
+  # is what makes it cheap enough to run on every page. Photographing motion is
+  # a captureAnimation recipe step, or `ui-atlas animations <url> --sample`.
+  #
+  # Not to be confused with `capture.animation`, which says how to sample a
+  # frame once something has decided to.
+  animations:
+    enabled: false
+    # Cap per page across every frame; the page record says when it bites.
+    maxPerPage: 200
+    # Cap for the whole run; the run warnings say when it bites.
+    maxTotal: 5000
   inventory:
     enabled: false
     # Added to the built-in list (delete, buy, send, save, sign out, ...), not
@@ -161,6 +210,29 @@ crawl:
     mutationWords: []
     maxPerPage: 200
     writeSuggestions: true
+
+# `ui-atlas tokens <url>`, or `crawl --tokens`. Reads every element's computed
+# style and counts what turns up.
+#
+# What comes out is a frequency table of observations, NOT a design system.
+# "#2563eb appears on 34 elements" is a fact; "this is your primary colour" is a
+# judgement, and this makes none — nothing in tokens.json has a name, because
+# naming is yours to do.
+#
+# Values that mean nobody decided anything — a transparent background, a zero
+# margin, `font-style: normal` — are left out. Without that the list is mostly
+# browser defaults.
+tokens:
+  enabled: false
+  # Elements past this are not read, and the artifact says how many.
+  maxElementsPerPage: 3000
+  maxExamplesPerValue: 5
+  # The long tail is truncated per category, and the artifact says so.
+  maxCandidatesPerCategory: 100
+  # Report two values close enough that one may be a mistake — a colour one
+  # channel off, a length half a pixel off. Reported, never merged: deciding
+  # which of the two is real would destroy the counts that answer it.
+  nearDuplicates: true
 
 # Redacted before anything is logged.
 redact:

@@ -5,6 +5,7 @@ import {
   SCHEMA_VERSION,
   toStructuredError,
   UiAtlasError,
+  type AnimationRecord,
   type CrawlSkipReason,
   type CrawlState,
   type FrontierItem,
@@ -14,6 +15,8 @@ import {
 import { Deadline, settlePage, sleep, TIMED_OUT, withTimeout } from '@ui-atlas/settle';
 import { Frontier } from './frontier.js';
 import { collectLinks, type DiscoveredLink } from './page-scripts.js';
+import type { TokenScanner } from '@ui-atlas/tokens';
+import type { CrawlAnimationInventory } from './animations.js';
 import type { InteractionInventory } from './inventory.js';
 import { CrawlPolicy } from './policy.js';
 import type { RecipeOutcome, RecipeRunner } from './recipes.js';
@@ -43,6 +46,8 @@ export interface CrawlResult {
   recipes: RecipeOutcome[];
   /** Interactive controls found, classified by what they would likely do. */
   interactions: InteractionCandidate[];
+  /** One entry per animation found, across every page. Empty unless asked for. */
+  animations: AnimationRecord[];
   /** Controls clicked across the whole crawl. Zero unless a recipe said to. */
   clicks: number;
   /** Extra attempts spent on pages that failed the first time. */
@@ -96,6 +101,18 @@ export interface CrawlerOptions {
    */
   inventory?: InteractionInventory | undefined;
   /**
+   * Counts every whitelisted computed value on each page, so a design system is
+   * described from the whole site rather than from whichever page you started
+   * on. Read-only, and shared across workers the same way the inventory is.
+   */
+  tokens?: TokenScanner | undefined;
+  /**
+   * Lists each page's animations and how samplable each one is. Describes only:
+   * nothing is paused, seeked or captured, which is what makes it cheap enough
+   * to run on every page.
+   */
+  animations?: CrawlAnimationInventory | undefined;
+  /**
    * Called after a page has settled and its recipes have run, while it is still
    * the current document. Used by tests to inspect the live page.
    */
@@ -129,6 +146,7 @@ export class Crawler {
   private readonly recipeOutcomes: RecipeOutcome[] = [];
   private readonly failedRecipes = new Set<string>();
   private readonly interactions: InteractionCandidate[] = [];
+  private readonly animations: AnimationRecord[] = [];
   private retries = 0;
   /** Origins already reported as having asked for a slower rate. */
   private readonly backedOffOrigins = new Set<string>();
@@ -318,6 +336,10 @@ export class Crawler {
           `${String(this.frontier.pendingCount)} URLs still queued`,
       );
     }
+    // Raised here rather than per page: "this page contains 2 canvas elements"
+    // is true of every page of a canvas-driven site, and fifty copies of it
+    // bury everything else.
+    this.warnings.push(...(this.options.animations?.finish() ?? []));
     for (const warning of this.warnings) writer.addWarning(warning);
 
     return {
@@ -329,6 +351,7 @@ export class Crawler {
       pendingAtStop: this.frontier.pendingCount,
       recipes: this.recipeOutcomes,
       interactions: this.interactions,
+      animations: this.animations,
       clicks: this.recipeOutcomes.reduce((total, outcome) => total + outcome.clicks, 0),
       retries: this.retries,
       backedOffOrigins: [...this.backedOffOrigins],
@@ -643,8 +666,11 @@ export class Crawler {
 
     await this.discover(worker, item, finalUrl, warnings, pageDeadline);
     // Before recipes: the inventory describes the page as served, not whatever
-    // a recipe left it looking like.
+    // a recipe left it looking like. The same reasoning applies to the style
+    // scan — a hover held open by a recipe would put its colours in the counts.
     await this.runInventory(worker, record, warnings);
+    await this.runAnimations(worker, record, warnings);
+    await this.runTokens(worker, record, warnings);
     const recipesFailed = await this.runRecipes(worker, record, warnings);
     await this.runPageHook(worker, record);
     return { record, outcome, recipesFailed };
@@ -665,6 +691,44 @@ export class Crawler {
       }
     } catch (error) {
       warnings.push(`interaction inventory failed: ${describe(error)}`);
+    }
+  }
+
+  private async runAnimations(
+    worker: CrawlWorker,
+    record: PageRecord,
+    warnings: string[],
+  ): Promise<void> {
+    const animations = this.options.animations;
+    if (animations === undefined || !animations.enabled) return;
+
+    try {
+      const found = await animations.collect(worker.page, record);
+      warnings.push(...found.warnings);
+      for (const animation of found.animations) {
+        this.animations.push(await this.options.writer.addAnimation(animation));
+      }
+    } catch (error) {
+      // One unreadable page is a fact about that page, not a reason to lose the
+      // animations from every other one.
+      warnings.push(`animation inventory failed on ${record.finalUrl}: ${describe(error)}`);
+    }
+  }
+
+  private async runTokens(
+    worker: CrawlWorker,
+    record: PageRecord,
+    warnings: string[],
+  ): Promise<void> {
+    const tokens = this.options.tokens;
+    if (tokens === undefined || !tokens.enabled) return;
+
+    try {
+      await tokens.scan(worker.page, record.routeKey);
+    } catch (error) {
+      // One unreadable page is a fact about that page, not a reason to lose the
+      // counts from every other one.
+      warnings.push(`style scan failed on ${record.finalUrl}: ${describe(error)}`);
     }
   }
 

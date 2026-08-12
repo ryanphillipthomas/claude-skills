@@ -14,6 +14,7 @@ import {
   type ElementIdentity,
   type ReadinessResult,
   type RecipeStep,
+  type Screencast,
   type StateName,
   type StyleDelta,
   type Viewport,
@@ -288,6 +289,61 @@ export class CaptureService {
     }
   }
 
+  /**
+   * Write the record for a recording that has already been taken.
+   *
+   * It bypasses the whole screenshot pipeline deliberately. There is no state to
+   * apply, no element to re-resolve and no overlay to hide — a screencast is of
+   * the page as served, taken in a browser context this service never saw. What
+   * it shares with every other capture is the record: same id space, same run,
+   * same `captures.jsonl`.
+   */
+  async captureVideo(input: {
+    /**
+     * Minted by the caller, unlike every other capture: the file has to be
+     * named and written before there is a record to put it in.
+     */
+    captureId: string;
+    screencast?: Screencast | undefined;
+    stateLabel?: string | undefined;
+    set?: CaptureSet | undefined;
+    sourceUrl?: string | undefined;
+    readiness?: ReadinessResult | undefined;
+    warnings?: string[] | undefined;
+    /** Why there is no file, when there is none. */
+    error?: CaptureRecord['error'] | undefined;
+    durationMs: number;
+  }): Promise<CaptureRecord> {
+    const kept = input.screencast !== undefined;
+    const record = await this.writeRecord({
+      captureId: input.captureId,
+      request: {
+        kind: 'animation-video',
+        state: 'default',
+        ...(input.stateLabel === undefined ? {} : { stateLabel: input.stateLabel }),
+        ...(input.set === undefined ? {} : { set: input.set }),
+        ...(input.sourceUrl === undefined ? {} : { sourceUrl: input.sourceUrl }),
+      },
+      // A recording that was taken and then discarded is `skipped`, not
+      // `failed`: the budget did its job, and the run is not broken.
+      status: kept ? 'captured' : 'skipped',
+      state: {
+        name: 'default',
+        provenance: 'observed',
+        verified: true,
+        verification: 'nothing was applied; the recording is of the page as served',
+      },
+      identity: undefined,
+      readiness: input.readiness,
+      steps: [{ action: 'capture', target: 'animation-video' }],
+      warnings: input.warnings ?? [],
+      durationMs: input.durationMs,
+      ...(input.screencast === undefined ? {} : { video: input.screencast }),
+      ...(input.error === undefined ? {} : { error: input.error }),
+    });
+    return record;
+  }
+
   /** Run a page function in every frame, ignoring frames that have gone away. */
   private async eachFrame(pageFunction: () => number): Promise<void> {
     await Promise.all(
@@ -363,8 +419,13 @@ export class CaptureService {
           ? page.screenshot({ ...common, fullPage: false })
           : locator.screenshot(common);
 
+      // Not a screenshot at all: a recording is produced by a browser context
+      // over time, so it arrives through `captureVideo` rather than here.
       case 'animation-video':
-        throw new UiAtlasError('capture.failed', `${kind} capture is not implemented yet`);
+        throw new UiAtlasError(
+          'capture.failed',
+          'animation-video is recorded, not photographed; use captureVideo',
+        );
 
       default: {
         const exhaustive: never = kind;
@@ -385,6 +446,7 @@ export class CaptureService {
     durationMs: number;
     styleDelta?: StyleDelta | undefined;
     image?: CaptureRecord['image'];
+    video?: Screencast | undefined;
     error?: CaptureRecord['error'];
   }): Promise<CaptureRecord> {
     const { page, writer, viewport, project, runId } = this.options;
@@ -413,6 +475,7 @@ export class CaptureService {
     if (input.request.set !== undefined) record.set = input.request.set;
     if (input.request.animation !== undefined) record.animation = input.request.animation;
     if (input.image !== undefined) record.image = input.image;
+    if (input.video !== undefined) record.video = input.video;
     if (input.error !== undefined) record.error = input.error;
 
     return writer.addCapture(record);

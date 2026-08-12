@@ -8,6 +8,7 @@ import { CAPTURE_HELP, runCapture } from './commands/capture.js';
 import { CRAWL_HELP, runCrawl } from './commands/crawl.js';
 import { INSPECT_HELP, runInspect } from './commands/inspect.js';
 import { REPORT_HELP, runReport } from './commands/report.js';
+import { TOKENS_HELP, runTokens } from './commands/tokens.js';
 
 export const TOP_LEVEL_HELP = `
 ui-atlas — collect website UI reference material for design-system work
@@ -20,6 +21,7 @@ Commands
   auth clear <profile>          delete a stored session and profile
   crawl <site-config.yml|url>   visit same-origin pages and record them
   animations <url>              list the page's animations and how samplable each is
+  tokens <url> [more urls...]   count the computed values a design system is made of
 
 Global options
   --help          show help for a command
@@ -37,6 +39,7 @@ const COMMAND_HELP: Record<string, string> = {
   auth: AUTH_HELP,
   crawl: CRAWL_HELP,
   animations: ANIMATIONS_HELP,
+  tokens: TOKENS_HELP,
 };
 
 export interface RunOptions {
@@ -85,6 +88,8 @@ export async function run(options: RunOptions): Promise<number> {
         return await runCrawl(args, logger);
       case 'animations':
         return await runAnimations(args, logger);
+      case 'tokens':
+        return await runTokens(args, logger);
       default:
         logger.error(`unknown command "${command}"`);
         process.stdout.write(`${TOP_LEVEL_HELP}\n`);

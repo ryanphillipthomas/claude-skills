@@ -1,10 +1,13 @@
 import type { Page } from 'playwright';
+import { captureProvokedAnimations } from '@ui-atlas/animation';
+import { routeKeyFromUrl } from '@ui-atlas/artifacts';
 import type { Recipe, RecipeStepConfig, RecipeTarget, UiAtlasConfig } from '@ui-atlas/config';
 import { buildElementIdentity, buildFramePath } from '@ui-atlas/identity';
 import type { CaptureService } from '@ui-atlas/capture';
 import {
   toStructuredError,
   UiAtlasError,
+  type AnimationRecord,
   type CaptureRecord,
   type ElementIdentity,
   type ElementProbe,
@@ -26,6 +29,8 @@ export interface RecipeRunnerOptions {
   config: UiAtlasConfig;
   captures: CaptureService;
   probe: ProbeLocator;
+  /** Stamped onto the animation records a `captureAnimation` step produces. */
+  runId: string;
   /** Replays the current route across every viewport, for `captureResponsive`. */
   runResponsive?:
     | ((input: { kind: StillCaptureKind; states: StateName[]; identity?: ElementIdentity | undefined }) => Promise<{
@@ -33,6 +38,11 @@ export interface RecipeRunnerOptions {
         warnings: string[];
       }>)
     | undefined;
+  /**
+   * Persists an animation a `captureAnimation` step provoked. Without it the
+   * frames are still captured; only the description of what was in them is lost.
+   */
+  onAnimation?: ((record: AnimationRecord) => Promise<void>) | undefined;
   onProgress?: ((message: string) => void) | undefined;
 }
 
@@ -41,6 +51,8 @@ export interface RecipeOutcome {
   route: string;
   status: 'ran' | 'failed';
   captureIds: string[];
+  /** Animations a `captureAnimation` step provoked into existence. */
+  animationIds: string[];
   /** Controls this run actually clicked. Counted so a run summary can show it. */
   clicks: number;
   warnings: string[];
@@ -67,6 +79,8 @@ export function stepIsInteractive(step: RecipeStepConfig): boolean {
  */
 export class RecipeRunner {
   private readonly recipes: Recipe[];
+  /** Numbers the animation records this runner writes, in discovery order. */
+  private animationSeq = 0;
 
   constructor(private readonly options: RecipeRunnerOptions) {
     this.recipes = options.config.crawl.recipes;
@@ -98,6 +112,7 @@ export class RecipeRunner {
       route,
       status: 'ran',
       captureIds: [],
+      animationIds: [],
       clicks: 0,
       warnings: [],
     };
@@ -242,6 +257,11 @@ export class RecipeRunner {
       return selected;
     }
 
+    if ('captureAnimation' in step) {
+      await this.captureAnimation(page, step.captureAnimation, { deadline, outcome });
+      return selected;
+    }
+
     if ('captureResponsive' in step) {
       const runResponsive = this.options.runResponsive;
       if (runResponsive === undefined) {
@@ -263,6 +283,96 @@ export class RecipeRunner {
     throw new UiAtlasError('config.invalid', `unhandled recipe step "${stepName(step)}"`);
   }
 
+  /**
+   * Provoke motion, photograph it, put it back, and let go.
+   *
+   * The hover lives inside this step rather than beside it. Knowing which
+   * animations an interaction started means holding the list from before it,
+   * and a 200ms transition provoked by one step and sampled by the next has
+   * usually finished by the time the next step runs.
+   */
+  private async captureAnimation(
+    page: Page,
+    spec: Extract<RecipeStepConfig, { captureAnimation: unknown }>['captureAnimation'],
+    context: { deadline: Deadline; outcome: RecipeOutcome },
+  ): Promise<void> {
+    const { deadline, outcome } = context;
+    const target = spec.hover ?? spec.focus;
+    if (target === undefined) {
+      // The schema refuses this shape; reaching it means the two have drifted.
+      throw new UiAtlasError('config.invalid', 'captureAnimation needs exactly one of hover or focus');
+    }
+    const isHover = spec.hover !== undefined;
+    const locator = locatorFor(page, target);
+    const groupId = `${isHover ? 'hover' : 'focus'}:${describeTarget(target)}`;
+    const timeout = Math.max(1, deadline.budgetFor(10_000));
+
+    // Built before anything is provoked: a target that cannot be described is a
+    // reason to photograph the viewport instead, not to leave a hover applied.
+    let identity: ElementIdentity | undefined;
+    if (spec.kind === 'element') {
+      try {
+        identity = await this.identityFor(page, target);
+      } catch (error) {
+        outcome.warnings.push(
+          `${groupId}: the element could not be described (${describeError(error)}); ` +
+            'these frames are of the viewport',
+        );
+      }
+    }
+
+    const sampling = this.options.config.capture.animation;
+    const result = await captureProvokedAnimations(page, {
+      runId: this.options.runId,
+      routeKey: routeKeyFromUrl(page.url()),
+      describeFrame: (frame) => buildFramePath(frame),
+      newId: () => `anim-${String((this.animationSeq += 1))}`,
+      provoke: async () => {
+        if (isHover) await locator.hover({ timeout });
+        else await locator.focus({ timeout });
+      },
+      // Moving the pointer to the origin is how a hover is let go of; there is
+      // no `unhover`. Releasing runs the transition backwards, which is why it
+      // happens after every frame has been taken.
+      release: async () => {
+        if (isHover) await page.mouse.move(0, 0);
+        else await locator.blur({ timeout });
+      },
+      offsets: spec.offsets ?? sampling.offsets,
+      maxAnimations: sampling.maxAnimations,
+      groupId,
+      setId: `recipe-animation-${String(this.animationSeq)}-${groupId}`,
+      capture: async ({ sample, label, setId }) =>
+        this.options.captures.capture({
+          kind: 'animation-frame',
+          // The animation position is forced; the *state* is genuinely default,
+          // and `animation` carries the truth about the moment.
+          state: 'default',
+          stateLabel: spec.label === undefined ? label : `${spec.label} ${label}`,
+          animation: sample,
+          set: { id: setId, kind: 'animation', member: label },
+          ...(identity === undefined ? {} : { identity }),
+        }),
+      ...(this.options.onProgress === undefined
+        ? {}
+        : { onProgress: this.options.onProgress }),
+    });
+
+    this.collect(outcome, result.captures);
+    outcome.warnings.push(...result.warnings.map((warning) => `${groupId}: ${warning}`));
+    for (const { record, reason } of result.skipped) {
+      outcome.warnings.push(
+        `${groupId}: not sampled: ${record.animationName ?? record.transitionProperty ?? record.animationId} — ${reason}`,
+      );
+    }
+
+    const persist = this.options.onAnimation;
+    for (const record of result.appeared) {
+      outcome.animationIds.push(record.id);
+      if (persist !== undefined) await persist(record);
+    }
+  }
+
   private collect(outcome: RecipeOutcome, records: CaptureRecord[]): void {
     for (const record of records) {
       outcome.captureIds.push(record.id);
@@ -281,6 +391,10 @@ export class RecipeRunner {
     }
     return identity;
   }
+}
+
+function describeError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function safePathname(raw: string): string | undefined {

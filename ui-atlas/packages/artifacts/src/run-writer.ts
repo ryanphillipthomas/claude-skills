@@ -2,6 +2,7 @@ import {
   AnimationRecordSchema,
   CaptureRecordSchema,
   CrawlStateSchema,
+  DesignTokenReportSchema,
   InteractionCandidateSchema,
   PageRecordSchema,
   RunManifestSchema,
@@ -10,12 +11,14 @@ import {
   type AnimationRecord,
   type CaptureRecord,
   type CrawlState,
+  type DesignTokenReport,
   type InteractionCandidate,
   type PageRecord,
   type RunManifest,
+  type Screencast,
 } from '@ui-atlas/protocol';
 import { existsSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
+import { readFile, rm } from 'node:fs/promises';
 import { appendJsonLine, atomicWriteFile, ensureDir, sha256 } from './atomic.js';
 import { pngDimensions } from './png.js';
 import { resolveWithinRoot, sanitizeSegment, toRecordPath } from './paths.js';
@@ -38,6 +41,7 @@ export interface RunPaths {
   interactionsJsonl: string;
   suggestedRecipes: string;
   animationsJsonl: string;
+  tokens: string;
 }
 
 export function runPaths(outputRoot: string, project: string, runId: string): RunPaths {
@@ -58,6 +62,7 @@ export function runPaths(outputRoot: string, project: string, runId: string): Ru
     interactionsJsonl: resolveWithinRoot(runDir, 'interactions.jsonl'),
     suggestedRecipes: resolveWithinRoot(runDir, 'suggested-recipes.yml'),
     animationsJsonl: resolveWithinRoot(runDir, 'animations.jsonl'),
+    tokens: resolveWithinRoot(runDir, 'tokens.json'),
   };
 }
 
@@ -201,6 +206,59 @@ export class RunWriter {
     };
   }
 
+  videoPath(target: ScreenshotTarget): string {
+    return resolveWithinRoot(
+      this.paths.animationsDir,
+      sanitizeSegment(target.routeKey, 'route'),
+      sanitizeSegment(target.viewportLabel, 'viewport'),
+      `${sanitizeSegment(target.captureId, 'capture')}.webm`,
+    );
+  }
+
+  /**
+   * A scratch directory for the browser to record into, inside the run rather
+   * than in the system temp directory: a recording that is never claimed is
+   * then visible where the rest of the run's mess would be, and
+   * `discardVideoWorkspace` removes it either way.
+   */
+  async videoWorkspace(captureId: string): Promise<string> {
+    this.assertReady();
+    const dir = resolveWithinRoot(
+      this.paths.animationsDir,
+      `.recording-${sanitizeSegment(captureId, 'capture')}`,
+    );
+    await ensureDir(dir);
+    return dir;
+  }
+
+  async discardVideoWorkspace(dir: string): Promise<void> {
+    // Guarded: only ever removes a directory inside this run's animations.
+    if (!dir.startsWith(this.paths.animationsDir)) return;
+    await rm(dir, { recursive: true, force: true }).catch(() => undefined);
+  }
+
+  /**
+   * Persist a recording and describe it. `meta` carries what the file itself
+   * cannot say — how long the window was, how far into the file it starts, and
+   * what the recording does not promise.
+   */
+  async writeVideo(
+    target: ScreenshotTarget,
+    bytes: Buffer,
+    meta: Omit<Screencast, 'relativePath' | 'sha256' | 'byteLength' | 'format'>,
+  ): Promise<Screencast> {
+    this.assertReady();
+    const absolute = this.videoPath(target);
+    const written = await atomicWriteFile(absolute, bytes);
+    return {
+      ...meta,
+      relativePath: toRecordPath(this.paths.runDir, absolute),
+      sha256: written.sha256,
+      byteLength: written.byteLength,
+      format: 'webm',
+    };
+  }
+
   /**
    * Append a capture to `captures.jsonl` and drop a sidecar JSON next to the
    * image so a single screenshot is never separated from its metadata.
@@ -216,10 +274,13 @@ export class RunWriter {
     const value = parsed.data;
     await appendJsonLine(this.paths.capturesJsonl, value);
 
-    if (value.image !== undefined) {
+    // A recording gets the same treatment as a screenshot: no artifact in this
+    // tree is ever separated from the metadata that explains it.
+    const artifact = value.image?.relativePath ?? value.video?.relativePath;
+    if (artifact !== undefined) {
       const sidecar = resolveWithinRoot(
         this.paths.runDir,
-        `${value.image.relativePath.replace(/\.png$/i, '')}.json`,
+        `${artifact.replace(/\.(png|webm)$/i, '')}.json`,
       );
       await atomicWriteFile(sidecar, `${JSON.stringify(value, null, 2)}\n`);
     }
@@ -273,6 +334,19 @@ export class RunWriter {
       });
     }
     await appendJsonLine(this.paths.animationsJsonl, parsed.data);
+    return parsed.data;
+  }
+
+  /** The observed-value frequency table. Validated like every other record. */
+  async writeTokens(report: DesignTokenReport): Promise<DesignTokenReport> {
+    this.assertReady();
+    const parsed = DesignTokenReportSchema.safeParse(report);
+    if (!parsed.success) {
+      throw new UiAtlasError('artifact.write-failed', 'invalid design token report', {
+        detail: { issues: formatIssues(parsed.error) },
+      });
+    }
+    await atomicWriteFile(this.paths.tokens, `${JSON.stringify(parsed.data, null, 2)}\n`);
     return parsed.data;
   }
 

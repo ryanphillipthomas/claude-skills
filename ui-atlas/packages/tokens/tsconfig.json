@@ -7,14 +7,5 @@
     "lib": ["ES2022", "DOM", "DOM.Iterable"]
   },
   "include": ["src/**/*.ts"],
-  "references": [
-    { "path": "../protocol" },
-    { "path": "../animation" },
-    { "path": "../config" },
-    { "path": "../artifacts" },
-    { "path": "../capture" },
-    { "path": "../identity" },
-    { "path": "../settle" },
-    { "path": "../tokens" }
-  ]
+  "references": [{ "path": "../protocol" }, { "path": "../config" }]
 }

@@ -161,6 +161,39 @@ describe('buildReportModel', () => {
     expect(serialised).not.toContain('.ui-atlas/');
   });
 
+  it('points a recording at the animations folder and carries what it is of', () => {
+    const model = build([
+      record({
+        kind: 'animation-video',
+        video: {
+          relativePath: 'animations/x-page/base/vid.webm',
+          sha256: 'c'.repeat(64),
+          byteLength: 4096,
+          format: 'webm',
+          width: 800,
+          height: 600,
+          durationMs: 3000,
+          leadInMs: 800,
+          truncated: true,
+          subjects: ['drift on [data-testid="spinner"]'],
+          limitations: ['a recording is not a deterministic sample'],
+        },
+      }),
+    ]);
+
+    const capture = model.captures[0];
+    expect(capture?.video?.src).toBe('../animations/x-page/base/vid.webm');
+    expect(capture?.video?.durationMs).toBe(3000);
+    expect(capture?.video?.leadInMs).toBe(800);
+    expect(capture?.video?.truncated).toBe(true);
+    expect(capture?.video?.subjects).toEqual(['drift on [data-testid="spinner"]']);
+    expect(capture?.image).toBeUndefined();
+
+    // The view model is an allowlist (ADR 12): the checksum is not part of what
+    // the page needs, so it does not travel into it.
+    expect(JSON.stringify(capture?.video)).not.toContain('c'.repeat(64));
+  });
+
   it('collects facets from the captures actually present', () => {
     const model = build([
       record({ element: element('fp-1'), state: { name: 'hover', provenance: 'interacted', verified: true } }),

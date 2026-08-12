@@ -55,6 +55,26 @@ export type SettleConfig = z.infer<typeof SettleConfigSchema>;
 /* Animation sampling                                                          */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * The fallback for motion with no keyframes to sample: an animation that
+ * repeats forever, one whose duration is `auto`, or a canvas the Web Animations
+ * API cannot see at all.
+ *
+ * Off by default. A recording is not a deterministic sample — re-recording
+ * gives a different file — and it costs a second page load in a browser context
+ * of its own, because Playwright records a context rather than a page.
+ */
+export const AnimationVideoConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  /** Hard cap on the observation window. An infinite animation has no end. */
+  maxDurationMs: z.number().int().min(250).max(60_000).default(5_000),
+  /** A recording over the budget is discarded rather than kept. */
+  maxBytes: z.number().int().min(1024).default(10_000_000),
+  /** Loops of a repeating animation to try to include in the window. */
+  iterations: z.number().int().min(1).max(20).default(3),
+});
+export type AnimationVideoConfig = z.infer<typeof AnimationVideoConfigSchema>;
+
 export const AnimationSamplingConfigSchema = z.object({
   /**
    * Points within **one iteration** to photograph, 0..1. One iteration is the
@@ -70,6 +90,8 @@ export const AnimationSamplingConfigSchema = z.object({
   maxAnimations: z.number().int().min(1).max(200).default(10),
   /** What to photograph for each frame. */
   kind: z.enum(['element', 'viewport']).default('element'),
+  /** The fallback for motion no seek can reproduce. */
+  video: AnimationVideoConfigSchema.prefault({}),
 });
 export type AnimationSamplingConfig = z.infer<typeof AnimationSamplingConfigSchema>;
 
@@ -224,6 +246,27 @@ export const InventoryConfigSchema = z.object({
 export type InventoryConfig = z.infer<typeof InventoryConfigSchema>;
 
 /**
+ * Listing each crawled page's animations, and how samplable each one is.
+ *
+ * The inventory *describes*: nothing is paused, seeked or captured, which is
+ * what makes it safe to run on every page of a crawl. Photographing motion is a
+ * `captureAnimation` recipe step or the one-shot `animations` command — both
+ * cost far more per page than a crawl should spend without being asked.
+ *
+ * Not to be confused with `capture.animation`, which says *how* to sample a
+ * frame once something has decided to.
+ */
+export const CrawlAnimationsConfigSchema = z.object({
+  /** Off by default: it costs two page evaluations per frame per page. */
+  enabled: z.boolean().default(false),
+  /** Cap per page, across every frame, so one busy page cannot dominate. */
+  maxPerPage: z.number().int().min(1).max(2_000).default(200),
+  /** Cap for the whole run, so a large crawl cannot produce a vast file. */
+  maxTotal: z.number().int().min(1).max(200_000).default(5_000),
+});
+export type CrawlAnimationsConfig = z.infer<typeof CrawlAnimationsConfigSchema>;
+
+/**
  * Statuses worth trying again. A `404` will not improve, and neither will a
  * `403`; these are the ones that mean "not right now" rather than "no".
  */
@@ -331,6 +374,32 @@ const CaptureStepSchema = z.strictObject({
 });
 
 /**
+ * Photograph motion that only exists once something provokes it.
+ *
+ * The provocation is part of the step rather than a separate `hover` before it,
+ * because knowing which animations an interaction *started* means holding the
+ * list from before it — and because a 200ms transition provoked by one step and
+ * sampled by the next has usually finished in between.
+ *
+ * `click` is deliberately not offered. A click is the one interaction that can
+ * change the world, so it stays a step of its own that someone wrote on
+ * purpose; this step can only ever hover or focus.
+ */
+const CaptureAnimationStepSchema = z
+  .strictObject({
+    hover: RecipeTargetSchema.optional(),
+    focus: RecipeTargetSchema.optional(),
+    /** `element` photographs the provoked element; `viewport` the whole frame. */
+    kind: z.enum(['element', 'viewport']).default('element'),
+    /** Points across the interaction's whole span, overriding the config. */
+    offsets: z.array(z.number().min(0).max(1)).min(1).max(50).optional(),
+    label: z.string().optional(),
+  })
+  .refine((step) => (step.hover === undefined) !== (step.focus === undefined), {
+    message: 'captureAnimation needs exactly one of hover or focus',
+  });
+
+/**
  * One step. The single-key object form comes from the brief's example YAML:
  * `- hover: { role: button, name: Menu }`.
  *
@@ -354,6 +423,7 @@ export const RecipeStepConfigSchema = z.union([
   z.strictObject({ waitMs: z.number().int().min(0).max(30_000) }),
   z.strictObject({ capture: CaptureStepSchema.prefault({}) }),
   z.strictObject({ captureStates: z.array(StateNameSchema).min(1) }),
+  z.strictObject({ captureAnimation: CaptureAnimationStepSchema }),
   z.strictObject({
     captureResponsive: z
       .strictObject({ kind: z.enum(['element', 'viewport', 'full-page']).default('viewport') })
@@ -420,6 +490,11 @@ export const CrawlConfigSchema = z.object({
    * likely to do. Observation only: nothing here is ever clicked.
    */
   inventory: InventoryConfigSchema.prefault({}),
+  /**
+   * List each page's animations and how samplable each one is. Describes only:
+   * nothing is paused, seeked or captured.
+   */
+  animations: CrawlAnimationsConfigSchema.prefault({}),
 });
 export type CrawlConfig = z.infer<typeof CrawlConfigSchema>;
 
@@ -440,6 +515,29 @@ export type RedactionConfig = z.infer<typeof RedactionConfigSchema>;
 /* -------------------------------------------------------------------------- */
 /* Root                                                                        */
 /* -------------------------------------------------------------------------- */
+
+/* -------------------------------------------------------------------------- */
+/* Design token candidates                                                     */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Reading every element's computed style and counting what turns up.
+ *
+ * Off by default, and a *first pass* on purpose: what comes out is a frequency
+ * table of observations, not a design system. Naming a value is a judgement,
+ * and this makes none.
+ */
+export const TokensConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  /** Elements past this are not read, and the artifact says how many. */
+  maxElementsPerPage: z.number().int().min(1).max(100_000).default(3_000),
+  maxExamplesPerValue: z.number().int().min(1).max(50).default(5),
+  /** The long tail is truncated per category, and the artifact says so. */
+  maxCandidatesPerCategory: z.number().int().min(1).max(1_000).default(100),
+  /** Report values close enough that one may be a mistake. Never merges them. */
+  nearDuplicates: z.boolean().default(true),
+});
+export type TokensConfig = z.infer<typeof TokensConfigSchema>;
 
 export const UiAtlasConfigSchema = z.object({
   project: z
@@ -467,6 +565,7 @@ export const UiAtlasConfigSchema = z.object({
    * and validation as every other command. Recipes will slot in here too.
    */
   crawl: CrawlConfigSchema.prefault({}),
+  tokens: TokensConfigSchema.prefault({}),
   redact: RedactionConfigSchema.prefault({}),
 });
 export type UiAtlasConfig = z.infer<typeof UiAtlasConfigSchema>;

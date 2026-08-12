@@ -1,3 +1,4 @@
+export * from './animations.js';
 export * from './canonical.js';
 export * from './classify.js';
 export * from './crawler.js';

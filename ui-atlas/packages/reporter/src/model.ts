@@ -1,6 +1,8 @@
 import type {
   CaptureRecord,
   CaptureStatus,
+  DesignTokenCandidate,
+  DesignTokenReport,
   PageRecord,
   ReadinessResult,
   RecipeStep,
@@ -8,6 +10,7 @@ import type {
   StateProvenance,
   StructuredError,
   StyleDelta,
+  TokenNearDuplicate,
 } from '@ui-atlas/protocol';
 
 /**
@@ -26,6 +29,18 @@ export interface ReportImage {
   height: number;
   sha256: string;
   byteLength: number;
+}
+
+/** A recording, for motion with no keyframes to sample. */
+export interface ReportVideo {
+  src: string;
+  durationMs: number;
+  /** How far into the file the observation window starts. */
+  leadInMs: number;
+  byteLength: number;
+  truncated: boolean;
+  subjects: string[];
+  limitations: string[];
 }
 
 export interface ReportLocator {
@@ -69,6 +84,7 @@ export interface ReportCapture {
   capturedAt: string;
   durationMs: number;
   image?: ReportImage;
+  video?: ReportVideo;
   element?: ReportElement;
   readiness: ReadinessResult;
   styleDelta?: StyleDelta;
@@ -147,6 +163,20 @@ export interface ReportPage {
   error?: StructuredError;
 }
 
+/**
+ * Observed computed values with counts. Deliberately shaped like the artifact
+ * rather than like a design system: no names, because naming is a judgement the
+ * tool does not make.
+ */
+export interface ReportTokens {
+  note: string;
+  pagesScanned: number;
+  elementsScanned: number;
+  candidates: DesignTokenCandidate[];
+  nearDuplicates: TokenNearDuplicate[];
+  warnings: string[];
+}
+
 export interface ReportModel {
   schemaVersion: 1;
   generatedAt: string;
@@ -155,6 +185,7 @@ export interface ReportModel {
   components: ComponentGroup[];
   duplicates: DuplicateGroup[];
   pages: ReportPage[];
+  tokens?: ReportTokens;
   facets: ReportFacets;
   /** JSONL lines that could not be read, so the report never lies by omission. */
   unreadableRecords: number;
@@ -228,6 +259,19 @@ function toCapture(record: CaptureRecord): ReportCapture {
       height: record.image.height,
       sha256: record.image.sha256,
       byteLength: record.image.byteLength,
+    };
+  }
+
+  if (record.video !== undefined) {
+    capture.video = {
+      // The report lives in `<run>/report/`, the recordings in `<run>/animations/`.
+      src: `../${record.video.relativePath}`,
+      durationMs: record.video.durationMs,
+      leadInMs: record.video.leadInMs,
+      byteLength: record.video.byteLength,
+      truncated: record.video.truncated,
+      subjects: record.video.subjects,
+      limitations: record.video.limitations,
     };
   }
 
@@ -356,6 +400,8 @@ export interface BuildModelInput {
   pages: PageRecord[];
   unreadableRecords: number;
   generatedAt: string;
+  /** `tokens.json`, when the run wrote one. */
+  tokens?: DesignTokenReport | undefined;
 }
 
 export function buildReportModel(input: BuildModelInput): ReportModel {
@@ -404,6 +450,37 @@ export function buildReportModel(input: BuildModelInput): ReportModel {
       return view;
     }),
     facets: buildFacets(captures),
+    ...(input.tokens === undefined ? {} : { tokens: toTokens(input.tokens) }),
     unreadableRecords: input.unreadableRecords,
+  };
+}
+
+/**
+ * An allowlist, like everything else in the view model (ADR 12). `runId` and
+ * `generatedAt` are already on the run; the rest of the file is what the page
+ * needs and nothing more.
+ */
+function toTokens(report: DesignTokenReport): ReportTokens {
+  return {
+    note: report.note,
+    pagesScanned: report.pagesScanned,
+    elementsScanned: report.elementsScanned,
+    candidates: report.candidates.map((candidate) => ({
+      category: candidate.category,
+      kind: candidate.kind,
+      value: candidate.value,
+      count: candidate.count,
+      properties: candidate.properties,
+      routes: candidate.routes,
+      examples: candidate.examples,
+    })),
+    nearDuplicates: report.nearDuplicates.map((pair) => ({
+      category: pair.category,
+      kind: pair.kind,
+      a: pair.a,
+      b: pair.b,
+      reason: pair.reason,
+    })),
+    warnings: report.warnings,
   };
 }

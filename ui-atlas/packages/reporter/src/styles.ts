@@ -193,6 +193,10 @@ a { color: var(--accent); }
   background-position: 0 0, 0 8px, 8px -8px, -8px 0;
 }
 .shot img { max-width: 100%; max-height: 100%; object-fit: contain; display: block; }
+/* Inert inside a card or a cell, which are buttons: a click there opens the
+   detail panel, and only the detail panel's player takes clicks of its own. */
+.shot video { max-width: 100%; max-height: 100%; display: block; background: #000; pointer-events: none; }
+.detail__shot video { pointer-events: auto; }
 .shot--empty { flex-direction: column; gap: 6px; color: var(--fg-faint); font-size: 12px; text-align: center; padding: 10px; }
 .shot--empty code { font-family: var(--mono); font-size: 11px; }
 
@@ -353,6 +357,24 @@ a { color: var(--accent); }
 
 .notelist { margin: 0; padding-left: 16px; font-size: 12.5px; color: var(--fg-muted); }
 .notelist li { margin-bottom: 3px; }
+
+.muted { font-size: 12.5px; color: var(--fg-muted); margin: 0 0 10px; }
+.tokens__group { margin-bottom: 22px; }
+.tokens__heading { font-size: 14px; font-weight: 600; margin: 0 0 6px; text-transform: capitalize; }
+.swatch {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  margin-right: 6px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  vertical-align: -2px;
+  /* Checkerboard behind it, so a translucent value reads as translucent. */
+  background-image:
+    linear-gradient(45deg, #d0d0d0 25%, transparent 25%),
+    linear-gradient(-45deg, #d0d0d0 25%, transparent 25%);
+  background-size: 6px 6px;
+}
 .note { padding: 8px 10px; border-radius: 8px; font-size: 12.5px; }
 .note--warn { background: var(--warn-bg); color: var(--warn); }
 .note--bad { background: var(--bad-bg); color: var(--bad); }

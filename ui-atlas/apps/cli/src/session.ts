@@ -1,6 +1,15 @@
+import { readFile } from 'node:fs/promises';
 import type { Frame, Page } from 'playwright';
 import {
+  fingerprintAnimation,
+  inventoryAnimations,
+  planScreencast,
+  recordScreencast,
+  sampleAnimations,
+} from '@ui-atlas/animation';
+import {
   emptyManifest,
+  newCaptureId,
   newPageId,
   newRunId,
   newSessionToken,
@@ -39,6 +48,9 @@ import {
   SCHEMA_VERSION,
   toStructuredError,
   UiAtlasError,
+  type AnimationInventoryResult,
+  type AnimationRecord,
+  type AnimationSummary,
   type ElementIdentity,
   type ElementProbe,
   type OverlaySession,
@@ -84,6 +96,8 @@ const UNHOLDABLE_STATES: StateName[] = ['active'];
 export class AtlasSession {
   private selection: Selection | undefined;
   private preview: HeldPreview | undefined;
+  /** The last list the animation panel was shown, so it can name one back. */
+  private animations: AnimationRecord[] = [];
 
   private constructor(
     readonly runId: string,
@@ -177,6 +191,7 @@ export class AtlasSession {
             const session = requireSession(holder);
             return session.previewState(params.state);
           },
+          'animation/inventory': async () => requireSession(holder).handleAnimationInventory(),
           'inspect/mode': async (_source, params) => {
             const session = requireSession(holder);
             await session.overlay.broadcast({ type: 'inspect/mode', active: params.active });
@@ -318,7 +333,7 @@ export class AtlasSession {
       capabilities: {
         fullPage: true,
         responsive: true,
-        animation: false,
+        animation: true,
         states: ['default', 'hover', 'focus', 'focus-visible', 'active', 'checked', 'selected', 'expanded', 'disabled'],
       },
     };
@@ -483,10 +498,14 @@ export class AtlasSession {
       responsive: boolean;
       label?: string | undefined;
       probe?: ElementProbe | undefined;
+      animationId?: string | undefined;
     },
   ): Promise<QueueJob[]> {
-    if (request.kind === 'animation-frame' || request.kind === 'animation-video') {
-      throw new UiAtlasError('state.unsupported', 'Animation capture lands in phase 4.');
+    if (request.kind === 'animation-frame') {
+      return [this.enqueueAnimationFrames(request.animationId, request.label)];
+    }
+    if (request.kind === 'animation-video') {
+      return [this.enqueueAnimationRecording(request.animationId, request.label)];
     }
 
     let identity: ElementIdentity | undefined;
@@ -543,6 +562,240 @@ export class AtlasSession {
     });
 
     return [job];
+  }
+
+  /* ---------------------------------------------------------------------- */
+  /* Animation panel                                                         */
+  /* ---------------------------------------------------------------------- */
+
+  /**
+   * What is moving on this page, and what can honestly be done about each.
+   *
+   * The panel exists to offer the action that will *work*. Anything the
+   * inventory could not call `sampleable` comes back with `canSample: false`
+   * and the inventory's own reason, so the toolbar shows why instead of
+   * offering a button that would produce a frame the site never shows.
+   */
+  async handleAnimationInventory(): Promise<AnimationInventoryResult> {
+    const result = await inventoryAnimations(this.page, {
+      runId: this.runId,
+      routeKey: routeKeyFromUrl(this.page.url()),
+      describeFrame: (frame) => buildFramePath(frame),
+    });
+
+    // Kept so a later `capture/request` can name one. Matched by fingerprint at
+    // capture time rather than trusted: the page will have moved on.
+    this.animations = result.animations;
+
+    return {
+      animations: result.animations.map((record) => {
+        const summary: AnimationSummary = {
+          id: record.id,
+          label: record.animationName ?? record.transitionProperty ?? record.animationId,
+          sampleability: record.sampleability,
+          reason: record.reasons[0] ?? `it is ${record.sampleability}`,
+          canSample: record.sampleability === 'sampleable',
+          // A recording shows what a seek cannot reproduce. Something already
+          // sampleable does not need one, and a scroll-driven animation would
+          // record as a still (ADR 23).
+          canRecord: record.sampleability === 'infinite' || record.sampleability === 'indeterminate',
+        };
+        if (record.target?.selectorHint !== undefined) summary.target = record.target.selectorHint;
+        if (record.durationMs !== undefined) summary.durationMs = record.durationMs;
+        return summary;
+      }),
+      unobservable: result.unobservable,
+      warnings: result.warnings,
+    };
+  }
+
+  /**
+   * Find a listed animation again on the live page.
+   *
+   * The index recorded at inventory time is not trusted: seconds have passed,
+   * a transition may have ended and everything after it shifted. A fresh
+   * inventory matched by fingerprint (ADR 22) either finds the same animation
+   * or says it is gone — never a confident frame of a different one.
+   */
+  private async refindAnimation(animationId: string): Promise<AnimationRecord> {
+    const wanted = this.animations.find((record) => record.id === animationId);
+    if (wanted === undefined) {
+      throw new UiAtlasError('locator.not-found', 'that animation is not in the current list');
+    }
+    const fresh = await inventoryAnimations(this.page, {
+      runId: this.runId,
+      routeKey: routeKeyFromUrl(this.page.url()),
+    });
+    const key = fingerprintAnimation(wanted);
+    const found = fresh.animations.find((record) => fingerprintAnimation(record) === key);
+    if (found === undefined) {
+      throw new UiAtlasError(
+        'locator.not-found',
+        `${wanted.animationName ?? wanted.animationId} is no longer running on this page`,
+      );
+    }
+    return found;
+  }
+
+  private enqueueAnimationFrames(animationId: string | undefined, label: string | undefined): QueueJob {
+    if (animationId === undefined) {
+      throw new UiAtlasError('config.invalid', 'an animation capture needs an animation to sample');
+    }
+    return this.queue.enqueue({
+      kind: 'animation-frame',
+      states: ['default'],
+      label: label ?? 'animation frames',
+      run: async (report) =>
+        this.withoutPreview(async () => {
+          const record = await this.refindAnimation(animationId);
+          report(`sampling ${record.animationName ?? record.animationId}`);
+          const sampling = this.options.config.capture.animation;
+          const setId = `animation-${this.runId}-${record.id}`;
+
+          const sampled = await sampleAnimations(this.page, [record], {
+            config: sampling,
+            setId: () => setId,
+            onProgress: (message) => report(message),
+            capture: async ({ sample, label: frameLabel, setId: set }) =>
+              this.captures.capture({
+                kind: 'animation-frame',
+                state: 'default',
+                stateLabel: frameLabel,
+                animation: sample,
+                set: { id: set, kind: 'animation', member: frameLabel },
+              }),
+          });
+
+          const warnings = [...sampled.warnings];
+          for (const skip of sampled.skipped) {
+            // Reached only if the page changed under us: the panel does not
+            // offer a sample for anything the inventory refused.
+            warnings.push(`not sampled: ${skip.record.animationId} — ${skip.reason}`);
+          }
+          return { captureIds: sampled.captures.map((capture) => capture.id), warnings };
+        }),
+    });
+  }
+
+  /**
+   * Record the page for a bounded window. Without an animation named, it
+   * records whatever the plan says is worth recording — which is how motion no
+   * animation list can see (canvas, WebGL, video) is reached at all.
+   */
+  private enqueueAnimationRecording(
+    animationId: string | undefined,
+    label: string | undefined,
+  ): QueueJob {
+    return this.queue.enqueue({
+      kind: 'animation-video',
+      states: ['default'],
+      label: label ?? 'animation recording',
+      run: async (report) =>
+        this.withoutPreview(async () => {
+          const parent = this.browser.browser;
+          if (parent === undefined) {
+            // Same constraint concurrency and the CLI hit: a persistent profile
+            // owns its only context and a recording needs one of its own.
+            throw new UiAtlasError(
+              'state.unsupported',
+              'a recording needs a browser context of its own, which this browser mode cannot create',
+            );
+          }
+
+          const inventory = await inventoryAnimations(this.page, {
+            runId: this.runId,
+            routeKey: routeKeyFromUrl(this.page.url()),
+          });
+          const subjects =
+            animationId === undefined
+              ? inventory.animations
+              : [await this.refindAnimation(animationId)];
+          const videoConfig = this.options.config.capture.animation.video;
+          const plan = planScreencast(
+            subjects,
+            animationId === undefined ? inventory.unobservable : { canvas2d: 0, webgl: 0, video: 0 },
+            videoConfig,
+          );
+          if (!plan.record) {
+            throw new UiAtlasError(
+              'state.unsupported',
+              plan.excluded[0]?.reason ?? 'there is nothing here a recording would show',
+            );
+          }
+
+          report(`recording ${String(Math.round(plan.durationMs))}ms`);
+          const captureId = newCaptureId();
+          const workspace = await this.writer.videoWorkspace(captureId);
+          const startedAt = Date.now();
+          try {
+            const recording = await recordScreencast(parent, {
+              url: this.page.url(),
+              durationMs: plan.durationMs,
+              maxBytes: videoConfig.maxBytes,
+              viewport: { width: this.viewport.width, height: this.viewport.height },
+              contextOptions: {
+                ...emulationOptions(this.viewport, this.browser.browserVersion),
+                locale: this.options.config.browser.locale,
+                colorScheme: this.options.config.browser.colorScheme,
+                reducedMotion: this.options.config.browser.reducedMotion,
+                ...(await this.browser.context
+                  .storageState()
+                  .then((storageState) => ({ storageState }))
+                  .catch(() => ({}))),
+              },
+              workspaceDir: workspace,
+              settle: (target) => settlePage(target, { config: this.options.config.settle }),
+              navigationTimeoutMs: this.options.config.browser.navigationTimeoutMs,
+            });
+
+            if (recording.path === undefined) {
+              const capture = await this.captures.captureVideo({
+                captureId,
+                warnings: recording.warnings,
+                durationMs: Date.now() - startedAt,
+                error: {
+                  code: recording.byteLength > 0 ? 'capture.over-budget' : 'capture.failed',
+                  message: recording.warnings[0] ?? 'no recording was produced',
+                },
+              });
+              return { captureIds: [capture.id], warnings: recording.warnings };
+            }
+
+            const screencast = await this.writer.writeVideo(
+              {
+                routeKey: routeKeyFromUrl(this.page.url()),
+                viewportLabel: viewportLabel(this.viewport),
+                captureId,
+              },
+              await readFile(recording.path),
+              {
+                width: this.viewport.width,
+                height: this.viewport.height,
+                durationMs: recording.durationMs,
+                leadInMs: recording.leadInMs,
+                truncated: plan.truncated,
+                subjects: plan.subjects,
+                limitations: [
+                  ...plan.limitations,
+                  'the file starts with the page load this recording needed; ' +
+                    `the part you asked about begins about ${String(Math.round(recording.leadInMs))}ms in`,
+                ],
+              },
+            );
+            const capture = await this.captures.captureVideo({
+              captureId,
+              screencast,
+              stateLabel: 'recording',
+              set: { id: `animation-video-${captureId}`, kind: 'animation', member: 'recording' },
+              warnings: recording.warnings,
+              durationMs: Date.now() - startedAt,
+            });
+            return { captureIds: [capture.id], warnings: recording.warnings };
+          } finally {
+            await this.writer.discardVideoWorkspace(workspace);
+          }
+        }),
+    });
   }
 
   /**

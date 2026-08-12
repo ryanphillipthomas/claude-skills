@@ -4,7 +4,10 @@ import { emptyManifest, newRunId, readRunManifest, RunWriter } from '@ui-atlas/a
 import type { Page } from 'playwright';
 import { emulationOptions, launchSession, resolveViewport, viewportLabel } from '@ui-atlas/browser';
 import { CaptureService } from '@ui-atlas/capture';
+import { summariseAnimations } from '@ui-atlas/animation';
+import { TokenScanner } from '@ui-atlas/tokens';
 import {
+  CrawlAnimationInventory,
   Crawler,
   CrawlPolicy,
   describeTarget,
@@ -23,6 +26,7 @@ import { UiAtlasError, type CrawlState, type PageRecord } from '@ui-atlas/protoc
 import { flagNumber, flagString, type ParsedArgs } from '../args.js';
 import { loadCliConfig, TOOL_VERSION } from '../config.js';
 import type { Logger } from '../logger.js';
+import { reportTokens } from './tokens.js';
 
 export const CRAWL_HELP = `
 ui-atlas crawl <site-config.yml | url> [options]
@@ -59,6 +63,13 @@ ui-atlas crawl <site-config.yml | url> [options]
   --inventory         list each page's interactive controls and what each is
                       likely to do, into interactions.jsonl, and write a
                       reviewable suggested-recipes.yml. Nothing is clicked.
+  --tokens            count every page's computed colours, spacing, type and
+                      radii into tokens.json. Observations with counts, not a
+                      design system: nothing is named for you.
+  --animations        list every page's animations and how samplable each is,
+                      into animations.jsonl. It describes only: nothing is
+                      paused, seeked or captured. Photographing motion is a
+                      captureAnimation recipe step, or the animations command.
   --seed <url>        add a seed (repeatable via config); overrides crawl.seeds
   --max-pages <n>     hard cap on pages visited
   --max-depth <n>     seeds are depth 0
@@ -131,6 +142,7 @@ export async function runCrawl(args: ParsedArgs, logger: Logger): Promise<number
   if (Object.keys(budgetOverrides).length > 0) crawlOverrides['budgets'] = budgetOverrides;
 
   if (args.flags.get('inventory') === true) crawlOverrides['inventory'] = { enabled: true };
+  if (args.flags.get('animations') === true) crawlOverrides['animations'] = { enabled: true };
   const concurrency = flagNumber(args, 'concurrency');
   if (concurrency !== undefined) crawlOverrides['concurrency'] = concurrency;
   const delayMs = flagNumber(args, 'delay-ms');
@@ -257,6 +269,7 @@ export async function runCrawl(args: ParsedArgs, logger: Logger): Promise<number
   const recipesForPage = (target: Page): RecipeRunner =>
     new RecipeRunner({
       config,
+      runId,
       captures: new CaptureService({
         page: target,
         writer,
@@ -268,6 +281,9 @@ export async function runCrawl(args: ParsedArgs, logger: Logger): Promise<number
       }),
       probe: (probeTarget, spec) =>
         probeLocator(locatorFor(probeTarget, spec), describeTarget(spec)),
+      onAnimation: async (record) => {
+        await writer.addAnimation(record);
+      },
       onProgress: (message) => logger.info(message),
     });
 
@@ -319,6 +335,20 @@ export async function runCrawl(args: ParsedArgs, logger: Logger): Promise<number
   }
 
   const policy = new CrawlPolicy(config.crawl, seedsForRun);
+  // One scanner for the whole crawl: a design system is not visible from one
+  // page, and a colour used once on twelve pages is a different finding from
+  // one used twelve times on a single page.
+  const tokens = new TokenScanner({
+    runId,
+    config: {
+      ...config.tokens,
+      enabled: config.tokens.enabled || args.flags.get('tokens') === true,
+    },
+  });
+  // No probe needed: the animation inventory reads the page's own animation
+  // state, unlike an element capture, which must describe an element exactly
+  // the way the inspector does.
+  const animations = new CrawlAnimationInventory({ config: config.crawl.animations, runId });
   const inventory = new InteractionInventory({
     config: config.crawl.inventory,
     runId,
@@ -337,6 +367,8 @@ export async function runCrawl(args: ParsedArgs, logger: Logger): Promise<number
       seeds: seedsForRun,
       recipes: recipesForPage(page),
       inventory,
+      animations,
+      tokens,
       ...(createWorker === undefined ? {} : { createWorker }),
       ...(resumeState === undefined ? {} : { resume: resumeState }),
       onProgress: (message) => logger.info(`visiting ${message}`),
@@ -350,6 +382,15 @@ export async function runCrawl(args: ParsedArgs, logger: Logger): Promise<number
   if (config.crawl.inventory.enabled && config.crawl.inventory.writeSuggestions) {
     const path = await writer.writeSuggestedRecipes(suggestRecipes(result.interactions));
     logger.info(`suggested recipes: ${path}`);
+  }
+
+  if (tokens.enabled) {
+    const report = await writer.writeTokens(tokens.summarise());
+    for (const warning of report.warnings) {
+      logger.warn(warning);
+      writer.addWarning(warning);
+    }
+    reportTokens(report, logger);
   }
 
   const manifest = await writer.finalize({
@@ -399,6 +440,7 @@ function summarise(result: CrawlResult): Record<string, unknown> {
     unreachable: unreachable(result).map((record) => record.requestedUrl),
     recipes: result.recipes,
     inventory: summariseInventory(result.interactions),
+    animations: summariseAnimations(result.animations),
     skipCounts: Object.fromEntries(
       Object.entries(result.skipCounts).filter(([, count]) => count > 0),
     ),
@@ -427,6 +469,19 @@ function report(result: CrawlResult, logger: Logger): void {
         `${String(summary.byClass.navigation)} navigation, ${String(summary.byClass.inert)} inert, ` +
         `${String(summary.byClass.mutation)} may change something, ` +
         `${String(summary.byClass.unknown)} unclear (none were clicked)`,
+    );
+  }
+
+  if (result.animations.length > 0) {
+    const summary = summariseAnimations(result.animations);
+    const routes = new Set(result.animations.map((animation) => animation.routeKey));
+    logger.info(
+      `animations: ${String(summary.total)} across ${String(routes.size)} route(s) — ` +
+        `${String(summary.bySampleability.sampleable)} could be sampled deterministically, ` +
+        `${String(summary.bySampleability.infinite)} infinite, ` +
+        `${String(summary.bySampleability['scroll-driven'])} scroll-driven, ` +
+        `${String(summary.bySampleability.indeterminate)} indeterminate, ` +
+        `${String(summary.bySampleability.instant)} instant (none were sampled)`,
     );
   }
 
