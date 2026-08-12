@@ -40,7 +40,7 @@ npm test
 
 ```
 Test Files  44 passed (44)
-     Tests  534 passed | 3 skipped (537)
+     Tests  535 passed | 3 skipped (538)
   Duration  ~310s
 ```
 
@@ -1326,6 +1326,25 @@ indication why.
 `savedAuthShape` and `mismatchWarning` now check before launching (after would
 be too late: launching is what creates the directory) and say exactly that, in
 both directions.
+
+### The check that was not a check
+
+The first fix for the profile/storage-state mixup tested `existsSync` on the
+profile directory — and that is worthless, because **`launchPersistentContext`
+creates the directory**. Any `--mode profile` run leaves one behind, complete
+with Chromium's own scaffolding, so a run that failed *because* the profile was
+empty made the next check say everything was fine.
+
+A profile now carries a marker file written by `auth save --persistent`, and
+"has been signed in" means the marker is there. Existence is reported
+separately, as `profileDirWithoutSignIn`, so the warning can say what actually
+happened rather than implying the user never tried:
+
+> the profile directory for "grok" exists but carries no record of a sign-in
+> (running --mode profile creates the directory, so an earlier run may have made
+> it), but a storage state of that name has been saved…
+
+The marker holds a timestamp and an origin. No cookies, no tokens, no headers.
 
 ### What it does not do
 

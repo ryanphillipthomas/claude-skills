@@ -4,6 +4,7 @@ import {
   judgeSignIn,
   looksLikeLoginUrl,
   mismatchWarning,
+  type SavedAuthShape,
   type SignInSignals,
   type StorageProbe,
 } from '@ui-atlas/browser';
@@ -133,39 +134,48 @@ describe('judgeSignIn', () => {
 /* Asking for a mode nothing was saved in                                      */
 /* -------------------------------------------------------------------------- */
 
+function shape(overrides: Partial<SavedAuthShape> = {}): SavedAuthShape {
+  return {
+    hasProfile: false,
+    hasStorageState: false,
+    profileDirWithoutSignIn: false,
+    ...overrides,
+  };
+}
+
 describe('mismatchWarning', () => {
   it('names the trap: profile mode with only a storage state saved', () => {
-    const warning = mismatchWarning('grok', 'profile', {
-      hasProfile: false,
-      hasStorageState: true,
-    });
+    const warning = mismatchWarning('grok', 'profile', shape({ hasStorageState: true }));
     expect(warning).toContain('has never been signed in');
     expect(warning).toContain('--mode storage-state');
     expect(warning).toContain('--persistent');
   });
 
+  it('is not reassured by a directory an earlier run created', () => {
+    const warning = mismatchWarning(
+      'grok',
+      'profile',
+      shape({ hasStorageState: true, profileDirWithoutSignIn: true }),
+    );
+    expect(warning).toContain('carries no record of a sign-in');
+    expect(warning).toContain('creates the directory');
+  });
+
   it('still says something when nothing at all was saved', () => {
-    const warning = mismatchWarning('grok', 'profile', {
-      hasProfile: false,
-      hasStorageState: false,
-    });
+    const warning = mismatchWarning('grok', 'profile', shape());
     expect(warning).toContain('empty browser profile');
+    expect(warning).toContain('--persistent');
   });
 
   it('points the other way round too', () => {
-    const warning = mismatchWarning('grok', 'storage-state', {
-      hasProfile: true,
-      hasStorageState: false,
-    });
+    const warning = mismatchWarning('grok', 'storage-state', shape({ hasProfile: true }));
     expect(warning).toContain('--mode profile');
   });
 
   it('says nothing when the request matches what is on disk', () => {
+    expect(mismatchWarning('grok', 'profile', shape({ hasProfile: true }))).toBeUndefined();
     expect(
-      mismatchWarning('grok', 'profile', { hasProfile: true, hasStorageState: false }),
-    ).toBeUndefined();
-    expect(
-      mismatchWarning('grok', 'storage-state', { hasProfile: false, hasStorageState: true }),
+      mismatchWarning('grok', 'storage-state', shape({ hasStorageState: true })),
     ).toBeUndefined();
   });
 });

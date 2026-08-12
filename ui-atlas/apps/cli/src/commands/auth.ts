@@ -1,5 +1,4 @@
 import { createInterface } from 'node:readline/promises';
-import { existsSync } from 'node:fs';
 import {
   assertProfileName,
   assessStorage,
@@ -11,7 +10,9 @@ import {
   probeSignIn,
   probeStorage,
   resolveViewport,
+  savedAuthShape,
   STORAGE_STATE_WARNING,
+  writeProfileMarker,
   writeStorageState,
 } from '@ui-atlas/browser';
 import { UiAtlasError, type BrowserMode } from '@ui-atlas/protocol';
@@ -113,6 +114,9 @@ async function saveProfile(args: ParsedArgs, logger: Logger): Promise<number> {
 
     if (persistent) {
       const dir = authPaths().profileDir(name);
+      // Recorded explicitly, because the directory's existence proves nothing:
+      // any `--mode profile` run creates one.
+      await writeProfileMarker(name, url);
       logger.info(`saved the browser profile at ${dir}`);
       if (assessment.dropped.length > 0) {
         logger.info(`it carries what a storage state would drop: ${assessment.dropped.join('; ')}`);
@@ -193,10 +197,13 @@ async function checkProfile(args: ParsedArgs, logger: Logger): Promise<number> {
 function resolveSavedMode(args: ParsedArgs, name: string): BrowserMode {
   if (flagBoolean(args, 'persistent') === true) return 'profile';
   const paths = authPaths();
-  const hasProfile = existsSync(paths.profileDir(name));
-  const hasState = existsSync(paths.storageStatePath(name));
-  if (hasProfile && !hasState) return 'profile';
-  if (hasState) return 'storage-state';
+  const shape = savedAuthShape(name, paths);
+  // `hasProfile` means a sign-in was completed, not that a directory is there —
+  // otherwise a leftover directory from a signed-out run would win over a
+  // storage state that actually works.
+  if (shape.hasProfile && !shape.hasStorageState) return 'profile';
+  if (shape.hasStorageState) return 'storage-state';
+  if (shape.hasProfile) return 'profile';
   throw new UiAtlasError('auth.not-found', `nothing saved for profile "${name}"`, {
     detail: { checked: [paths.profileDir(name), paths.storageStatePath(name)] },
   });

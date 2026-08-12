@@ -439,6 +439,12 @@ session look identical.
       launching — `launchPersistentContext` creates the empty directory, so
       after would be too late
 
+- [x] "Has this profile been signed in?" answered by a marker written at save
+      time, not by `existsSync` — launching is what creates the directory, so
+      the obvious check was no check at all
+- [x] The warning distinguishes "never signed in" from "directory left by an
+      earlier run", so it does not imply the user never tried
+
 ### Still to build
 
 (nothing in the brief)
