@@ -3,8 +3,8 @@
 Running log for the build. Updated after each milestone so an interrupted
 session is recoverable.
 
-**Last updated:** 2026-08-12, after the guided flow and readable filenames
-landed. The brief is delivered; this slice is usability work on top of it.
+**Last updated:** 2026-08-12, after the sign-in check landed. The brief is
+delivered; the last two slices are usability work on top of it.
 
 ## Status
 
@@ -20,9 +20,11 @@ observed-value extraction, the animation inventory during a crawl, and the
 toolbar's Animation panel. **Everything the brief scopes is built** — the last
 item on its own list was the Animation button, and it is no longer disabled.
 
-An eighth slice followed the first real external run: guided flow, buttons for
-everything the keyboard could reach, and filenames derived from what each
-capture already knows about itself.
+Two more slices followed the first real external runs. The eighth: guided flow,
+buttons for everything the keyboard could reach, and filenames derived from what
+each capture already knows about itself. The ninth: a saved sign-in that is
+checked rather than assumed, after the same authentication failure happened
+repeatedly and always looked like something else.
 
 ```
 npm install
@@ -35,8 +37,8 @@ npm test
 `npm test` (builds, then Vitest — unit and browser integration):
 
 ```
-Test Files  41 passed (41)
-     Tests  499 passed | 3 skipped (502)
+Test Files  43 passed (43)
+     Tests  520 passed | 3 skipped (523)
   Duration  ~310s
 ```
 
@@ -86,6 +88,8 @@ the phase 1 exit criterion. Nothing is unverified now.
 | `unit/naming` | 31 | slug composition and what it refuses to invent, word-boundary trimming, stem sanitising that keeps `--`, the index's grouping, descriptions and relative links |
 | `unit/flow` | 12 | what the panel says at each point in the sequence, and that every step it points at has an instruction |
 | `integration/guided-flow` | 9 | **eighth slice**: the flow line through a real browser at each step, the instructions and their current-step marking, tree navigation as buttons, the count after a real capture, and the filenames, sidecar and index the run writes |
+| `unit/signin` | 14 | what a storage state drops and when that matters, login-path matching, and the three-valued verdict with its evidence |
+| `integration/signin` | 7 | **ninth slice**: the page-side probes against real pages — a login page read as signed out, a way out read as signed in, an ordinary page read as unclear, a hidden password field ignored, a redirect noticed, and IndexedDB/sessionStorage actually found |
 | `integration/external-smoke` | 3 skipped | read-only public-site checks; skip without network |
 
 `npm run typecheck` passes for all thirteen packages and for the test sources.
@@ -1146,6 +1150,81 @@ A route index sits under `screenshots/<route>/`, but recordings live under
 `animations/<route>/`. Prefix-stripping produced a link that resolved to
 nothing. `relativise` now computes a real relative path and climbs out with
 `../../` where it has to.
+
+## A saved sign-in that is checked, not assumed (ninth slice)
+
+Done and covered by `tests/unit/signin.test.ts` and
+`tests/integration/signin.test.ts`. See
+[ADR 28](docs/adr/0028-a-saved-sign-in-is-checked-not-assumed.md).
+
+Saved sign-ins kept failing, always in the same shape: `auth save` reported
+success, the run started fine, every page returned 200, and the artifacts were
+of a signed-out site. On one real site the visible symptom was
+`Unexpected token '<', "<!DOCTYPE "` — the site's own code, expecting JSON and
+receiving an HTML challenge page. Nothing anywhere said *you are signed out*.
+
+### The root cause, and the aggravating factor
+
+`context.storageState()` carries **cookies and localStorage, and nothing else**.
+Not IndexedDB, not sessionStorage, not service workers. Plenty of modern
+sign-ins keep their token in exactly those places, so a saved file can be large
+and healthy-looking and contain none of the session.
+
+What made it hurt was that nothing checked — not at save time, not at run time.
+The gap between the mistake and the symptom was the whole run.
+
+### Three changes, in the order they help
+
+**`auth save` asks the page what it stores.** `probeStorage` reads localStorage
+and sessionStorage key counts, IndexedDB database names and service worker
+registrations; `assessStorage` — pure, so it is tested without a browser —
+sorts them into carried and dropped, and recommends a persistent profile when
+the dropped material is where a session would live. A service worker is
+reported but does not drive the recommendation: it is usually an offline cache.
+
+**`auth save --persistent` signs you into a real profile.** The persistent
+context at `~/.ui-atlas/profiles/<name>` keeps everything a browser keeps, and
+the directory *is* the save — no export step to get wrong. `--mode profile`
+already existed; what was missing was any way to sign in to one, which made it
+advice rather than a workflow.
+
+**`auth check <profile> <url>`** opens the URL with the saved profile and
+reports the verdict with its evidence, exit 1 for signed out. Ten seconds
+instead of twenty minutes and fifty screenshots of a login wall.
+
+### The verdict is three-valued, and the third value is real
+
+| Evidence | Verdict |
+| --- | --- |
+| a visible sign-out control | `signed-in` |
+| a visible password field | `signed-out` |
+| the final URL is a sign-in path | `signed-out` |
+| a visible sign-in control | `signed-out` |
+| none of the above | `unclear` |
+
+A way *out* is the strongest evidence of being *in*, and it deliberately beats a
+stray "Log in" link elsewhere on the page. `unclear` is the honest answer for a
+page showing neither; rounding it up to signed-in would be the quiet dishonesty
+this whole slice exists to remove. A test requires the evidence list is never
+empty, whatever the verdict.
+
+### Where the check runs
+
+`AtlasSession.navigate` runs it on the first page that loads, which covers
+`inspect` and `capture` for free. `crawl` loads its first seed once before
+starting — one page view spent to avoid crawling fifty. It runs only when the
+run is using saved auth, because a `clean` run is *expected* to be signed out
+and warning about it would teach people to ignore the warning.
+
+The warning goes to the log **and** the run warnings, so `run.json` and the
+report carry it too: the person reading the artifacts tomorrow gets the same
+sentence as the person who watched it run.
+
+### What this does not do
+
+It does not make UI Atlas better at getting signed in. It still types nothing,
+submits nothing and evades nothing. `--persistent` only keeps more of what your
+own hands achieved, and a site that blocks automation still blocks it.
 
 ## Where this leaves the project
 

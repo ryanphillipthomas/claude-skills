@@ -384,6 +384,30 @@ nothing telling you what to do, and the output was a wall of `cap-7f3a91.png`.
       keys are now a shortcut for a visible control, not the only way in
 - [x] The count follows single-page-app route changes rather than going stale
 
+## Authentication that fails loudly (ninth slice)
+
+Saved sign-ins kept failing the same way: `auth save` reported success, every
+page returned 200, and the artifacts were of a signed-out site.
+
+- [x] `auth save` probes the signed-in page for IndexedDB, sessionStorage and
+      service workers — the things `storageState()` silently drops
+- [x] It says which mode this site needs, and gives the command to fix it
+- [x] `auth save --persistent` signs you into a real browser profile, which
+      keeps everything a browser keeps; the directory is the save
+- [x] `auth save` will not save over a signed-out page by accident — it says so
+      and asks for a second Enter
+- [x] `auth check <profile> <url>` reports signed-in / signed-out / unclear with
+      evidence, exit 1 for signed out so it can gate a script
+- [x] The mode is inferred from what is on disk, so a good profile is never
+      reported signed out because the wrong mode was guessed
+- [x] A sign-out control beats a stray "Log in" link — a way out is the
+      strongest evidence of being in
+- [x] `unclear` is a real verdict, not rounded up to signed-in
+- [x] Every verdict carries its evidence, asserted by a test
+- [x] The check runs on the first page of every run using saved auth, into the
+      log *and* the run warnings, so `run.json` carries it too
+- [x] `clean` mode is never checked — it is expected to be signed out
+
 ### Still to build
 
 (nothing in the brief)

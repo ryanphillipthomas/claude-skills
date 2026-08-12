@@ -305,8 +305,13 @@ point the crawl at that session:
 
 ```bash
 npm run ui-atlas -- auth save my-reviewer https://example.com/login
+npm run ui-atlas -- auth check my-reviewer https://example.com/dashboard
 npm run ui-atlas -- crawl site.yml --mode storage-state --profile my-reviewer
 ```
+
+If `auth save` tells you this site keeps its session somewhere a storage state
+cannot carry, re-save with `--persistent` and use `--mode profile` instead. See
+[Authentication](#authentication).
 
 A misspelled step name or an unknown option is a validation error, never a
 silent skip: for a config that can click things, "I did not understand that
@@ -534,6 +539,7 @@ design system is not visible from a single page.
 
 ```bash
 npm run ui-atlas -- auth save my-profile https://example.com/login
+npm run ui-atlas -- auth check my-profile https://example.com/dashboard
 npm run ui-atlas -- inspect https://example.com --mode storage-state --profile my-profile
 npm run ui-atlas -- auth clear my-profile
 ```
@@ -542,6 +548,47 @@ npm run ui-atlas -- auth clear my-profile
 types credentials and never submits a form. The saved state lives in
 `~/.ui-atlas/` with owner-only permissions, never in the artifact tree, and
 every command that uses it warns that session cookies can impersonate you.
+
+#### Two ways to keep a session, and how to tell which you need
+
+A Playwright storage state — the default — carries **cookies and localStorage,
+and nothing else**. No IndexedDB, no sessionStorage, no service workers. Plenty
+of sign-ins keep their token in exactly those places, which is how a saved
+profile can look healthy (hundreds of cookies) and still be signed out on first
+use.
+
+So `auth save` reads the signed-in page and tells you which mode this site
+needs. When it finds a session a storage state cannot carry, it says so and
+gives you the command to fix it:
+
+```bash
+npm run ui-atlas -- auth save my-profile https://example.com/login --persistent
+npm run ui-atlas -- crawl site.yml --mode profile --profile my-profile
+```
+
+`--persistent` signs you into a real browser profile under
+`~/.ui-atlas/profiles/`, which keeps everything a browser keeps. The directory
+*is* the saved session — there is no export step to get wrong.
+
+#### Check before a long run
+
+```bash
+npm run ui-atlas -- auth check my-profile https://example.com/dashboard
+```
+
+Opens the URL with the saved profile and reports `signed-in`, `signed-out` or
+`unclear`, with the evidence. Exit code 1 means signed out, so it can gate a
+script. This is ten seconds; discovering it at page 50 of a crawl is twenty
+minutes and a run of screenshots of a login wall.
+
+Every run using a profile does the same check on its first page and warns
+loudly if it is signed out — into the log *and* into `run.json`, so the warning
+is still there when you read the artifacts tomorrow. A `clean`-mode run is
+expected to be signed out, so it is not checked.
+
+None of this makes UI Atlas better at *getting* signed in. It still types
+nothing, submits nothing, and evades nothing — `--persistent` only keeps more of
+what your own hands achieved. A site that blocks automation still blocks it.
 
 ## Output
 

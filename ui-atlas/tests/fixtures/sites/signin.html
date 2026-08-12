@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Sign in — UI Atlas fixture</title>
+    <link rel="stylesheet" href="/base.css" />
+  </head>
+  <body>
+    <!--
+      A signed-out page, for the sign-in check. Deliberately not linked from
+      index.html: the crawl tests assert on the pages the link graph reaches,
+      and this one is opened directly by the tests that want it.
+
+      Nothing here is ever typed into. UI Atlas has no step that types text.
+    -->
+    <main>
+      <h1>Sign in</h1>
+      <form action="/signin.html" method="get" data-testid="signin-form">
+        <label for="email">Email</label>
+        <input id="email" name="email" type="email" autocomplete="username" />
+
+        <label for="password">Password</label>
+        <input id="password" name="password" type="password" autocomplete="current-password" />
+
+        <button type="submit" class="btn" data-testid="signin-submit">Sign in</button>
+      </form>
+    </main>
+  </body>
+</html>

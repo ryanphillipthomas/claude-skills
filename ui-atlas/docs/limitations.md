@@ -340,6 +340,32 @@ See [ADR 25](adr/0025-the-animation-button-is-a-list-not-a-shutter.md).
 - **Nothing in the panel is named for you.** It shows what the inventory said,
   in the inventory's words.
 
+## Boundaries of the sign-in check
+
+See [ADR 28](adr/0028-a-saved-sign-in-is-checked-not-assumed.md).
+
+- **A storage state carries cookies and localStorage, and nothing else.** Not
+  IndexedDB, not sessionStorage, not service workers. `auth save` now reads the
+  page and tells you when the session lives somewhere it cannot reach, but the
+  limit itself is Playwright's and is not going away. `--persistent` is the way
+  round it.
+- **The verdict is a heuristic, and it says so.** It reads visible password
+  fields, sign-in and sign-out controls, and whether the final URL is a sign-in
+  path. A page showing none of those reads `unclear`, which is a real answer and
+  not a failure.
+- **The wording is English-shaped.** It matches "sign in", "log in", "sign out"
+  and their variants. A site in another language reads `unclear` rather than
+  wrong — the right failure, but a real limit.
+- **`signed-in` means the page offered a way out**, not that every API call will
+  succeed. A partially-expired session can still show a sign-out button.
+- **It runs once, on the first page of a run.** A session that expires halfway
+  through a long crawl is not noticed.
+- **`clean` mode is never checked.** It is expected to be signed out, and
+  warning about it would teach people to ignore the warning.
+- **None of this helps you get signed in.** UI Atlas types nothing, submits
+  nothing and evades nothing. A site that blocks automated browsers still blocks
+  it, and `--persistent` only preserves more of what you did by hand.
+
 ## Boundaries of capture names and the index
 
 See [ADR 26](adr/0026-captures-are-named-from-what-they-already-know.md).

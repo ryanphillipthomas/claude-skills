@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Account — UI Atlas fixture</title>
+    <link rel="stylesheet" href="/base.css" />
+  </head>
+  <body>
+    <!--
+      A signed-in page: it offers a way *out*, which is the strongest evidence
+      there is of being in. Not linked from index.html, for the same reason
+      signin.html is not.
+
+      It also stores things a Playwright storage state cannot carry, so the
+      storage probe has something real to find.
+    -->
+    <main>
+      <h1>Your account</h1>
+      <p>Signed in as <span data-testid="account-name">Reviewer</span>.</p>
+      <nav aria-label="Account">
+        <a href="/account.html" class="btn" data-testid="account-settings">Settings</a>
+        <button type="button" class="btn" data-testid="signout">Sign out</button>
+      </nav>
+    </main>
+
+    <script>
+      sessionStorage.setItem('ui-atlas-fixture-session', 'not-carried-by-storage-state');
+      localStorage.setItem('ui-atlas-fixture-local', 'carried-by-storage-state');
+      // A database with a name, so `indexedDB.databases()` has something to
+      // report. Opening it is enough; nothing is written.
+      indexedDB.open('ui-atlas-fixture-db', 1);
+    </script>
+  </body>
+</html>
