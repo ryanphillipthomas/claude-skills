@@ -5,9 +5,22 @@ import type { StateName } from '@ui-atlas/protocol';
  * element, capture it. Three steps, and then a fourth thing that is not a step
  * but a rhythm — keep going, on this page or the next.
  */
-export type FlowStep = 'connect' | 'inspect' | 'select' | 'capture' | 'working' | 'continue';
+export type FlowStep =
+  | 'connect'
+  | 'inspect'
+  | 'select'
+  | 'capture'
+  | 'working'
+  | 'review'
+  | 'finish';
 
-export const FLOW_TOTAL = 3;
+/**
+ * Five, not three. The first version stopped at "capture", which is where the
+ * *tool's* job ends and where the user's job very much does not: they still
+ * have to see what they got and find it on disk. A flow that ends at the
+ * moment of least information is not a flow.
+ */
+export const FLOW_TOTAL = 5;
 
 export interface FlowInput {
   /** The host has answered `hello`; before that nothing can be captured. */
@@ -21,6 +34,10 @@ export interface FlowInput {
   workingJobs: number;
   /** Human label for the current page, e.g. `/pricing`. */
   pageLabel: string;
+  /** Captures written across the whole run, not just this page. */
+  runTotal: number;
+  /** The user has opened the Output section at least once. */
+  reviewed: boolean;
 }
 
 export interface FlowAdvice {
@@ -78,19 +95,34 @@ export function nextStep(input: FlowInput): FlowAdvice {
   }
 
   if (input.capturedHere > 0) {
+    // Step 4 is review: the files exist, and the useful next move is to look at
+    // what actually came out before capturing thirty more of the same mistake.
+    if (!input.reviewed) {
+      return {
+        step: 'review',
+        position: 4,
+        total: FLOW_TOTAL,
+        text:
+          `${countCaptures(input.capturedHere)} on ${input.pageLabel}. ` +
+          'Check the Output section to see what was written, and what each file is called.',
+      };
+    }
+
+    // Step 5 is the one thing the panel could never answer before: where did it
+    // all go? "Open folder" is the answer, and it is a button.
     return {
-      step: 'continue',
+      step: 'finish',
       position: FLOW_TOTAL,
       total: FLOW_TOTAL,
       text:
-        `${countCaptures(input.capturedHere)} on ${input.pageLabel}. ` +
-        'Select the next element, or open another page — it all goes into the same run.',
+        `${countCaptures(input.runTotal)} in this run. Open folder shows them on disk; ` +
+        'Open report shows them side by side. Or carry on — the next capture joins the same run.',
     };
   }
 
   return {
     step: 'capture',
-    position: FLOW_TOTAL,
+    position: 3,
     total: FLOW_TOTAL,
     text: `Pick the states you want, then press Capture. Right now: ${input.states.join(', ')}.`,
   };
@@ -123,7 +155,21 @@ export const FLOW_INSTRUCTIONS: ReadonlyArray<{ step: number; title: string; det
     title: 'Capture',
     detail:
       'Each state you pick is applied to the live page first, so what you see is what gets ' +
-      'photographed. Files are named after the element, so you can find them later.',
+      'photographed.',
+  },
+  {
+    step: 4,
+    title: 'Review',
+    detail:
+      'The Output section lists what was written and what each file is called — names come ' +
+      'from the element itself, like button--save-changes--hover.png.',
+  },
+  {
+    step: 5,
+    title: 'Open',
+    detail:
+      'Open folder reveals the run on disk; Open report builds a page showing every capture ' +
+      'side by side. Both also print the path in the terminal.',
   },
 ];
 

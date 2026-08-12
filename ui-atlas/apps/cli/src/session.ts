@@ -13,6 +13,7 @@ import {
   newPageId,
   newRunId,
   newSessionToken,
+  readCaptures,
   recordingSlug,
   routeKeyFromUrl,
   RunWriter,
@@ -43,6 +44,7 @@ import {
   OverlayController,
   type BridgeSource,
 } from '@ui-atlas/overlay';
+import { generateReport } from '@ui-atlas/reporter';
 import { settlePage } from '@ui-atlas/settle';
 import {
   BRIDGE_BINDING,
@@ -54,6 +56,10 @@ import {
   type AnimationSummary,
   type ElementIdentity,
   type ElementProbe,
+  type OutputEntry,
+  type OutputRevealResult,
+  type OutputSummaryResult,
+  type OutputTarget,
   type OverlaySession,
   type PageRecord,
   type QueueJob,
@@ -63,6 +69,7 @@ import {
   type Viewport,
 } from '@ui-atlas/protocol';
 import type { Logger } from './logger.js';
+import { platformOpener, type Opener } from './reveal.js';
 import { checkSignIn } from './signin-check.js';
 
 export interface StartSessionOptions {
@@ -73,6 +80,12 @@ export interface StartSessionOptions {
   logger: Logger;
   /** Inject the inspector overlay. `capture` runs without it. */
   overlay: boolean;
+  /**
+   * How the run directory and report are opened on the desktop. Injectable so
+   * a test can assert *what* was opened without a window appearing, and so a
+   * headless environment can be given nothing at all.
+   */
+  opener?: Opener | undefined;
 }
 
 interface Selection {
@@ -196,6 +209,10 @@ export class AtlasSession {
             return session.previewState(params.state);
           },
           'animation/inventory': async () => requireSession(holder).handleAnimationInventory(),
+          'output/summary': async (_source, params) =>
+            requireSession(holder).summariseOutput(params.limit),
+          'output/reveal': async (_source, params) =>
+            requireSession(holder).revealOutput(params.target),
           'inspect/mode': async (_source, params) => {
             const session = requireSession(holder);
             await session.overlay.broadcast({ type: 'inspect/mode', active: params.active });
@@ -586,6 +603,90 @@ export class AtlasSession {
   /* ---------------------------------------------------------------------- */
   /* Animation panel                                                         */
   /* ---------------------------------------------------------------------- */
+
+  /**
+   * What this run has written so far, for the panel's Output section.
+   *
+   * Read back from `captures.jsonl` rather than kept in memory, so it describes
+   * what is actually recorded — and so a resumed run shows captures this
+   * process never made.
+   */
+  async summariseOutput(limit = 8): Promise<OutputSummaryResult> {
+    const { records } = await readCaptures(this.writer.paths.capturesJsonl);
+    const counts = { captured: 0, failed: 0, skipped: 0 };
+    const written: OutputEntry[] = [];
+
+    for (const record of records) {
+      if (record.status === 'captured') counts.captured += 1;
+      else if (record.status === 'failed') counts.failed += 1;
+      else counts.skipped += 1;
+
+      const path = record.image?.relativePath ?? record.video?.relativePath;
+      if (path === undefined) continue;
+      const cut = path.lastIndexOf('/');
+      written.push({
+        // The file name, and the run-relative folder it sits in. The absolute
+        // path is never sent to the page: see `outputLabel`.
+        fileName: cut === -1 ? path : path.slice(cut + 1),
+        folder: cut === -1 ? '' : path.slice(0, cut),
+        status: record.status,
+        state: record.state.label ?? record.state.name,
+        kind: record.kind,
+      });
+    }
+
+    return {
+      outputLabel: `${this.options.config.project}/${this.runId}`,
+      counts,
+      recent: written.slice(-limit).reverse(),
+    };
+  }
+
+  /**
+   * Open the run directory, or its report, on the desktop.
+   *
+   * The page names a target from a closed enum and nothing else. It never sends
+   * a path, and the result never contains one — the notice says *what* was
+   * opened, while the absolute path goes to the terminal, where the person who
+   * started the run is already looking and no website can read it.
+   */
+  async revealOutput(target: OutputTarget): Promise<OutputRevealResult> {
+    const { logger } = this.options;
+    let path = this.writer.paths.runDir;
+
+    if (target === 'report') {
+      // Built on demand: mid-run is exactly when someone wants to look, and the
+      // report is generated from `captures.jsonl` rather than from live state.
+      try {
+        const generated = await generateReport({ runDir: this.writer.paths.runDir });
+        path = generated.path;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        logger.error(`could not build the report: ${message}`);
+        return { target, opened: false, notice: `the report could not be built: ${message}` };
+      }
+    }
+
+    logger.info(`${target === 'report' ? 'report' : 'artifacts'}: ${path}`);
+
+    const opener = this.options.opener ?? platformOpener();
+    if (opener === undefined) {
+      return {
+        target,
+        opened: false,
+        notice: 'this platform has no opener; the path has been printed in the terminal',
+      };
+    }
+
+    const opened = await opener(path).catch(() => false);
+    return {
+      target,
+      opened,
+      notice: opened
+        ? `opened the ${target === 'report' ? 'report' : 'run folder'} — the path is in the terminal too`
+        : 'could not open it here; the path has been printed in the terminal',
+    };
+  }
 
   /**
    * What is moving on this page, and what can honestly be done about each.

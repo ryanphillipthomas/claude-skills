@@ -28,6 +28,8 @@ export interface TestHarness {
   server: FixtureServer;
   session: AtlasSession;
   outputRoot: string;
+  /** Paths the session was asked to open on the desktop, in order. */
+  opened: string[];
   url(path: string): string;
   dispose(): Promise<void>;
 }
@@ -49,6 +51,8 @@ export interface HarnessOptions {
   config?: Record<string, unknown>;
   /** Start a second origin so cross-origin iframe tests have somewhere to point. */
   secondOrigin?: boolean;
+  /** Override the desktop opener. Defaults to one that records and opens nothing. */
+  opener?: ((path: string) => Promise<boolean>) | undefined;
 }
 
 /**
@@ -58,6 +62,9 @@ export interface HarnessOptions {
 export async function startHarness(options: HarnessOptions = {}): Promise<TestHarness> {
   const server = await startFixtureServer();
   const outputRoot = await makeOutputDir();
+  // Nothing in a test may reach the desktop: `opened` records what *would* have
+  // been opened so a test can assert on it, and no window ever appears.
+  const opened: string[] = [];
   const session = await AtlasSession.start({
     config: testConfig(options.config),
     outputRoot,
@@ -65,12 +72,17 @@ export async function startHarness(options: HarnessOptions = {}): Promise<TestHa
     toolVersion: '0.0.0-test',
     logger: silentLogger(),
     overlay: options.overlay ?? true,
+    opener: options.opener ?? (async (path: string) => {
+      opened.push(path);
+      return true;
+    }),
   });
 
   return {
     server,
     session,
     outputRoot,
+    opened,
     url: (path: string) => server.url(path),
     dispose: async () => {
       await session.close().catch(() => undefined);

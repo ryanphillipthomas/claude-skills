@@ -40,7 +40,7 @@ npm test
 
 ```
 Test Files  45 passed (45)
-     Tests  545 passed | 3 skipped (548)
+     Tests  565 passed | 3 skipped (568)
   Duration  ~310s
 ```
 
@@ -88,8 +88,8 @@ the phase 1 exit criterion. Nothing is unverified now.
 | `integration/tokens` | 9 | **phase 4, fifth slice**: browser defaults excluded, script/style never read, the page unchanged either side, the per-page cap, the fixture's real colours, the CLI across several pages and past an unreachable one, a whole-site crawl scan, and doing nothing when switched off |
 | `integration/animation-panel` | 9 | **phase 4, seventh slice**: the panel driven through the real overlay — what it lists, the action each row gets, no row without a reason, listing changing nothing, a sample that restores, a recording that is not called a sample, canvas named with an action, an honest refusal when the animation has gone, and the keyboard route |
 | `unit/naming` | 31 | slug composition and what it refuses to invent, word-boundary trimming, stem sanitising that keeps `--`, the index's grouping, descriptions and relative links |
-| `unit/flow` | 12 | what the panel says at each point in the sequence, and that every step it points at has an instruction |
-| `integration/guided-flow` | 9 | **eighth slice**: the flow line through a real browser at each step, the instructions and their current-step marking, tree navigation as buttons, the count after a real capture, and the filenames, sidecar and index the run writes |
+| `unit/flow` | 13 | what the panel says at each point in the sequence, and that every step it points at has an instruction |
+| `integration/guided-flow` | 20 | **eighth slice**: the flow line through a real browser at each step, the instructions and their current-step marking, tree navigation as buttons, the count after a real capture, and the filenames, sidecar and index the run writes |
 | `unit/signin` | 19 | what a storage state drops and when that matters, login-path matching, and the three-valued verdict with its evidence |
 | `integration/doctor` | 10 | **tenth slice**: the request behind an "Unexpected token" error found, the HTML identified as a challenge, the page's own error captured, nothing reported for a page that works, and query strings kept out of the output |
 | `integration/signin` | 12 | **ninth and eleventh slices**: the page-side probes against real pages — a login page read as signed out, a way out read as signed in, an ordinary page read as unclear, a hidden password field ignored, a redirect noticed, IndexedDB/sessionStorage actually found, a challenge page recognised by its markup and its wording, neither an ordinary nor a sign-in page mistaken for one, and a challenged crawl stopping with zero pages and the warning in `run.json` |
@@ -1437,6 +1437,113 @@ failure into a warning in case that changes.
 Injected scripts go into the user's own context and stay there until it closes,
 so the session says so rather than leaving it to be discovered. The
 determinism warning was already there and is now asserted.
+
+## Where the files went (thirteenth slice)
+
+Done and covered by `tests/integration/guided-flow.test.ts`. See
+[ADR 31](docs/adr/0031-the-panel-can-open-the-folder-but-never-names-it.md).
+
+Steps 1-3 of the guided flow worked. Two things did not.
+
+**The flow stopped one step early.** It ended at "capture", which is where the
+*tool's* job ends and where the user's very much does not: they still have to
+see what they got and find it on disk. A flow that ends at the moment of least
+information is not a flow.
+
+**The panel could not say where anything was saved** — a strange gap in a tool
+whose entire output is files. You pressed Capture, something happened somewhere,
+and the only way to find out where was to read a terminal you might not be
+looking at.
+
+### Five steps
+
+Steps 4 and 5 are **Review** and **Open**. Step 4 does not advance on a timer or
+a capture count: it advances when the Output section has actually been looked
+at, so the flow follows what the user did rather than what we hoped. Step 5's
+sentence switches from the page count to the *run* count, because by then the
+question has changed from "what did I get on this page?" to "where is all of
+this?".
+
+### An Output section, and two buttons
+
+It lists the most recent files by the name they were written under —
+`button--save-changes--hover.png` — with the run-relative folder each sits in.
+**Open folder** reveals the run in Finder, Explorer or whatever the platform
+uses. **Open report** builds the report from what is captured so far and opens
+that instead.
+
+### The one rule that shaped the whole design
+
+**The panel never renders an absolute path.**
+
+The overlay lives in a shadow root with `mode: 'open'`, so everything it renders
+is readable by the site it is injected into — one `shadowRoot.textContent` away.
+A file name is derived from the site's own content and tells it nothing new.
+`/Users/someone/…` would hand a website the user's name and home directory.
+
+`OverlaySession.outputLabel` already carried the comment *"a label, never a
+filesystem path"*; this extends that rule to the new surface rather than quietly
+making an exception for it. A test reads the whole shadow root and requires both
+the output root and any `/Users/`-shaped path to be absent. The absolute path
+still reaches the user — printed in the terminal, where they started the run and
+where no website can read it.
+
+The same reasoning shapes `output/reveal`: it takes `'folder' | 'report'` and
+nothing else. It is the one method in the tool that hands something to the
+operating system, and a page that could name the target could name anything. The
+opener uses `spawn` with no shell and the path as an argument.
+
+### Making the claim testable
+
+`StartSessionOptions.opener` is injectable, and the harness replaces it with a
+recorder. That is what turns "opens the run folder, and **only** ever the run
+folder" into an assertion on an exact path, with no window opening during a test
+run.
+
+### One stale test premise
+
+`inspector.test.ts` asserted the run label was visible by matching its text. The
+label now appears twice — the titlebar as identity, the Output section as the
+answer to "where is this saving?" — so the match became ambiguous. The
+duplication is deliberate and the locator now names the titlebar.
+
+## A panel that fits (fourteenth slice)
+
+Reported from real use: the panel is too tall to see the bottom of, so the
+Output buttons — added in the last slice, and the ones you press *last* — could
+not be reached at all.
+
+### Three separate causes
+
+**Eleven sections.** They all render at once, and the sum was taller than a
+laptop window. Sections now collapse: the main path (Mode, Element, States,
+Capture, Output) starts open, the occasional ones (Viewport, Animation, Queue,
+Shortcuts) start closed, and every heading is a real button — keyboard
+reachable, `aria-expanded` set — so nothing becomes unfindable by being closed.
+
+**A height that only worked in one place.** `max-height: calc(100vh - 32px)` is
+correct while the panel sits at its starting `top: 16px`, and wrong the moment
+it is dragged: the limit no longer matches the space below it, so the bottom
+goes off screen with no way to scroll to it. It now recomputes from the panel's
+own top edge, and on window resize.
+
+**The last action was in the last place.** **📁 Folder** now sits in the title
+bar, which never scrolls away, so "where did my files go?" is reachable whatever
+the panel is doing. It stops pointer events so pressing it does not start a
+drag.
+
+### Two bugs the tests found
+
+A 1px overflow when dragged to the very bottom: the drag clamp used
+`innerHeight - MIN_PANEL_HEIGHT` while the height calculation subtracted a 16px
+margin, so the two disagreed about where the bottom was. They now share one
+constant.
+
+And a worse one: collapsing the Animation section by default meant pressing
+**Animation…** rendered its list into something hidden. Eight animation-panel
+tests went red, which is exactly right — a button that produces a result you
+cannot see is worse than a button that does nothing, because it looks like
+nothing happened. Sections now open themselves when content arrives.
 
 ## Where this leaves the project
 

@@ -78,7 +78,9 @@ describe('injected inspector', () => {
 
     // Playwright pierces open shadow DOM, so the toolbar is reachable by role.
     expect(await page.getByRole('button', { name: 'Inspect', exact: true }).isVisible()).toBe(true);
-    expect(await page.getByText(`fixture/${harness.session.runId}`).isVisible()).toBe(true);
+    // The run label is deliberately in two places now — the titlebar, and the
+    // Output section's answer to "where is this saving?" — so this names one.
+    expect(await page.locator('.ua-run').textContent()).toBe(`fixture/${harness.session.runId}`);
   });
 
   it('highlights on hover and selects on click without the page seeing the click', async () => {

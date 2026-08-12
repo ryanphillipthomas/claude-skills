@@ -68,7 +68,7 @@ describe('the guided flow', () => {
 
     const flow = await flowLine();
     expect(flow.step).toBe('inspect');
-    expect(flow.badge).toBe('Step 1 of 3');
+    expect(flow.badge).toBe('Step 1 of 5');
     expect(flow.text).toContain('Press Inspect');
   });
 
@@ -78,7 +78,7 @@ describe('the guided flow', () => {
 
     await harness.session.page.getByRole('button', { name: 'Inspect', exact: true }).click();
     expect((await flowLine()).step).toBe('select');
-    expect((await flowLine()).badge).toBe('Step 2 of 3');
+    expect((await flowLine()).badge).toBe('Step 2 of 5');
 
     await selectMenuButton();
     await harness.session.page.waitForFunction(() => {
@@ -99,8 +99,8 @@ describe('the guided flow', () => {
         current: item.className.includes('current'),
       }));
     });
-    expect(steps).toHaveLength(3);
-    expect(steps.map((step) => step.current)).toEqual([true, false, false]);
+    expect(steps).toHaveLength(5);
+    expect(steps.map((step) => step.current)).toEqual([true, false, false, false, false]);
     expect(steps[0]?.text).toContain('never clicks the page');
   });
 
@@ -154,7 +154,7 @@ describe('the guided flow', () => {
     });
   });
 
-  it('counts what has been captured here and turns into a rhythm', async () => {
+  it('counts what has been captured here and sends you to review', async () => {
     await harness.session.navigate(harness.url('/states.html'));
     await harness.session.overlay.waitForMount();
 
@@ -164,11 +164,94 @@ describe('the guided flow', () => {
 
     await harness.session.page.waitForFunction(() => {
       const shadow = document.querySelector('[data-ui-atlas-overlay]')?.shadowRoot;
-      return shadow?.querySelector('.ua-flow')?.getAttribute('data-step') === 'continue';
+      return shadow?.querySelector('.ua-flow')?.getAttribute('data-step') === 'review';
     });
     const flow = await flowLine();
+    expect(flow.badge).toBe('Step 4 of 5');
     expect(flow.text).toContain('on /states.html');
-    expect(flow.text).toContain('open another page');
+    expect(flow.text).toContain('Output section');
+  });
+});
+
+describe('the Output section', () => {
+  async function captureOne(): Promise<void> {
+    await harness.session.navigate(harness.url('/states.html'));
+    await harness.session.overlay.waitForMount();
+    await harness.session.page.getByRole('button', { name: 'Inspect', exact: true }).click();
+    await selectMenuButton();
+    await captureSelection();
+  }
+
+  /** The file rows as the panel actually renders them. */
+  async function files(): Promise<Array<{ name: string; folder: string }>> {
+    return harness.session.page.evaluate(() => {
+      const shadow = document.querySelector('[data-ui-atlas-overlay]')?.shadowRoot;
+      return Array.from(shadow?.querySelectorAll('.ua-files li') ?? []).map((item) => ({
+        name: item.querySelector('.ua-file__name')?.textContent ?? '',
+        folder: item.querySelector('.ua-hint')?.textContent ?? '',
+      }));
+    });
+  }
+
+  it('lists what was written, by the name it was written under', async () => {
+    await captureOne();
+    await harness.session.page
+      .getByRole('button', { name: 'What have I captured?', exact: true })
+      .click();
+    await harness.session.page.locator('.ua-files li').first().waitFor({ timeout: 10_000 });
+
+    const written = await files();
+    expect(written[0]?.name).toBe('button--menu--default.png');
+    expect(written[0]?.folder).toContain('screenshots/');
+  });
+
+  it('never shows an absolute path, which would leak the home directory', async () => {
+    await captureOne();
+    await harness.session.page
+      .getByRole('button', { name: 'What have I captured?', exact: true })
+      .click();
+    await harness.session.page.locator('.ua-files li').first().waitFor({ timeout: 10_000 });
+
+    // The panel lives in an open shadow root, so anything rendered here is
+    // readable by the site. Names come from the site's own content; a path
+    // would come from the user's machine.
+    const text = await harness.session.page.evaluate(
+      () => document.querySelector('[data-ui-atlas-overlay]')?.shadowRoot?.textContent ?? '',
+    );
+    expect(text).not.toContain(harness.outputRoot);
+    expect(text).not.toMatch(/(^|\s)\/(Users|home|tmp)\//);
+  });
+
+  it('opens the run folder, and only ever the run folder', async () => {
+    await captureOne();
+    await harness.session.page.getByRole('button', { name: 'Open folder', exact: true }).click();
+
+    await expect.poll(() => harness.opened.length, { timeout: 10_000 }).toBeGreaterThan(0);
+    expect(harness.opened[0]).toBe(harness.session.writer.paths.runDir);
+  });
+
+  it('builds the report on demand and opens that instead', async () => {
+    await captureOne();
+    await harness.session.page.getByRole('button', { name: 'Open report', exact: true }).click();
+
+    await expect.poll(() => harness.opened.length, { timeout: 20_000 }).toBeGreaterThan(0);
+    expect(harness.opened[0]).toContain('report');
+    expect(harness.opened[0]).toContain(harness.session.writer.paths.runDir);
+  });
+
+  it('reaches the last step once the output has been looked at', async () => {
+    await captureOne();
+    await harness.session.page
+      .getByRole('button', { name: 'What have I captured?', exact: true })
+      .click();
+
+    await harness.session.page.waitForFunction(() => {
+      const shadow = document.querySelector('[data-ui-atlas-overlay]')?.shadowRoot;
+      return shadow?.querySelector('.ua-flow')?.getAttribute('data-step') === 'finish';
+    });
+    const flow = await flowLine();
+    expect(flow.badge).toBe('Step 5 of 5');
+    expect(flow.text).toContain('Open folder');
   });
 });
 
@@ -217,5 +300,113 @@ describe('capture filenames', () => {
     expect(index).toContain('button--menu--default.png');
     expect(index).toContain('<button> “Menu”');
     expect(index).toContain('does **not** update `captures.jsonl`');
+  });
+});
+
+describe('the panel fits on screen', () => {
+  it('stays inside the window, so the last section is reachable', async () => {
+    await harness.session.navigate(harness.url('/states.html'));
+    await harness.session.overlay.waitForMount();
+
+    const fit = await harness.session.page.evaluate(() => {
+      const shadow = document.querySelector('[data-ui-atlas-overlay]')?.shadowRoot;
+      const panel = shadow?.querySelector('.ua-panel') as HTMLElement | null;
+      const rect = panel?.getBoundingClientRect();
+      return {
+        bottom: rect?.bottom ?? 0,
+        windowHeight: window.innerHeight,
+      };
+    });
+    expect(fit.bottom).toBeLessThanOrEqual(fit.windowHeight);
+  });
+
+  it('collapses the sections you visit occasionally, and keeps their headings', async () => {
+    await harness.session.navigate(harness.url('/states.html'));
+    await harness.session.overlay.waitForMount();
+
+    const sections = await harness.session.page.evaluate(() => {
+      const shadow = document.querySelector('[data-ui-atlas-overlay]')?.shadowRoot;
+      return Array.from(shadow?.querySelectorAll('.ua-section__heading') ?? []).map((heading) => ({
+        title: heading.textContent?.replace(/[▾▸]/g, '').trim() ?? '',
+        open: heading.getAttribute('aria-expanded') === 'true',
+      }));
+    });
+
+    const byTitle = new Map(sections.map((item) => [item.title, item.open]));
+    // The main path stays open; every heading is present either way, so nothing
+    // becomes unfindable by being collapsed.
+    expect(byTitle.get('Mode')).toBe(true);
+    expect(byTitle.get('Capture')).toBe(true);
+    expect(byTitle.get('Output')).toBe(true);
+    expect(byTitle.get('Shortcuts')).toBe(false);
+    expect(byTitle.get('Queue')).toBe(false);
+  });
+
+  it('opens a collapsed section when its heading is pressed', async () => {
+    await harness.session.navigate(harness.url('/states.html'));
+    await harness.session.overlay.waitForMount();
+
+    await harness.session.page.getByRole('button', { name: 'Shortcuts' }).click();
+    const open = await harness.session.page.evaluate(() => {
+      const shadow = document.querySelector('[data-ui-atlas-overlay]')?.shadowRoot;
+      const headings = Array.from(shadow?.querySelectorAll('.ua-section__heading') ?? []);
+      const target = headings.find((h) => (h.textContent ?? '').includes('Shortcuts'));
+      return target?.getAttribute('aria-expanded') === 'true';
+    });
+    expect(open).toBe(true);
+  });
+
+  it('keeps the folder button on screen after the panel is dragged down', async () => {
+    await harness.session.navigate(harness.url('/states.html'));
+    await harness.session.overlay.waitForMount();
+
+    // Drag the title bar as far down as it will go.
+    const before = await harness.session.page.evaluate(() => {
+      const shadow = document.querySelector('[data-ui-atlas-overlay]')?.shadowRoot;
+      const bar = shadow?.querySelector('.ua-titlebar') as HTMLElement | null;
+      const rect = bar?.getBoundingClientRect();
+      return { x: (rect?.left ?? 0) + 20, y: (rect?.top ?? 0) + 8, height: window.innerHeight };
+    });
+    await harness.session.page.mouse.move(before.x, before.y);
+    await harness.session.page.mouse.down();
+    await harness.session.page.mouse.move(before.x, before.height - 60, { steps: 8 });
+    await harness.session.page.mouse.up();
+
+    const after = await harness.session.page.evaluate(() => {
+      const shadow = document.querySelector('[data-ui-atlas-overlay]')?.shadowRoot;
+      const panel = shadow?.querySelector('.ua-panel') as HTMLElement | null;
+      const rect = panel?.getBoundingClientRect();
+      return { top: rect?.top ?? 0, bottom: rect?.bottom ?? 0, windowHeight: window.innerHeight };
+    });
+    // Dragged down, but still fully on screen and still tall enough to use.
+    expect(after.bottom).toBeLessThanOrEqual(after.windowHeight + 1);
+    expect(after.bottom - after.top).toBeGreaterThanOrEqual(200);
+  });
+
+  it('offers the folder from the title bar, which never scrolls away', async () => {
+    await harness.session.navigate(harness.url('/states.html'));
+    await harness.session.overlay.waitForMount();
+
+    await harness.session.page.getByRole('button', { name: '📁 Folder', exact: true }).click();
+    await expect.poll(() => harness.opened.length, { timeout: 10_000 }).toBeGreaterThan(0);
+    expect(harness.opened[0]).toBe(harness.session.writer.paths.runDir);
+  });
+
+  it('reveals a collapsed section when its own button fills it', async () => {
+    await harness.session.navigate(harness.url('/states.html'));
+    await harness.session.overlay.waitForMount();
+
+    const isOpen = async (title: string): Promise<boolean> =>
+      harness.session.page.evaluate((name) => {
+        const shadow = document.querySelector('[data-ui-atlas-overlay]')?.shadowRoot;
+        const headings = Array.from(shadow?.querySelectorAll('.ua-section__heading') ?? []);
+        const target = headings.find((h) => (h.textContent ?? '').includes(name));
+        return target?.getAttribute('aria-expanded') === 'true';
+      }, title);
+
+    expect(await isOpen('Animation')).toBe(false);
+    await harness.session.page.getByRole('button', { name: 'Animation…', exact: true }).click();
+    // A list rendered into a collapsed section reads as "nothing happened".
+    await expect.poll(() => isOpen('Animation'), { timeout: 10_000 }).toBe(true);
   });
 });

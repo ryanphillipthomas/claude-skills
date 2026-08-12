@@ -434,6 +434,39 @@ See [ADR 26](adr/0026-captures-are-named-from-what-they-already-know.md).
 - **A capture that produced no file is listed, not hidden**, under "Not captured
   here" with its reason. A gap you can see beats a gap you have to notice.
 
+## Boundaries of the panel's size and position
+
+- **The panel keeps itself inside the window**, recomputing its height from
+  wherever its top edge is and on every window resize. It will not shrink below
+  a usable height, so a window shorter than ~240px cannot hold it.
+- **Collapsed state is per page load.** Persisting it would mean writing to the
+  site's own storage, which this tool does not do.
+- **A section that receives content opens itself.** Pressing a button and
+  getting a result you cannot see reads as "nothing happened", so it never
+  stays collapsed with fresh content inside.
+- **The panel does not resize horizontally.** It is a fixed 320px wide.
+
+## Boundaries of the Output section
+
+See [ADR 31](adr/0031-the-panel-can-open-the-folder-but-never-names-it.md).
+
+- **The panel never shows an absolute path.** The overlay is injected into the
+  site you are looking at and lives in an open shadow root, so anything it
+  renders is readable by that site. File names come from the site's own content;
+  a path would come from your machine. The absolute path is printed in the
+  terminal instead.
+- **The list is the most recent few, not everything.** `index.md` in the run
+  directory is the complete record.
+- **It reads `captures.jsonl`, so it lags a capture that is still running.**
+  Press Refresh, or capture again — the list is a read of what has landed.
+- **Open folder and Open report are the only two things it can open.** The page
+  names a target from a closed enum, never a path.
+- **Opening depends on the platform having an opener** (`open`, `explorer`,
+  `xdg-open`). Where there is none, the panel says so and the path is in the
+  terminal.
+- **The report is built from what is captured so far.** Opening it mid-run gives
+  a report of the run so far, not of the run you are going to have.
+
 ## Boundaries of the guided flow
 
 See [ADR 27](adr/0027-the-panel-says-what-to-do-next.md).
