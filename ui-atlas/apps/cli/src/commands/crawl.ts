@@ -25,6 +25,7 @@ import { loadProbeBundle, probeLocator } from '@ui-atlas/overlay';
 import { UiAtlasError, type CrawlState, type PageRecord } from '@ui-atlas/protocol';
 import { flagNumber, flagString, type ParsedArgs } from '../args.js';
 import { loadCliConfig, TOOL_VERSION } from '../config.js';
+import { checkSignIn } from '../signin-check.js';
 import type { Logger } from '../logger.js';
 import { reportTokens } from './tokens.js';
 
@@ -260,6 +261,43 @@ export async function runCrawl(args: ParsedArgs, logger: Logger): Promise<number
       'config.invalid',
       'no seeds: the resumed run recorded none, so pass a URL or set crawl.seeds',
     );
+  }
+
+  // Before the crawl, not after it. A signed-out crawl succeeds at everything
+  // except the only thing that mattered, and finding that out at page 50 costs
+  // the whole run. This loads the first seed once; the crawler loads it again,
+  // which is a page view spent to save twenty minutes.
+  const firstSeed = seedsForRun[0];
+  if (firstSeed !== undefined) {
+    let gate: Awaited<ReturnType<typeof checkSignIn>>;
+    try {
+      await page.goto(firstSeed, { waitUntil: config.settle.loadState });
+      gate = await checkSignIn({
+        page,
+        url: firstSeed,
+        mode: config.browser.mode,
+        profile: config.browser.profile,
+        logger,
+        addWarning: (message) => writer.addWarning(message),
+      });
+    } catch {
+      // Unreachable seeds are the crawler's problem to report, with retries and
+      // a page record. Failing here would rob it of both.
+      gate = undefined;
+    }
+
+    // A challenge stops the run. Crawling on would fetch the same interstitial
+    // fifty more times, which is both worthless as reference material and the
+    // surest way to turn a soft challenge into a hard block on this address.
+    if (gate === 'challenged') {
+      await browser.close().catch(() => undefined);
+      await writer.finalize({
+        ...(browser.browserVersion === undefined ? {} : { browserVersion: browser.browserVersion }),
+      });
+      logger.error('stopping before the crawl: this host is refusing automated browsers');
+      logger.info(`artifacts: ${writer.paths.runDir}`);
+      return 1;
+    }
   }
 
   /**

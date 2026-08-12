@@ -1,6 +1,6 @@
 import type { Frame, Locator, Page } from 'playwright';
 import type { UiAtlasConfig } from '@ui-atlas/config';
-import { newCaptureId, routeKeyFromUrl, type RunWriter } from '@ui-atlas/artifacts';
+import { captureSlug, newCaptureId, routeKeyFromUrl, type RunWriter } from '@ui-atlas/artifacts';
 import { describeCandidate, resolveElement } from '@ui-atlas/identity';
 import { settlePage, waitAnimationFrames } from '@ui-atlas/settle';
 import {
@@ -246,6 +246,14 @@ export class CaptureService {
           routeKey: routeKeyFromUrl(page.url()),
           viewportLabel: this.options.viewportLabel,
           captureId,
+          // Named from what this capture already knows about itself. The id is
+          // still in the record; it just no longer has to be the filename.
+          stem: captureSlug({
+            kind: request.kind,
+            state: application.state,
+            element: resolvedIdentity,
+            animation: request.animation,
+          }),
         },
         bytes,
       );

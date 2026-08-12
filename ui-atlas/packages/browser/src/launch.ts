@@ -1,7 +1,14 @@
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
 import type { BrowserConfig } from '@ui-atlas/config';
 import { UiAtlasError, type BrowserMode, type Viewport } from '@ui-atlas/protocol';
-import { authPaths, ensureAuthDirs, readStorageState, STORAGE_STATE_WARNING } from './auth.js';
+import {
+  authPaths,
+  ensureAuthDirs,
+  mismatchWarning,
+  readStorageState,
+  savedAuthShape,
+  STORAGE_STATE_WARNING,
+} from './auth.js';
 import { emulationOptions } from './viewport.js';
 
 /**
@@ -126,6 +133,10 @@ async function launchProfile(options: LaunchOptions): Promise<BrowserSession> {
   await ensureAuthDirs(paths);
   const userDataDir = paths.profileDir(config.profile);
 
+  // Checked *before* launching, because launching creates the directory and
+  // makes an unsigned-in profile indistinguishable from a signed-in one.
+  const mismatch = mismatchWarning(config.profile, 'profile', savedAuthShape(config.profile, paths));
+
   let context: BrowserContext;
   try {
     context = await chromium.launchPersistentContext(userDataDir, {
@@ -149,6 +160,7 @@ async function launchProfile(options: LaunchOptions): Promise<BrowserSession> {
     browserVersion: context.browser()?.version(),
     headless: config.headless,
     warnings: [
+      ...(mismatch === undefined ? [] : [mismatch]),
       `Using the dedicated UI Atlas profile "${config.profile}". ${STORAGE_STATE_WARNING}`,
     ],
     close: async () => {
@@ -162,6 +174,11 @@ async function launchStorageState(options: LaunchOptions): Promise<BrowserSessio
   if (config.profile === undefined) {
     throw new UiAtlasError('config.invalid', 'browser.mode "storage-state" requires browser.profile');
   }
+  const mismatch = mismatchWarning(
+    config.profile,
+    'storage-state',
+    savedAuthShape(config.profile),
+  );
   const statePath = await readStorageState(config.profile);
   const browser = await launchBrowser(config);
   const context = await browser.newContext({
@@ -176,7 +193,10 @@ async function launchStorageState(options: LaunchOptions): Promise<BrowserSessio
     context,
     browserVersion: browser.version(),
     headless: config.headless,
-    warnings: [`Seeded an isolated context from profile "${config.profile}". ${STORAGE_STATE_WARNING}`],
+    warnings: [
+      ...(mismatch === undefined ? [] : [mismatch]),
+      `Seeded an isolated context from profile "${config.profile}". ${STORAGE_STATE_WARNING}`,
+    ],
     close: async () => {
       await context.close().catch(() => undefined);
       await browser.close().catch(() => undefined);
@@ -203,9 +223,44 @@ async function attachOverCdp(options: LaunchOptions): Promise<BrowserSession> {
       cause,
     });
   }
+  // The signed-in context is the reason to attach at all, so the existing one
+  // is reused rather than creating a fresh (cookie-less) context.
   const existing = browser.contexts()[0];
   const context = existing ?? (await browser.newContext());
-  await applyContextExtras(context, options);
+
+  const warnings = [
+    'attach mode is experimental: the attached browser\'s extensions, flags and profile ' +
+      'affect rendering, so captures are less deterministic than clean mode.',
+  ];
+
+  // Unlike every other mode, this context belongs to the user and outlives the
+  // run, so its state carries between runs. Playwright turns out to clear a
+  // binding on disconnect, so a second attached run re-registers cleanly — but
+  // `exposeBinding` throws outright on a duplicate name, so the failure is
+  // converted to a warning rather than killing a run if that ever changes.
+  try {
+    await applyContextExtras(context, options);
+  } catch (cause) {
+    const message = cause instanceof Error ? cause.message : String(cause);
+    if (/already registered|has been already/i.test(message)) {
+      warnings.push(
+        'this browser context already carries UI Atlas bindings from an earlier attached run; ' +
+          'reusing them. Close and reopen the Chrome window for a clean slate.',
+      );
+    } else {
+      throw new UiAtlasError('browser.launch-failed', 'could not prepare the attached context', {
+        detail: { cdpEndpoint: config.cdpEndpoint },
+        cause,
+      });
+    }
+  }
+
+  if ((options.initScripts ?? []).length > 0) {
+    warnings.push(
+      'scripts were injected into your own browser context and stay until you close it. ' +
+        'Close the Chrome window when you are finished.',
+    );
+  }
 
   return {
     mode: 'attach',
@@ -213,12 +268,13 @@ async function attachOverCdp(options: LaunchOptions): Promise<BrowserSession> {
     context,
     browserVersion: browser.version(),
     headless: false,
-    warnings: [
-      'attach mode is experimental: the attached browser\'s extensions, flags and profile ' +
-        'affect rendering, so captures are less deterministic than clean mode.',
-    ],
+    warnings,
     close: async () => {
-      // Never close a browser we did not start.
+      // `close()` on a CDP-connected browser disconnects rather than shutting
+      // the browser down — verified in `tests/integration/attach.test.ts`,
+      // which attaches to a real browser and requires its pages to survive.
+      // A context we created ourselves is ours to close; the user's is not.
+      if (existing === undefined) await context.close().catch(() => undefined);
       await browser.close().catch(() => undefined);
     },
   };

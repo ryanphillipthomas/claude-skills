@@ -351,6 +351,130 @@ is still empty and no non-`GET` request was issued.
 
 **The brief is delivered through phase 4.**
 
+## Usability — flow, buttons and file names (eighth slice)
+
+Asked for after the first real external run: the shortcuts were hard, there was
+nothing telling you what to do, and the output was a wall of `cap-7f3a91.png`.
+
+- [x] Filenames derived from the record itself: `button--save-changes--hover.png`
+      from the element's role, accessible name and applied state
+- [x] Nothing invented — a capture with no name gets a **shorter** name, never a
+      guessed one, and no image leaves the machine
+- [x] Animation frames zero-padded (`frame-000`…`frame-100`) so a listing sorts
+      in the order the frames happen
+- [x] `--` separates parts, `-` separates words: `sanitizeFileStem` keeps the
+      boundary that `sanitizeSegment` would collapse
+- [x] Collisions get `-2`, `-3` from a registry the writer owns, re-seeded from
+      `captures.jsonl` on resume so a restart cannot overwrite earlier captures
+- [x] `index.md` at the run root and in each route folder, listing every file
+      with a sentence saying what is in it
+- [x] Captures that produced no file listed too, under "Not captured here", with
+      the reason
+- [x] Both indexes say plainly that renaming does not update `captures.jsonl`
+      or the sidecar
+- [x] An unwritable index is a run warning, never a failed run
+- [x] A flow line at the top of the panel that changes with state, from a pure
+      `nextStep` function
+- [x] Three numbered steps, with the instructions panel marking the current one
+- [x] The capture button's states named in the flow line, so Capture is never a
+      surprise
+- [x] Progress while the queue is busy, and a "keep going" line with a count
+      once something has been captured on this page
+- [x] Tree navigation (parent / child / previous / next) as buttons; the arrow
+      keys are now a shortcut for a visible control, not the only way in
+- [x] The count follows single-page-app route changes rather than going stale
+
+## Authentication that fails loudly (ninth slice)
+
+Saved sign-ins kept failing the same way: `auth save` reported success, every
+page returned 200, and the artifacts were of a signed-out site.
+
+- [x] `auth save` probes the signed-in page for IndexedDB, sessionStorage and
+      service workers — the things `storageState()` silently drops
+- [x] It says which mode this site needs, and gives the command to fix it
+- [x] `auth save --persistent` signs you into a real browser profile, which
+      keeps everything a browser keeps; the directory is the save
+- [x] `auth save` will not save over a signed-out page by accident — it says so
+      and asks for a second Enter
+- [x] `auth check <profile> <url>` reports signed-in / signed-out / unclear with
+      evidence, exit 1 for signed out so it can gate a script
+- [x] The mode is inferred from what is on disk, so a good profile is never
+      reported signed out because the wrong mode was guessed
+- [x] A sign-out control beats a stray "Log in" link — a way out is the
+      strongest evidence of being in
+- [x] `unclear` is a real verdict, not rounded up to signed-in
+- [x] Every verdict carries its evidence, asserted by a test
+- [x] The check runs on the first page of every run using saved auth, into the
+      log *and* the run warnings, so `run.json` carries it too
+- [x] `clean` mode is never checked — it is expected to be signed out
+
+## Saying what actually failed (tenth slice)
+
+`Unexpected token '<', "<!DOCTYPE "` is the site's own error, and it names
+neither the request nor what came back — so a bot challenge and an expired
+session look identical.
+
+- [x] `ui-atlas doctor <url>` watches a page load and reports the requests that
+      were refused, failed, or answered with HTML where data was asked for
+- [x] `html-for-json` is not conditioned on the status: an interstitial commonly
+      returns 200, which is exactly why the failure is confusing
+- [x] HTML bodies read down to their title, because the body is what identifies
+      a challenge versus a login page
+- [x] One-sentence conclusion naming which, or plainly declining to name one
+- [x] The page's own error printed verbatim, beside the request that caused it
+- [x] Query strings stripped from every URL; JSON bodies never previewed
+- [x] Writes nothing — no run, no captures. Exit 1 when it found something
+- [x] Fixture reproducing the real failure: a 200 document whose fetch receives
+      text/html and throws
+
+### Corrected by the first real run
+
+- [x] `ERR_ABORTED` / `ERR_BLOCKED_BY_CLIENT` demoted to a `cancelled` kind,
+      ranked last and listed separately — beacons were burying the real finding
+- [x] Storage-state advice suppressed in profile mode; telling someone to do
+      what they are already doing reads as a finding
+- [x] A 401 plus a sign-in control reported as one fact, explicitly ruling out
+      a bot challenge
+- [x] `--mode profile` with only a storage state saved now warns before
+      launching — `launchPersistentContext` creates the empty directory, so
+      after would be too late
+
+- [x] "Has this profile been signed in?" answered by a marker written at save
+      time, not by `existsSync` — launching is what creates the directory, so
+      the obvious check was no check at all
+- [x] The warning distinguishes "never signed in" from "directory left by an
+      earlier run", so it does not imply the user never tried
+
+## Being blocked, named and obeyed (eleventh slice)
+
+- [x] `probeChallenge` separate from the sign-in check and run first — a
+      challenge and a signed-out session need opposite responses
+- [x] Runs in every browser mode, including `clean`: being signed out in a clean
+      run is expected, being refused entry is not
+- [x] Structural markers before wording, so a translated interstitial is still
+      recognised
+- [x] Neither an ordinary page nor a sign-in page mistaken for a challenge
+- [x] A challenged crawl stops before crawling, finalises the run so the warning
+      lands in `run.json`, and exits 1 with zero pages
+- [x] `doctor` names a challenge served as the document itself, not only as the
+      answer to a data request
+- [x] One exported advice list that never says "try again", and says plainly
+      that this tool has no evasion and will not be given any
+
+## Attach mode, tested (twelfth slice)
+
+- [x] The attached browser survives the run — verified against a real browser
+      with a debugging port, not assumed from the docs
+- [x] A context is closed only if we created it; the user's is never ours
+- [x] The browser's own context is used, since a fresh one would have none of
+      the cookies that are the entire reason to attach
+- [x] A second attached run starts rather than dying on a duplicate binding
+- [x] Injected scripts declared as outliving the run, because the context is
+      not ours to clean up
+- [x] `doctor` no longer offers storage-state advice in attach or profile mode
+- [x] `unclear` with no refused requests and no challenge says so, instead of
+      reading as a problem
+
 ### Still to build
 
 (nothing in the brief)

@@ -13,6 +13,7 @@ import {
   newPageId,
   newRunId,
   newSessionToken,
+  recordingSlug,
   routeKeyFromUrl,
   RunWriter,
 } from '@ui-atlas/artifacts';
@@ -62,6 +63,7 @@ import {
   type Viewport,
 } from '@ui-atlas/protocol';
 import type { Logger } from './logger.js';
+import { checkSignIn } from './signin-check.js';
 
 export interface StartSessionOptions {
   config: UiAtlasConfig;
@@ -98,6 +100,8 @@ export class AtlasSession {
   private preview: HeldPreview | undefined;
   /** The last list the animation panel was shown, so it can name one back. */
   private animations: AnimationRecord[] = [];
+  /** The sign-in check runs once per run, on the first page that loaded. */
+  private signInChecked = false;
 
   private constructor(
     readonly runId: string,
@@ -300,6 +304,21 @@ export class AtlasSession {
 
     const readiness = await settlePage(this.page, { config: this.options.config.settle });
     warnings.push(...readiness.warnings);
+
+    // Once per run, on the first page that actually loaded. Later navigations
+    // are the user moving around a site they are already signed in to, and
+    // repeating the check on each would be noise.
+    if (!this.signInChecked) {
+      this.signInChecked = true;
+      await checkSignIn({
+        page: this.page,
+        url,
+        mode: this.browser.mode,
+        profile: this.options.config.browser.profile,
+        logger: this.options.logger,
+        addWarning: (message) => this.writer.addWarning(message),
+      });
+    }
 
     const record: PageRecord = {
       schemaVersion: SCHEMA_VERSION,
@@ -766,6 +785,7 @@ export class AtlasSession {
                 routeKey: routeKeyFromUrl(this.page.url()),
                 viewportLabel: viewportLabel(this.viewport),
                 captureId,
+                stem: recordingSlug(),
               },
               await readFile(recording.path),
               {

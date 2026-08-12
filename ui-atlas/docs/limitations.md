@@ -340,6 +340,113 @@ See [ADR 25](adr/0025-the-animation-button-is-a-list-not-a-shutter.md).
 - **Nothing in the panel is named for you.** It shows what the inventory said,
   in the inventory's words.
 
+## Boundaries of the sign-in check
+
+See [ADR 28](adr/0028-a-saved-sign-in-is-checked-not-assumed.md).
+
+- **A storage state carries cookies and localStorage, and nothing else.** Not
+  IndexedDB, not sessionStorage, not service workers. `auth save` now reads the
+  page and tells you when the session lives somewhere it cannot reach, but the
+  limit itself is Playwright's and is not going away. `--persistent` is the way
+  round it.
+- **The verdict is a heuristic, and it says so.** It reads visible password
+  fields, sign-in and sign-out controls, and whether the final URL is a sign-in
+  path. A page showing none of those reads `unclear`, which is a real answer and
+  not a failure.
+- **The wording is English-shaped.** It matches "sign in", "log in", "sign out"
+  and their variants. A site in another language reads `unclear` rather than
+  wrong — the right failure, but a real limit.
+- **`signed-in` means the page offered a way out**, not that every API call will
+  succeed. A partially-expired session can still show a sign-out button.
+- **It runs once, on the first page of a run.** A session that expires halfway
+  through a long crawl is not noticed.
+- **`clean` mode is never checked.** It is expected to be signed out, and
+  warning about it would teach people to ignore the warning.
+- **None of this helps you get signed in.** UI Atlas types nothing, submits
+  nothing and evades nothing. A site that blocks automated browsers still blocks
+  it, and `--persistent` only preserves more of what you did by hand.
+
+## Being blocked by a site
+
+- **UI Atlas has no evasion and will not be given any.** No fingerprint
+  spoofing, no stealth patches, no CAPTCHA solving, no proxy rotation. A site
+  that has decided it does not want automated browsers gets to have that.
+- **A challenge is detected, named, and then obeyed.** Every run checks its
+  first page in every browser mode; a `crawl` stops rather than starting.
+  Retrying is what turns a soft challenge into a hard block, so nothing here
+  retries.
+- **Detection is structural first, wording second.** `#challenge-form`,
+  `.cf-browser-verification` and their relatives survive translation; the
+  wording list does not. An interstitial with neither is reported as an
+  ordinary page.
+- **A challenge and a signed-out session are told apart deliberately**, because
+  they need opposite responses: one is fixed by signing in again, the other
+  cannot be fixed here at all.
+- **`--mode attach` is the only remaining route**, and it is not a bypass: it
+  drives a browser you launched and signed into yourself. It is lower fidelity
+  (the attached browser's extensions, flags and profile all affect rendering)
+  and it is not guaranteed to work. Chrome 136+ refuses
+  `--remote-debugging-port` on the default profile, so it needs its own
+  `--user-data-dir`.
+
+## Boundaries of `doctor`
+
+See [ADR 29](adr/0029-a-page-that-fails-should-say-what-failed.md).
+
+- **It reports one page load.** A failure that only happens after a click, or
+  on the fifth page of a flow, is not seen.
+- **"Bot challenge" and "sign-in page" are read from the returned HTML's own
+  words** — titles like "Just a moment", "Access denied", "Sign in". An
+  interstitial that says none of those is reported as HTML-where-data-was-asked
+  for, without a name for it.
+- **It cannot see what the page never requested.** A framework that swallows a
+  failure and renders an empty state produces no finding.
+- **Bodies are read only for HTML responses**, and only the title or first
+  sentence is kept. It never prints a JSON body, which could be your data.
+- **Query strings are stripped from every URL it prints.** That also means two
+  requests to the same path with different parameters look identical in the
+  output.
+- **It fixes nothing.** Naming a bot challenge does not get past it, and UI
+  Atlas will not gain evasion.
+
+## Boundaries of capture names and the index
+
+See [ADR 26](adr/0026-captures-are-named-from-what-they-already-know.md).
+
+- **A name is derived, never invented.** It comes from the element's ARIA role,
+  its accessible name or text excerpt, and the state that was applied. A capture
+  with none of those gets a *shorter* name — `div--default.png` — rather than a
+  guessed one. Nothing is sent anywhere to produce a name.
+- **Renaming a file by hand does not update anything else.** `captures.jsonl`,
+  the `.json` sidecar beside the image and `index.md` all keep the original
+  path. Rename the sidecar to match if you want the pair to stay together. Both
+  indexes say so at the top.
+- **Names follow the site's content.** A button whose label changes gets a
+  different filename on the next run. `captures.jsonl` is the stable record —
+  capture ids did not change, only the filenames did.
+- **Collisions are resolved by order.** Two captures a person would give the
+  same name get `-2`, `-3` in the order they were written; which one is
+  unsuffixed depends on which ran first. The sidecar beside each says which is
+  which.
+- **The index describes what was recorded, not what is on disk now.** It is
+  rebuilt from `captures.jsonl` at the end of a run. Files added, removed or
+  renamed afterwards are not noticed until another run rewrites it.
+- **A capture that produced no file is listed, not hidden**, under "Not captured
+  here" with its reason. A gap you can see beats a gap you have to notice.
+
+## Boundaries of the guided flow
+
+See [ADR 27](adr/0027-the-panel-says-what-to-do-next.md).
+
+- **The flow describes the main sequence only.** Animations, viewport presets
+  and the responsive set are branches off it, not steps in it, so the step
+  numbers do not count them.
+- **The capture count is per page load and per route, not per run.** It counts
+  what this toolbar has captured from the page the browser is on. Reloading the
+  page starts it again; the run's own totals are in `run.json`.
+- **The instructions panel does not remember being hidden.** Persisting it would
+  mean writing to the site's own storage, which this tool does not do.
+
 ## Things the tool reports that surprise people
 
 - **`focus` and `focus-visible` can produce identical images.** Chromium decides

@@ -39,6 +39,25 @@ npm run ui-atlas -- inspect https://example.com
 Opens a clean Chromium window with the inspector injected and runs until you
 close the browser.
 
+**There are three steps, and the panel tells you which one you are on.**
+
+1. **Inspect** — turns the pointer into a picker. It highlights what is under it
+   and never clicks the page.
+2. **Select** — click to lock onto an element. The panel shows the locator that
+   will find it again and how many things on the page match it. The
+   `↑ Parent` / `↓ Child` / `← Previous` / `→ Next` buttons adjust the selection
+   when you catch slightly the wrong thing.
+3. **Capture** — pick the states you want and press Capture.
+
+A line at the top of the panel says what to do next, and changes as you go:
+while captures are running it says so, and once you have captured something it
+turns into *"4 captures so far on /pricing — select the next element, or open
+another page."* The "How this works" section repeats the three steps and marks
+the one you are on; press **Hide** if you do not want it.
+
+Every control has a button. The keyboard shortcuts are faster once you know
+them, and none of them is the only way to reach anything:
+
 | Key | Action |
 | --- | --- |
 | `Alt`/`Option` + `I` | toggle inspect mode |
@@ -286,8 +305,13 @@ point the crawl at that session:
 
 ```bash
 npm run ui-atlas -- auth save my-reviewer https://example.com/login
+npm run ui-atlas -- auth check my-reviewer https://example.com/dashboard
 npm run ui-atlas -- crawl site.yml --mode storage-state --profile my-reviewer
 ```
+
+If `auth save` tells you this site keeps its session somewhere a storage state
+cannot carry, re-save with `--persistent` and use `--mode profile` instead. See
+[Authentication](#authentication).
 
 A misspelled step name or an unknown option is a validation error, never a
 silent skip: for a config that can click things, "I did not understand that
@@ -515,6 +539,7 @@ design system is not visible from a single page.
 
 ```bash
 npm run ui-atlas -- auth save my-profile https://example.com/login
+npm run ui-atlas -- auth check my-profile https://example.com/dashboard
 npm run ui-atlas -- inspect https://example.com --mode storage-state --profile my-profile
 npm run ui-atlas -- auth clear my-profile
 ```
@@ -524,6 +549,150 @@ types credentials and never submits a form. The saved state lives in
 `~/.ui-atlas/` with owner-only permissions, never in the artifact tree, and
 every command that uses it warns that session cookies can impersonate you.
 
+#### Two ways to keep a session, and how to tell which you need
+
+A Playwright storage state — the default — carries **cookies and localStorage,
+and nothing else**. No IndexedDB, no sessionStorage, no service workers. Plenty
+of sign-ins keep their token in exactly those places, which is how a saved
+profile can look healthy (hundreds of cookies) and still be signed out on first
+use.
+
+So `auth save` reads the signed-in page and tells you which mode this site
+needs. When it finds a session a storage state cannot carry, it says so and
+gives you the command to fix it:
+
+```bash
+npm run ui-atlas -- auth save my-profile https://example.com/login --persistent
+npm run ui-atlas -- crawl site.yml --mode profile --profile my-profile
+```
+
+`--persistent` signs you into a real browser profile under
+`~/.ui-atlas/profiles/`, which keeps everything a browser keeps. The directory
+*is* the saved session — there is no export step to get wrong.
+
+#### Check before a long run
+
+```bash
+npm run ui-atlas -- auth check my-profile https://example.com/dashboard
+```
+
+Opens the URL with the saved profile and reports `signed-in`, `signed-out` or
+`unclear`, with the evidence. Exit code 1 means signed out, so it can gate a
+script. This is ten seconds; discovering it at page 50 of a crawl is twenty
+minutes and a run of screenshots of a login wall.
+
+Every run using a profile does the same check on its first page and warns
+loudly if it is signed out — into the log *and* into `run.json`, so the warning
+is still there when you read the artifacts tomorrow. A `clean`-mode run is
+expected to be signed out, so it is not checked.
+
+None of this makes UI Atlas better at *getting* signed in. It still types
+nothing, submits nothing, and evades nothing — `--persistent` only keeps more of
+what your own hands achieved. A site that blocks automation still blocks it.
+
+### When the site refuses the browser
+
+Some sites block automated browsers outright. Cloudflare and its equivalents
+serve an interstitial — *"Just a moment…"*, *"Checking your browser"*,
+*"Access denied"* — instead of the site, and no amount of re-saving a profile
+changes that.
+
+Every run checks for this on its first page, in **every** browser mode, and says
+so:
+
+```
+✖ grok.com is serving a challenge page instead of the site: the page contains
+  #challenge-form; the page title is "Just a moment…"
+  ! This is the site refusing an automated browser, not a sign-in problem.
+    Re-saving the profile will not help.
+  ! Stop running against this host for now — repeated attempts are what turn a
+    soft challenge into a hard block on your address.
+  ! UI Atlas has no evasion and will not be given any: no fingerprint spoofing,
+    no stealth patches, no CAPTCHA solving.
+  ! The one legitimate route left is --mode attach.
+```
+
+A `crawl` **stops** at that point rather than starting, because fetching the
+same interstitial fifty more times is worthless as reference material and is the
+surest way to turn a soft challenge into a hard block.
+
+Detection uses the challenge's own machinery (`#challenge-form`,
+`.cf-browser-verification`) as well as its wording, so a translated interstitial
+is still recognised.
+
+#### `--mode attach`: your browser, not ours
+
+```bash
+# a Chrome you launch, on a profile directory of its own
+"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
+  --remote-debugging-port=9222 \
+  --user-data-dir="$HOME/.ui-atlas-chrome"
+
+# sign in by hand in that window, then
+npm run ui-atlas -- doctor https://example.com --mode attach --cdp-endpoint http://127.0.0.1:9222
+```
+
+This is not evasion: it is your own browser, which you are entitled to use,
+driven rather than imitated. It often gets past a soft challenge because nothing
+about the browser is unusual — it is a real Chrome with your real profile.
+
+Two practical notes. Chrome 136 and later **refuse** `--remote-debugging-port`
+on the default profile, so `--user-data-dir` is required, and you will sign in
+again in that fresh profile. And attach mode is lower fidelity by design: the
+attached browser's extensions, flags and profile all affect rendering, so
+captures are less deterministic than `clean` mode.
+
+If a site blocks attach mode too, it has decided it does not want automated
+access, and that is the end of the road here.
+
+### When a page says something inscrutable
+
+```bash
+npm run ui-atlas -- doctor https://example.com/dashboard
+npm run ui-atlas -- doctor https://example.com/dashboard --mode profile --profile my-profile
+```
+
+`Unexpected token '<', "<!DOCTYPE "... is not valid JSON` is **the site's own
+error**, not UI Atlas's: one of its `fetch` calls asked for JSON and received an
+HTML page. That message names neither the request nor what the HTML was, so a
+bot challenge and an expired session look identical.
+
+`doctor` loads the page and says which:
+
+```
+requested https://example.com/dashboard
+document status 200
+
+! A bot challenge answered a data request (https://example.com/api/me:
+  "Just a moment…"). UI Atlas has no way around that and will not get one.
+
+1 request(s) worth looking at:
+  [html-for-json] 403 fetch https://example.com/api/me
+      the page asked for data and received an HTML document — this is what
+      produces "Unexpected token '<'"
+      body: "Just a moment…"
+
+the page's own scripts threw:
+  Unexpected token '<', "<!doctype "... is not valid JSON
+
+sign-in: signed-out
+  a sign-in control is on the page ("Sign in")
+```
+
+It captures nothing and writes no run — it is a read. Query strings are stripped
+from every URL it prints, because they carry tokens. Exit code 1 when it found
+something, so it can gate a script.
+
+The two answers it separates:
+
+- **a sign-in page came back** — your saved session is not signed in as far as
+  the server is concerned. Re-save it, with `--persistent` if `auth save` said
+  this site needs it.
+- **a bot challenge came back** — the site is refusing automated browsers. UI
+  Atlas has no evasion and will not get any. `--mode attach` against a Chrome
+  you launched and signed into yourself is the only remaining option, and it is
+  not guaranteed to work either.
+
 ## Output
 
 ```
@@ -531,6 +700,7 @@ ui-atlas-output/
   <project>/
     <run-id>/
       run.json                                        run manifest
+      index.md                                        every capture, with what it is
       captures.jsonl                                  one record per capture
       pages.jsonl                                     one record per page visit
       crawl-state.json                                resumable crawl frontier
@@ -538,18 +708,43 @@ ui-atlas-output/
       suggested-recipes.yml                           a recipe skeleton to review
       traces/<page-id>.zip                            failures only; can contain cookies
       animations.jsonl                                described animations, sampled or not
-      screenshots/<route>/<viewport>/<capture-id>.png
-      screenshots/<route>/<viewport>/<capture-id>.json   metadata beside the image
-      animations/<route>/<viewport>/<capture-id>.webm    recordings, when --video asked for one
-      animations/<route>/<viewport>/<capture-id>.json    metadata beside the recording
+      screenshots/<route>/index.md                       this page's captures
+      screenshots/<route>/<viewport>/<name>.png
+      screenshots/<route>/<viewport>/<name>.json         metadata beside the image
+      animations/<route>/<viewport>/<name>.webm           recordings, when --video asked for one
+      animations/<route>/<viewport>/<name>.json           metadata beside the recording
       tokens.json                                        observed values with counts
       report/index.html                                  browsable report
 ```
 
+### File names
+
+`<name>` is derived from what the capture already knows about itself — the
+element's ARIA role, its accessible name and the state that was applied:
+
+```
+screenshots/localhost-4173-pricing/desktop/
+  button--save-changes--default.png
+  button--save-changes--hover.png
+  checkbox--email-me-about-updates--checked.png
+  viewport--default.png
+```
+
+Nothing is guessed and no image is sent anywhere: a capture with no accessible
+name and no text gets a **shorter** name (`div--default.png`), never an invented
+one. Repeats within a folder get `-2`, `-3`. Animation frames are zero-padded
+(`frame-000` … `frame-100`) so a listing sorts them in the order they happen.
+
+These names are a starting point you are expected to improve by hand. `index.md`
+at the run root — and one inside each route folder — lists every file with a
+sentence saying what is in it, so a renaming pass has a map. **Renaming a file
+does not update `captures.jsonl` or the `.json` sidecar beside it**; rename the
+sidecar to match if you want the pair to stay together.
+
 Every write is atomic: a temporary file in the same directory, fsynced,
 checksummed, then renamed. A capture that failed or was skipped is written as a
 record too — with a stable error code and no image — so nothing disappears
-silently.
+silently. Those appear in `index.md` under "Not captured here", with the reason.
 
 Each record carries the URL, route key, viewport (including whether it was real
 mobile emulation), the state and **how it was reached**

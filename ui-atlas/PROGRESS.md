@@ -3,7 +3,9 @@
 Running log for the build. Updated after each milestone so an interrupted
 session is recoverable.
 
-**Last updated:** 2026-08-11, after the toolbar's Animation panel landed. The brief is delivered.
+**Last updated:** 2026-08-12, after `doctor` landed. The brief is delivered;
+the last three slices are usability work on top of it, each one driven by a
+real failure during real use.
 
 ## Status
 
@@ -19,6 +21,13 @@ observed-value extraction, the animation inventory during a crawl, and the
 toolbar's Animation panel. **Everything the brief scopes is built** — the last
 item on its own list was the Animation button, and it is no longer disabled.
 
+Two more slices followed the first real external runs. The eighth: guided flow,
+buttons for everything the keyboard could reach, and filenames derived from what
+each capture already knows about itself. The ninth: a saved sign-in that is
+checked rather than assumed, after the same authentication failure happened
+repeatedly and always looked like something else. The tenth: `doctor`, which
+says what actually failed when a page reports something inscrutable.
+
 ```
 npm install
 npm run build
@@ -30,9 +39,9 @@ npm test
 `npm test` (builds, then Vitest — unit and browser integration):
 
 ```
-Test Files  38 passed (38)
-     Tests  442 passed | 3 skipped (445)
-  Duration  ~296s
+Test Files  45 passed (45)
+     Tests  545 passed | 3 skipped (548)
+  Duration  ~310s
 ```
 
 On a networked machine the three external smoke tests run instead of skipping:
@@ -42,7 +51,7 @@ the phase 1 exit criterion. Nothing is unverified now.
 | Suite | Tests | What it proves |
 | --- | --- | --- |
 | `unit/paths` | 14 | segment sanitising, route keys, artifact-root escape rejection |
-| `unit/artifacts` | 10 | atomic writes, JSONL, PNG headers, record validation, corrupt-line tolerance |
+| `unit/artifacts` | 15 | atomic writes, JSONL, PNG headers, record validation, corrupt-line tolerance, descriptive filenames, collision suffixes surviving a resume, the indexes |
 | `unit/identity` | 16 | generated-id detection, hashed classes, scoring, fingerprint stability |
 | `unit/config` | 14 | defaults, deep merge, prototype-pollution rejection, YAML/JSON loading |
 | `unit/runtime` | 25 | deadlines, queue serialisation and isolation, bridge auth/validation, CLI args, redaction, run summary, shortcuts |
@@ -78,6 +87,13 @@ the phase 1 exit criterion. Nothing is unverified now.
 | `unit/tokens` | 24 | colour/length/font normalisation, category mapping, counting across pages, truncation warnings, near duplicates reported and never merged |
 | `integration/tokens` | 9 | **phase 4, fifth slice**: browser defaults excluded, script/style never read, the page unchanged either side, the per-page cap, the fixture's real colours, the CLI across several pages and past an unreachable one, a whole-site crawl scan, and doing nothing when switched off |
 | `integration/animation-panel` | 9 | **phase 4, seventh slice**: the panel driven through the real overlay — what it lists, the action each row gets, no row without a reason, listing changing nothing, a sample that restores, a recording that is not called a sample, canvas named with an action, an honest refusal when the animation has gone, and the keyboard route |
+| `unit/naming` | 31 | slug composition and what it refuses to invent, word-boundary trimming, stem sanitising that keeps `--`, the index's grouping, descriptions and relative links |
+| `unit/flow` | 12 | what the panel says at each point in the sequence, and that every step it points at has an instruction |
+| `integration/guided-flow` | 9 | **eighth slice**: the flow line through a real browser at each step, the instructions and their current-step marking, tree navigation as buttons, the count after a real capture, and the filenames, sidecar and index the run writes |
+| `unit/signin` | 19 | what a storage state drops and when that matters, login-path matching, and the three-valued verdict with its evidence |
+| `integration/doctor` | 10 | **tenth slice**: the request behind an "Unexpected token" error found, the HTML identified as a challenge, the page's own error captured, nothing reported for a page that works, and query strings kept out of the output |
+| `integration/signin` | 12 | **ninth and eleventh slices**: the page-side probes against real pages — a login page read as signed out, a way out read as signed in, an ordinary page read as unclear, a hidden password field ignored, a redirect noticed, IndexedDB/sessionStorage actually found, a challenge page recognised by its markup and its wording, neither an ordinary nor a sign-in page mistaken for one, and a challenged crawl stopping with zero pages and the warning in `run.json` |
+| `integration/attach` | 5 | attach mode against a real browser with a debugging port: the attached browser survives the run, its own context is used rather than a fresh one, the determinism warning is raised, a second attached run starts, and injected scripts are declared as outliving the run |
 | `integration/external-smoke` | 3 skipped | read-only public-site checks; skip without network |
 
 `npm run typecheck` passes for all thirteen packages and for the test sources.
@@ -1027,14 +1043,412 @@ that time on the page's own clock. Restoration never promised to stop time. What
 it does promise is that nothing is left held — so the test now requires no
 animation to read `paused` (a failed restore) or `idle` (a cancel never undone).
 
+## Guided flow and readable filenames (eighth slice)
+
+Done and covered by `tests/unit/naming.test.ts`, `tests/unit/flow.test.ts` and
+`tests/integration/guided-flow.test.ts`. See
+[ADR 26](docs/adr/0026-captures-are-named-from-what-they-already-know.md) and
+[ADR 27](docs/adr/0027-the-panel-says-what-to-do-next.md).
+
+This came out of the first real run against an external site. Four things were
+asked for: the shortcuts are hard, there are no instructions, there is no sense
+of flow, and the output is disorganised — with a suggestion that Claude could
+look at the images and name them.
+
+### The finding that reordered the work
+
+**Most of the naming problem was already solvable locally.** Every capture
+already stores the element's ARIA role, its accessible name, a text excerpt and
+the state that was applied — the inspector reads all of them to score locators.
+So `cap-7f3a91.png` could be `button--save-changes--hover.png` with nothing sent
+anywhere. AI was only ever needed for the residue: wrapper divs and sections
+with no accessible name.
+
+Having seen that, the ask changed to *keep them organised so a manual rename is
+easy* — so there is no AI pass, and the README's opening promise ("no cloud
+account, no AI service") is untouched.
+
+### Names
+
+`captureSlug` composes `<subject>--<label>--<state>` from fields the record
+already carries. `button--save-changes--hover.png`,
+`checkbox--email-me-about-updates--checked.png`, `viewport--default.png`.
+
+Four decisions worth keeping:
+
+- **Nothing is invented.** A capture with no accessible name and no text gets a
+  *shorter* name (`div--default.png`), never a guessed one.
+- **Frames are zero-padded** — `frame-050` sorts between `frame-000` and
+  `frame-100`, where `50` would sort after `100`.
+- **`--` separates parts, `-` separates words.** `sanitizeSegment` collapses
+  hyphen runs, which would turn `button--save-changes--hover` into
+  `button-save-changes-hover` and lose the boundary. `sanitizeFileStem` relaxes
+  that one rule and keeps every other guarantee.
+- **Collisions get `-2`, `-3`** from a registry `RunWriter` owns. Two "Save"
+  buttons on one page is ordinary, and a collision would have silently
+  overwritten an image *and* its sidecar.
+
+The registry is re-seeded from `captures.jsonl` on resume. Without that, a
+resumed run would write `button--save--hover.png` straight over the one it
+already had and the earlier record would point at the later image. A test kills
+and resumes a writer to prove it does not.
+
+### Organisation
+
+The folder shape was already right — `screenshots/<route>/<viewport>/` — what
+was missing was a way to read it. `finalize()` now writes `index.md` at the run
+root and one inside each route folder, listing every file with a sentence saying
+what is in it. Captures that produced **no** file are listed too, under "Not
+captured here", with the reason.
+
+Both indexes say plainly that renaming a file does not update `captures.jsonl`
+or the sidecar beside it. That is the honest caveat for the workflow this exists
+for: the names are a starting point a human is expected to improve.
+
+An unwritable index is a run warning, not a failed run — the captures and their
+sidecars are already on disk by then.
+
+### Flow
+
+`nextStep` is a pure function from the panel's state to one sentence and a
+position. It renders above everything else, because it answers the question a
+person opens the panel with, and the answer should not sit below the controls it
+is about.
+
+| State | It says |
+| --- | --- |
+| not connected | *Waiting for the UI Atlas session. Nothing is being captured yet.* |
+| nothing selected | *Press Inspect, then move the pointer over the page…* |
+| inspecting, nothing selected | *Click the element you want…* |
+| selected | *Pick the states you want, then press Capture. Right now: default, hover.* |
+| jobs in flight | *Capturing 3 jobs… files land in this run as they finish.* |
+| captured here | *4 captures so far on /pricing. Select the next element, or open another page…* |
+
+Two things this buys beyond instruction: **the capture button is never a
+surprise**, because the line names the states it is about to take; and
+**progress beats instruction**, so while the queue works it says what is
+happening rather than repeating what to do.
+
+Three numbered steps, not four — choosing states and pressing Capture happens in
+one place at one time, and splitting it would have been a number that looked
+like progress without being any. A test asserts every position `nextStep` can
+return has a matching instruction, so the highlight can never point at nothing.
+
+### Buttons
+
+Walking the DOM tree was arrow-keys-only, which meant it may as well not have
+existed: the operation you want immediately after clicking slightly the wrong
+thing had no visible control at all. Parent, child, previous and next are now
+buttons, disabled until there is a selection. The arrow keys are unchanged, and
+are now the shortcut for a visible control rather than the only way in.
+
+The count is of **captures**, not jobs — a failed job captured nothing, and a
+three-state set produces three — attributed to the page recorded when the
+capture was *asked for*, since a single-page app can navigate while the queue
+works. The overlay watches for route changes in the frame loop it already runs,
+so the count does not go stale on a route change.
+
+### One bug caught by writing the test for it
+
+A route index sits under `screenshots/<route>/`, but recordings live under
+`animations/<route>/`. Prefix-stripping produced a link that resolved to
+nothing. `relativise` now computes a real relative path and climbs out with
+`../../` where it has to.
+
+## A saved sign-in that is checked, not assumed (ninth slice)
+
+Done and covered by `tests/unit/signin.test.ts` and
+`tests/integration/signin.test.ts`. See
+[ADR 28](docs/adr/0028-a-saved-sign-in-is-checked-not-assumed.md).
+
+Saved sign-ins kept failing, always in the same shape: `auth save` reported
+success, the run started fine, every page returned 200, and the artifacts were
+of a signed-out site. On one real site the visible symptom was
+`Unexpected token '<', "<!DOCTYPE "` — the site's own code, expecting JSON and
+receiving an HTML challenge page. Nothing anywhere said *you are signed out*.
+
+### The root cause, and the aggravating factor
+
+`context.storageState()` carries **cookies and localStorage, and nothing else**.
+Not IndexedDB, not sessionStorage, not service workers. Plenty of modern
+sign-ins keep their token in exactly those places, so a saved file can be large
+and healthy-looking and contain none of the session.
+
+What made it hurt was that nothing checked — not at save time, not at run time.
+The gap between the mistake and the symptom was the whole run.
+
+### Three changes, in the order they help
+
+**`auth save` asks the page what it stores.** `probeStorage` reads localStorage
+and sessionStorage key counts, IndexedDB database names and service worker
+registrations; `assessStorage` — pure, so it is tested without a browser —
+sorts them into carried and dropped, and recommends a persistent profile when
+the dropped material is where a session would live. A service worker is
+reported but does not drive the recommendation: it is usually an offline cache.
+
+**`auth save --persistent` signs you into a real profile.** The persistent
+context at `~/.ui-atlas/profiles/<name>` keeps everything a browser keeps, and
+the directory *is* the save — no export step to get wrong. `--mode profile`
+already existed; what was missing was any way to sign in to one, which made it
+advice rather than a workflow.
+
+**`auth check <profile> <url>`** opens the URL with the saved profile and
+reports the verdict with its evidence, exit 1 for signed out. Ten seconds
+instead of twenty minutes and fifty screenshots of a login wall.
+
+### The verdict is three-valued, and the third value is real
+
+| Evidence | Verdict |
+| --- | --- |
+| a visible sign-out control | `signed-in` |
+| a visible password field | `signed-out` |
+| the final URL is a sign-in path | `signed-out` |
+| a visible sign-in control | `signed-out` |
+| none of the above | `unclear` |
+
+A way *out* is the strongest evidence of being *in*, and it deliberately beats a
+stray "Log in" link elsewhere on the page. `unclear` is the honest answer for a
+page showing neither; rounding it up to signed-in would be the quiet dishonesty
+this whole slice exists to remove. A test requires the evidence list is never
+empty, whatever the verdict.
+
+### Where the check runs
+
+`AtlasSession.navigate` runs it on the first page that loads, which covers
+`inspect` and `capture` for free. `crawl` loads its first seed once before
+starting — one page view spent to avoid crawling fifty. It runs only when the
+run is using saved auth, because a `clean` run is *expected* to be signed out
+and warning about it would teach people to ignore the warning.
+
+The warning goes to the log **and** the run warnings, so `run.json` and the
+report carry it too: the person reading the artifacts tomorrow gets the same
+sentence as the person who watched it run.
+
+### What this does not do
+
+It does not make UI Atlas better at getting signed in. It still types nothing,
+submits nothing and evades nothing. `--persistent` only keeps more of what your
+own hands achieved, and a site that blocks automation still blocks it.
+
+## Saying what actually failed (tenth slice)
+
+Done and covered by `tests/integration/doctor.test.ts`. See
+[ADR 29](docs/adr/0029-a-page-that-fails-should-say-what-failed.md).
+
+The same message kept coming back from real use:
+
+```
+Error: Unexpected token '<', "<!DOCTYPE "... is not valid JSON
+Trace ID: -
+```
+
+It is the site's own JavaScript — a `fetch` asked for JSON and got an HTML
+document — and everything that matters is missing from it: which request, what
+the HTML was, and therefore why.
+
+### Why that gap costs an afternoon
+
+Three unrelated causes produce that identical sentence: a bot challenge answered
+an API call, the session expired and the API redirected to a sign-in page, or
+the endpoint failed behind a friendly error page. The first cannot be fixed by
+this tool at all; the second is fixed by re-saving the profile. Telling someone
+to sign in again when they are being challenged is a wasted afternoon, and the
+message gives no way to tell.
+
+ADR 28 made the sign-in state legible. This makes the network legible, which is
+the layer the symptom actually lives in.
+
+### What it reports
+
+`watchPage` attaches to `response`, `requestfailed`, `pageerror` and `console`
+before navigation and returns a `stop` the command calls once the page settled.
+A response is worth reporting when it is `unauthorised` (401/403/407),
+`rate-limited` (429), a `server-error` (5xx), a `request-failed`, or —
+the one this exists for — `html-for-json`: a `fetch`/`xhr` request answered with
+`text/html`.
+
+`html-for-json` is deliberately **not** conditioned on the status. An edge layer
+commonly returns its interstitial with a 200, which is exactly why the failure
+is so confusing.
+
+### The body is the answer
+
+`403 fetch https://example.com/api/me` still does not say whether that was a
+challenge or a login page. So HTML bodies are read, reduced to their title, and
+printed — `body: "Just a moment…"` — and `summarise` (pure, tested without a
+browser) turns that into the one sentence needed:
+
+> A bot challenge answered a data request. UI Atlas has no way around that and
+> will not get one.
+
+When it matches neither vocabulary it says plainly that HTML came back where
+data was expected, and stops, rather than inventing a cause.
+
+### What it refuses to print
+
+Every URL is reduced to origin plus pathname, with a bare `?…` where parameters
+were. Tokens and session ids live in query strings, and a diagnostic is
+something people paste into chat windows. Only HTML bodies are previewed, never
+JSON — a JSON body is the user's data.
+
+It writes nothing at all: no run directory, no captures. It deliberately does
+not reuse `AtlasSession`, because a diagnosis has to work on a page too broken
+to capture.
+
+### Three things the first real run against grok.com corrected
+
+Running it in anger immediately found flaws in its own output, all three now
+fixed and covered:
+
+**Analytics noise buried the finding.** Five `net::ERR_ABORTED` beacons printed
+above the one 401 that explained everything. `ERR_ABORTED` and
+`ERR_BLOCKED_BY_CLIENT` are now their own `cancelled` kind, ranked last and
+listed separately as "rarely the problem".
+
+**It gave advice that was already being followed.** The storage-state guidance
+fired while the run was in `--mode profile`, telling the user to use profile
+mode. Advice that describes what you are already doing is worse than silence,
+because it reads as a finding. It is now suppressed in profile mode.
+
+**A 401 and a "Sign in" button were reported as two facts.** They are one, and
+saying so is the difference between a diagnosis and a list. `summarise` now
+takes the sign-in verdict and, when both are present, says explicitly that this
+is *not* a bot challenge — because ruling that out is what tells the user
+re-saving the profile will actually help.
+
+### The trap underneath it
+
+`--mode profile` reads `~/.ui-atlas/profiles/<name>`; the default `auth save`
+writes `~/.ui-atlas/storage-state/<name>.json`. Ask for profile mode with only a
+storage state saved and `launchPersistentContext` cheerfully **creates** an
+empty profile directory — the launch succeeds, and you are signed out with no
+indication why.
+
+`savedAuthShape` and `mismatchWarning` now check before launching (after would
+be too late: launching is what creates the directory) and say exactly that, in
+both directions.
+
+### The check that was not a check
+
+The first fix for the profile/storage-state mixup tested `existsSync` on the
+profile directory — and that is worthless, because **`launchPersistentContext`
+creates the directory**. Any `--mode profile` run leaves one behind, complete
+with Chromium's own scaffolding, so a run that failed *because* the profile was
+empty made the next check say everything was fine.
+
+A profile now carries a marker file written by `auth save --persistent`, and
+"has been signed in" means the marker is there. Existence is reported
+separately, as `profileDirWithoutSignIn`, so the warning can say what actually
+happened rather than implying the user never tried:
+
+> the profile directory for "grok" exists but carries no record of a sign-in
+> (running --mode profile creates the directory, so an earlier run may have made
+> it), but a storage state of that name has been saved…
+
+The marker holds a timestamp and an origin. No cookies, no tokens, no headers.
+
+### What it does not do
+
+It diagnoses; it does not fix. Naming a bot challenge does not get past one, and
+this tool will not gain evasion. The most useful thing it can do in that case is
+say so in one sentence.
+
+## Being blocked, named and obeyed (eleventh slice)
+
+Done and covered by `tests/integration/signin.test.ts`. See
+[ADR 30](docs/adr/0030-a-challenge-is-obeyed-not-worked-around.md).
+
+The grok.com thread ended where these threads end: Cloudflare started serving a
+challenge instead of the site. That is not a bug to fix, and the useful work is
+entirely in how the tool behaves when it happens.
+
+### A challenge and a signed-out session need opposite responses
+
+Both fail to show you the site. One is fixed by signing in again; the other
+cannot be fixed here at all. Reporting a challenge as "signed out" sends someone
+round a loop of re-saving profiles that were never the problem — and every
+attempt is another automated request against a host that has already said no.
+
+So `probeChallenge` is separate from `judgeSignIn`, runs **first**, and runs in
+every browser mode including `clean`: being signed out in a clean run is
+expected, being refused entry is not.
+
+### Structure before wording
+
+Detection looks for the challenge's own machinery — `#challenge-form`,
+`.cf-browser-verification`, `form[action*="__cf_chl"]` — before it looks at
+wording. Markup survives translation; "Just a moment" does not. A test requires
+that neither an ordinary page nor a sign-in page is mistaken for a challenge.
+
+### The crawl stops
+
+Fetching the same interstitial fifty more times is worthless as reference
+material and is the surest way to turn a soft challenge into a hard block on
+your address. A challenged crawl finalises its run — the warning belongs in
+`run.json`, where whoever reads the artifacts later will find it — and exits 1
+with zero pages. A test asserts exactly that.
+
+### The advice never says "try again"
+
+`CHALLENGE_ADVICE` is one exported list, because the wrong words here are
+expensive. It says the profile is not the problem, that repeated attempts make
+it worse, that this tool has no evasion and will not be given any, and that
+`--mode attach` — driving a browser you launched and signed into yourself — is
+the one legitimate route left. A test requires it never advises retrying.
+
+## Attach mode, tested against a browser it does not own (twelfth slice)
+
+Done and covered by `tests/integration/attach.test.ts`.
+
+Attach mode got someone past a Cloudflare challenge for the first time — real
+Chrome, real profile, signed in by hand — and it had no tests at all. It is also
+the only mode where the context **belongs to somebody else and outlives the
+run**, which is exactly the thing worth pinning down.
+
+### A guess, corrected by testing it
+
+The `close()` handler carried the comment *"Never close a browser we did not
+start"* directly above a call to `browser.close()`. That reads like a bug, and I
+wrote a fix and a commit message claiming it took the user's window down with
+the run.
+
+Then I tested it: launch a browser with a debugging port, attach, close the
+session, and check. **The window survives with its pages intact** —
+`browser.close()` on a CDP connection disconnects rather than shutting down. The
+comment and the code agreed after all; only the comment was ambiguous.
+
+The lesson is the ordinary one: the plausible story was wrong, and five minutes
+of a real browser settled what an hour of reading could not. The fix that
+remained is narrow and correct — close a context only if we created it — and
+the behaviour is now pinned by a test that would fail loudly if a future
+Playwright changed it.
+
+### A second test premise that was also wrong
+
+`exposeBinding` throws on a name already registered, and this context persists
+between runs, so a second attached run looked certain to die on start-up. It
+does not: Playwright clears the binding on disconnect. The test now asserts the
+outcome — a second attached run starts — which holds whether or not the
+registration throws, and the launcher still converts an "already registered"
+failure into a warning in case that changes.
+
+### What attach mode now says about itself
+
+Injected scripts go into the user's own context and stay there until it closes,
+so the session says so rather than leaving it to be discovered. The
+determinism warning was already there and is now asserted.
+
 ## Where this leaves the project
 
 **The brief is delivered.** Phases 0 through 4 are complete and every item on the
 brief's own list is built, including the Animation button that had been disabled
-since phase 1.
+since phase 1. The eighth slice is usability work on top of a delivered brief,
+driven by what the first real external run felt like to use.
 
 Anything further is new scope rather than an unfinished milestone:
 
+- a `relink` command, so renaming a file by hand could update `captures.jsonl`,
+  the sidecar and the index together instead of the index warning about it
 - perceptual near-duplicate hashing (the report groups by exact image hash today)
 - sitemap seeding, and dedup by page structural fingerprint
 - `captureResponsive` during a crawl (the step validates and reports that it was

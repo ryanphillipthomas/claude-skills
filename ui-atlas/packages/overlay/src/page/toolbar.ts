@@ -5,6 +5,7 @@ import type {
   QueueJob,
   StateName,
 } from '@ui-atlas/protocol';
+import { FLOW_INSTRUCTIONS, nextStep, type FlowAdvice } from './flow.js';
 
 export interface CaptureIntent {
   kind: 'element' | 'viewport' | 'full-page';
@@ -14,8 +15,12 @@ export interface CaptureIntent {
   label?: string;
 }
 
+export type SelectionMove = 'parent' | 'child' | 'previous' | 'next';
+
 export interface ToolbarCallbacks {
   onToggleInspect(): void;
+  /** Walk the tree from the current selection. Arrow keys do the same thing. */
+  onMoveSelection(direction: SelectionMove): void;
   /** Ask the host what is moving on this page. Reads; changes nothing. */
   onListAnimations(): void;
   /** Photograph one animation at the configured offsets. */
@@ -62,9 +67,18 @@ export class Toolbar {
   private inspectActive = false;
   private boxModel = false;
 
+  private capturedHere = 0;
+  private pageLabel = '/';
+  private workingJobs = 0;
+  private instructionsOpen = true;
+
   private readonly runLabel: HTMLSpanElement;
+  private readonly flowHost: HTMLDivElement;
+  private readonly instructionsHost: HTMLDivElement;
+  private readonly instructionsToggle: HTMLButtonElement;
   private readonly inspectButton: HTMLButtonElement;
   private readonly boxModelButton: HTMLButtonElement;
+  private readonly treeRow: HTMLDivElement;
   private readonly detailsHost: HTMLDivElement;
   private readonly stateRow: HTMLDivElement;
   private readonly stateNote: HTMLDivElement;
@@ -96,6 +110,21 @@ export class Toolbar {
 
     const body = div('ua-body');
 
+    // --- Flow -------------------------------------------------------------
+    // The one line that says what to do now. It sits above everything because
+    // it is the answer to the question a first-time user actually has.
+    this.flowHost = div('ua-flow');
+
+    const instructionsSection = section('How this works');
+    this.instructionsToggle = button('Hide', () => {
+      this.instructionsOpen = !this.instructionsOpen;
+      this.renderInstructions();
+    });
+    this.instructionsToggle.className = 'ua-btn ua-btn--quiet';
+    instructionsSection.append(this.instructionsToggle);
+    this.instructionsHost = div('ua-steps');
+    instructionsSection.append(this.instructionsHost);
+
     // --- Mode -------------------------------------------------------------
     const modeSection = section('Mode');
     const modeRow = div('ua-row');
@@ -113,6 +142,11 @@ export class Toolbar {
 
     // --- Element ----------------------------------------------------------
     const elementSection = section('Element');
+    // Walking the tree was arrow-keys-only, which meant it may as well not have
+    // existed: the one operation you always want after clicking slightly the
+    // wrong thing had no visible control at all.
+    this.treeRow = div('ua-row');
+    elementSection.append(this.treeRow);
     this.detailsHost = div('ua-section');
     elementSection.append(this.detailsHost);
 
@@ -163,7 +197,9 @@ export class Toolbar {
     helpSection.append(this.helpHost);
 
     body.append(
+      this.flowHost,
       this.noticeHost,
+      instructionsSection,
       modeSection,
       elementSection,
       stateSection,
@@ -176,10 +212,96 @@ export class Toolbar {
     this.element.append(titlebar, body);
     root.append(this.element);
 
+    this.renderInstructions();
+    this.renderTree();
     this.renderStates();
     this.renderSelection();
     this.renderAnimations();
     this.renderJobs([]);
+    this.renderFlow();
+  }
+
+  /**
+   * Where the browser is now, and how much of this run came from here. The
+   * count is of captures actually completed, not of jobs requested.
+   */
+  setProgress(input: { pageLabel: string; capturedHere: number }): void {
+    this.pageLabel = input.pageLabel;
+    this.capturedHere = input.capturedHere;
+    this.renderFlow();
+  }
+
+  /** The current advice, exposed so a test can read it without scraping text. */
+  get flow(): FlowAdvice {
+    return nextStep({
+      connected: this.session !== undefined,
+      inspecting: this.inspectActive,
+      hasSelection: this.selection !== undefined,
+      states: this.states,
+      capturedHere: this.capturedHere,
+      workingJobs: this.workingJobs,
+      pageLabel: this.pageLabel,
+    });
+  }
+
+  private renderFlow(): void {
+    const advice = this.flow;
+    this.flowHost.textContent = '';
+    this.flowHost.dataset['step'] = advice.step;
+
+    if (advice.position > 0) {
+      const badge = document.createElement('span');
+      badge.className = 'ua-flow__step';
+      badge.textContent = `Step ${String(advice.position)} of ${String(advice.total)}`;
+      this.flowHost.append(badge);
+    }
+    const text = document.createElement('span');
+    text.className = 'ua-flow__text';
+    text.textContent = advice.text;
+    this.flowHost.append(text);
+
+    this.renderInstructions();
+  }
+
+  /** Numbered, and the step you are on is marked so the two agree. */
+  private renderInstructions(): void {
+    this.instructionsToggle.textContent = this.instructionsOpen ? 'Hide' : 'Show';
+    this.instructionsToggle.setAttribute('aria-expanded', String(this.instructionsOpen));
+    this.instructionsHost.textContent = '';
+    this.instructionsHost.hidden = !this.instructionsOpen;
+    if (!this.instructionsOpen) return;
+
+    const current = this.flow.position;
+    const list = document.createElement('ol');
+    list.className = 'ua-steps__list';
+    for (const instruction of FLOW_INSTRUCTIONS) {
+      const item = document.createElement('li');
+      if (instruction.step === current) item.className = 'ua-steps__item--current';
+      const title = document.createElement('strong');
+      title.textContent = instruction.title;
+      const detail = document.createElement('span');
+      detail.textContent = ` — ${instruction.detail}`;
+      item.append(title, detail);
+      list.append(item);
+    }
+    this.instructionsHost.append(list);
+  }
+
+  private renderTree(): void {
+    this.treeRow.textContent = '';
+    const hasSelection = this.selection !== undefined;
+    const moves: Array<[string, SelectionMove, string]> = [
+      ['↑ Parent', 'parent', 'Select the element that contains this one.'],
+      ['↓ Child', 'child', 'Select the first element inside this one.'],
+      ['← Previous', 'previous', 'Select the previous sibling.'],
+      ['→ Next', 'next', 'Select the next sibling.'],
+    ];
+    for (const [label, direction, title] of moves) {
+      const control = button(label, () => this.callbacks.onMoveSelection(direction));
+      control.disabled = !hasSelection;
+      control.title = hasSelection ? title : 'Select an element first.';
+      this.treeRow.append(control);
+    }
   }
 
   /** The host is working on the list; say so rather than looking inert. */
@@ -200,23 +322,31 @@ export class Toolbar {
     this.renderViewportPresets();
     this.renderHelp();
     this.renderCaptureButtons();
+    this.renderFlow();
   }
 
   setInspectActive(active: boolean): void {
     this.inspectActive = active;
     this.inspectButton.setAttribute('aria-pressed', String(active));
     this.inspectButton.textContent = active ? 'Inspecting' : 'Inspect';
+    this.renderFlow();
   }
 
   setSelection(selection: SelectionView | undefined): void {
     this.selection = selection;
     this.previewing = undefined;
     this.renderSelection();
+    this.renderTree();
     this.renderStates();
     this.renderCaptureButtons();
+    this.renderFlow();
   }
 
   renderJobs(jobs: QueueJob[]): void {
+    this.workingJobs = jobs.filter(
+      (job) => job.status === 'queued' || job.status === 'running',
+    ).length;
+    this.renderFlow();
     this.jobList.textContent = '';
     if (jobs.length === 0) {
       const empty = document.createElement('li');
@@ -278,6 +408,7 @@ export class Toolbar {
         }
         this.renderStates();
         this.renderCaptureButtons();
+        this.renderFlow();
       });
       control.setAttribute('aria-pressed', String(selected));
       if (this.previewing === state) control.classList.add('ua-btn--previewing');

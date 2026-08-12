@@ -14,6 +14,7 @@ import type {
   StateName,
 } from '@ui-atlas/protocol';
 import { BridgeError, createBridge, type Bridge } from './bridge.js';
+import { pageLabelFrom } from './flow.js';
 import { Highlight } from './highlight.js';
 import { InspectMode, navigateFrom } from './inspect.js';
 import { isTypingTarget, matchesCombo } from './shortcuts.js';
@@ -52,6 +53,13 @@ class OverlayApp {
   private selectedElement: Element | undefined;
   private selectedProbe: ElementProbe | undefined;
   private jobs = new Map<string, QueueJob>();
+  /**
+   * Which page each job was requested from. The job itself does not carry a
+   * route, and in a single-page app the location can change between requesting
+   * a capture and its finishing — so the page is recorded when it is asked for,
+   * not when it lands.
+   */
+  private jobPages = new Map<string, string>();
   private rafHandle: number | undefined;
   private keydownHandler: ((event: KeyboardEvent) => void) | undefined;
 
@@ -84,6 +92,7 @@ class OverlayApp {
     this.toolbar = isTopFrame()
       ? new Toolbar(this.shadow, {
           onToggleInspect: () => this.toggleInspect(),
+          onMoveSelection: (direction) => this.moveSelection(direction),
           onCapture: (intent) => void this.requestCapture(intent),
           onSetViewport: (width, height, presetName) =>
             void this.setViewport(width, height, presetName),
@@ -115,6 +124,7 @@ class OverlayApp {
       this.session = result.session;
       this.shortcuts = { ...this.shortcuts, ...result.session.shortcuts };
       this.toolbar?.setSession(result.session);
+      this.refreshJobs();
     } catch (error) {
       this.toolbar?.notice('error', describe(error));
       return;
@@ -234,8 +244,7 @@ class OverlayApp {
 
     try {
       const result = await this.bridge.call<{ jobs: QueueJob[] }>('capture/request', params);
-      for (const job of result.jobs) this.jobs.set(job.id, job);
-      this.toolbar?.renderJobs([...this.jobs.values()]);
+      this.acceptJobs(result.jobs);
     } catch (error) {
       this.toolbar?.notice('error', describe(error));
     }
@@ -263,8 +272,7 @@ class OverlayApp {
 
     try {
       const result = await this.bridge.call<{ jobs: QueueJob[] }>('capture/request', params);
-      for (const job of result.jobs) this.jobs.set(job.id, job);
-      this.toolbar?.renderJobs([...this.jobs.values()]);
+      this.acceptJobs(result.jobs);
     } catch (error) {
       this.toolbar?.notice('error', describe(error));
     }
@@ -305,11 +313,37 @@ class OverlayApp {
   /* Host -> page events                                                     */
   /* ---------------------------------------------------------------------- */
 
+  /** Remember which page these jobs belong to, then render them. */
+  private acceptJobs(jobs: QueueJob[]): void {
+    const page = pageLabelFrom(location.href);
+    for (const job of jobs) {
+      this.jobs.set(job.id, job);
+      if (!this.jobPages.has(job.id)) this.jobPages.set(job.id, page);
+    }
+    this.refreshJobs();
+  }
+
+  /**
+   * Count what has actually been captured from the page the browser is on, and
+   * hand the toolbar both the count and the queue.
+   */
+  private refreshJobs(): void {
+    const here = pageLabelFrom(location.href);
+    let capturedHere = 0;
+    for (const job of this.jobs.values()) {
+      if (job.status !== 'done') continue;
+      if ((this.jobPages.get(job.id) ?? here) !== here) continue;
+      capturedHere += job.captureIds.length;
+    }
+    this.toolbar?.setProgress({ pageLabel: here, capturedHere });
+    this.toolbar?.renderJobs([...this.jobs.values()]);
+  }
+
   dispatch(event: HostEvent): void {
     switch (event.type) {
       case 'queue/update':
         this.jobs.set(event.job.id, event.job);
-        this.toolbar?.renderJobs([...this.jobs.values()]);
+        this.refreshJobs();
         break;
       case 'session/update':
         this.session = event.session;
@@ -437,7 +471,15 @@ class OverlayApp {
 
   /** Keep the highlight glued to a selected element as the page moves. */
   private startTracking(): void {
+    let lastPage = pageLabelFrom(location.href);
     const tick = (): void => {
+      // A single-page app changes route without reloading, which would leave
+      // "4 captures on /pricing" showing while the browser is on /checkout.
+      const page = pageLabelFrom(location.href);
+      if (page !== lastPage) {
+        lastPage = page;
+        this.refreshJobs();
+      }
       if (this.selectedElement !== undefined) {
         if (!this.selectedElement.isConnected) {
           const reason = 'The selected element was removed from the page.';

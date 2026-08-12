@@ -6,7 +6,14 @@ import {
   sampleAnimations,
   summariseAnimations,
 } from '@ui-atlas/animation';
-import { emptyManifest, newCaptureId, newRunId, routeKeyFromUrl, RunWriter } from '@ui-atlas/artifacts';
+import {
+  emptyManifest,
+  newCaptureId,
+  newRunId,
+  recordingSlug,
+  routeKeyFromUrl,
+  RunWriter,
+} from '@ui-atlas/artifacts';
 import { emulationOptions, launchSession, resolveViewport, viewportLabel } from '@ui-atlas/browser';
 import { CaptureService } from '@ui-atlas/capture';
 import { buildElementIdentity } from '@ui-atlas/identity';
@@ -304,6 +311,7 @@ async function recordOne(
     routeKey: routeKeyFromUrl(page.url()),
     viewportLabel: viewportLabel(input.viewport),
     captureId,
+    stem: recordingSlug(),
   };
   const workspace = await writer.videoWorkspace(captureId);
   const startedAt = Date.now();

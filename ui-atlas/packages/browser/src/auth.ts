@@ -110,6 +110,102 @@ export async function readStorageState(
   return path;
 }
 
+/**
+ * What is actually saved under a profile name.
+ *
+ * `--mode profile` and `--mode storage-state` read two different places, and
+ * `launchPersistentContext` happily *creates* an empty directory when asked for
+ * one that does not exist. So asking for profile mode with only a storage state
+ * saved launches successfully, signed out, silently — which is the most
+ * expensive way this tool can be wrong.
+ */
+export interface SavedAuthShape {
+  /** A sign-in was completed into this profile — not merely that it exists. */
+  hasProfile: boolean;
+  hasStorageState: boolean;
+  /** The directory is there but carries no record of a sign-in. */
+  profileDirWithoutSignIn: boolean;
+}
+
+/**
+ * Marker written by `auth save --persistent`, and the only reliable evidence
+ * that a profile was ever signed in to.
+ *
+ * Directory existence proves nothing: `launchPersistentContext` **creates** the
+ * directory, so any run with `--mode profile` leaves one behind, complete with
+ * Chromium's own scaffolding. An empty auto-created profile and a signed-in one
+ * are indistinguishable from the filesystem alone, which is how a failed run
+ * quietly makes the next check say everything is fine.
+ */
+const PROFILE_MARKER = '.ui-atlas-profile.json';
+
+export function profileMarkerPath(name: string, paths: AuthPaths = authPaths()): string {
+  return join(paths.profileDir(name), PROFILE_MARKER);
+}
+
+export async function writeProfileMarker(
+  name: string,
+  url: string,
+  paths: AuthPaths = authPaths(),
+): Promise<string> {
+  const path = profileMarkerPath(name, paths);
+  // The URL is kept so `auth check` can suggest where to check, and nothing
+  // else: no cookies, no tokens, no headers.
+  const marker = { savedAt: new Date().toISOString(), url: originOf(url) };
+  await writeFile(path, `${JSON.stringify(marker, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+  await tighten(path, 0o600);
+  return path;
+}
+
+function originOf(rawUrl: string): string {
+  try {
+    return new URL(rawUrl).origin;
+  } catch {
+    return rawUrl;
+  }
+}
+
+export function savedAuthShape(name: string, paths: AuthPaths = authPaths()): SavedAuthShape {
+  const dirExists = existsSync(paths.profileDir(name));
+  const signedIn = existsSync(profileMarkerPath(name, paths));
+  return {
+    hasProfile: signedIn,
+    hasStorageState: existsSync(paths.storageStatePath(name)),
+    profileDirWithoutSignIn: dirExists && !signedIn,
+  };
+}
+
+/**
+ * The warning for asking for a mode nothing was saved in, or `undefined` when
+ * the request matches what is on disk.
+ */
+export function mismatchWarning(
+  name: string,
+  mode: 'profile' | 'storage-state',
+  shape: SavedAuthShape,
+): string | undefined {
+  if (mode === 'profile' && !shape.hasProfile) {
+    // The directory being there is not reassurance — running `--mode profile`
+    // is what creates it, so a previous signed-out run leaves one behind.
+    const origin = shape.profileDirWithoutSignIn
+      ? `the profile directory for "${name}" exists but carries no record of a sign-in ` +
+        '(running --mode profile creates the directory, so an earlier run may have made it)'
+      : `profile "${name}" has never been signed in`;
+
+    return shape.hasStorageState
+      ? `${origin}, but a storage state of that name has been saved. --mode profile reads a ` +
+          `different place and will start signed out: either use --mode storage-state, or run ` +
+          `\`ui-atlas auth save ${name} <url> --persistent\`.`
+      : `${origin}; this run starts with an empty browser profile. ` +
+          `Sign in with \`ui-atlas auth save ${name} <url> --persistent\`.`;
+  }
+  if (mode === 'storage-state' && !shape.hasStorageState && shape.hasProfile) {
+    return `no storage state is saved for "${name}", but a browser profile of that name is. ` +
+      'Use --mode profile to use it.';
+  }
+  return undefined;
+}
+
 export interface ClearedAuth {
   removedStorageState: boolean;
   removedProfile: boolean;
