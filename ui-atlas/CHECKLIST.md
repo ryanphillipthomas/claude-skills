@@ -475,6 +475,32 @@ session look identical.
 - [x] `unclear` with no refused requests and no challenge says so, instead of
       reading as a problem
 
+## Where the files went (thirteenth slice)
+
+Steps 1-3 worked; the flow stopped at the moment of least information, and the
+panel could not say where anything was saved.
+
+- [x] Five steps, not three: **Review** (see what was written) and **Open**
+      (reveal it on disk) are where the user's job actually ends
+- [x] Step 4 advances when the Output section has been *looked at*, not on a
+      timer or a capture count
+- [x] Step 5 switches from the page count to the run count, because the question
+      has changed from "what did I get here?" to "where is all of this?"
+- [x] An **Output** section listing the most recent files by the name they were
+      written under, with the run-relative folder each sits in
+- [x] **Open folder** reveals the run in Finder / Explorer / the file manager
+- [x] **Open report** builds the report from what is captured so far and opens it
+- [x] The panel never renders an absolute path — the overlay is injected into
+      the site and its shadow root is readable, so a path would leak the home
+      directory. The terminal gets it instead
+- [x] `output/reveal` takes a closed enum, never a path: it is the one method
+      that reaches the operating system
+- [x] `spawn` without a shell, path as an argument, so a directory with a space
+      or a quote in it is just that
+- [x] The opener is injectable, so "opens the run folder, and only ever the run
+      folder" is a test rather than a comment
+- [x] A platform with no opener says so and prints the path, rather than failing
+
 ### Still to build
 
 (nothing in the brief)

@@ -5,6 +5,7 @@ import {
   AnimationSampleabilitySchema,
   BoxSchema,
   CaptureKindSchema,
+  CaptureStatusSchema,
   ElementIdentitySchema,
   LocatorCandidateSchema,
   StateNameSchema,
@@ -222,6 +223,65 @@ export type AnimationInventoryResult = z.infer<typeof AnimationInventoryResultSc
 export const InspectModeParamsSchema = z.object({ active: z.boolean() });
 export const InspectModeResultSchema = z.object({ active: z.boolean() });
 
+/* -------------------------------------------------------------------------- */
+/* Output: what has been written, and revealing it                             */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * One written artifact, as the panel lists it.
+ *
+ * The *file name* is here but the directory is not, and that is deliberate: see
+ * `OverlaySession.outputLabel`. A file name is derived from the site's own
+ * content and tells the page nothing it did not already know; an absolute path
+ * would hand it the user's home directory.
+ */
+export const OutputEntrySchema = z.object({
+  /** Basename only, e.g. `button--save-changes--hover.png`. */
+  fileName: z.string(),
+  /** Run-relative folder, e.g. `screenshots/localhost-4173-root/desktop`. */
+  folder: z.string(),
+  status: CaptureStatusSchema,
+  state: z.string(),
+  kind: CaptureKindSchema,
+});
+export type OutputEntry = z.infer<typeof OutputEntrySchema>;
+
+export const OutputSummaryParamsSchema = z.object({
+  /** How many of the most recent entries to return. */
+  limit: z.number().int().min(1).max(50).optional(),
+});
+export const OutputSummaryResultSchema = z.object({
+  /** `<project>/<run-id>` — a label, never a filesystem path. */
+  outputLabel: z.string(),
+  counts: z.object({
+    captured: z.number().int().nonnegative(),
+    failed: z.number().int().nonnegative(),
+    skipped: z.number().int().nonnegative(),
+  }),
+  /** Most recent first. */
+  recent: z.array(OutputEntrySchema),
+});
+export type OutputSummaryResult = z.infer<typeof OutputSummaryResultSchema>;
+
+/**
+ * What to open. A closed enum rather than a path, because this method reaches
+ * the operating system: a page that could name the target could name anything.
+ * The host resolves both of these from the run it owns.
+ */
+export const OUTPUT_TARGETS = ['folder', 'report'] as const;
+export const OutputTargetSchema = z.enum(OUTPUT_TARGETS);
+export type OutputTarget = z.infer<typeof OutputTargetSchema>;
+
+export const OutputRevealParamsSchema = z.object({ target: OutputTargetSchema });
+export const OutputRevealResultSchema = z.object({
+  target: OutputTargetSchema,
+  /** False when the platform has no opener; the host says where it is instead. */
+  opened: z.boolean(),
+  /** Shown in the panel. Never an absolute path. */
+  notice: z.string(),
+});
+export type OutputRevealResult = z.infer<typeof OutputRevealResultSchema>;
+
 export const LogParamsSchema = z.object({
   level: z.enum(['debug', 'info', 'warn', 'error']),
   message: z.string().max(2000),
@@ -241,6 +301,8 @@ export const BRIDGE_METHODS = {
     params: AnimationInventoryParamsSchema,
     result: AnimationInventoryResultSchema,
   },
+  'output/summary': { params: OutputSummaryParamsSchema, result: OutputSummaryResultSchema },
+  'output/reveal': { params: OutputRevealParamsSchema, result: OutputRevealResultSchema },
   log: { params: LogParamsSchema, result: z.object({}) },
 } as const;
 

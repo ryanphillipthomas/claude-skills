@@ -8,6 +8,8 @@ import type {
   AnimationInventoryResult,
   ElementProbe,
   HostEvent,
+  OutputRevealResult,
+  OutputSummaryResult,
   OverlayBootstrap,
   OverlaySession,
   QueueJob,
@@ -104,6 +106,8 @@ class OverlayApp {
             void this.requestAnimationCapture('animation-frame', id, `sample · ${label}`),
           onRecordAnimation: (id, label) =>
             void this.requestAnimationCapture('animation-video', id, `record · ${label}`),
+          onRefreshOutput: () => void this.refreshOutput(),
+          onRevealOutput: (target) => void this.revealOutput(target),
         })
       : undefined;
   }
@@ -224,6 +228,37 @@ class OverlayApp {
       this.toolbar?.setAnimations(result);
     } catch (error) {
       this.toolbar?.setAnimations(undefined);
+      this.toolbar?.notice('error', describe(error));
+    }
+  }
+
+  /**
+   * Ask the host what this run has written. A read, like the animation list:
+   * it opens no file and changes nothing.
+   */
+  private async refreshOutput(): Promise<void> {
+    this.toolbar?.setOutputPending(true);
+    try {
+      const summary = await this.bridge.call<OutputSummaryResult>('output/summary', {});
+      this.toolbar?.setOutput(summary);
+    } catch (error) {
+      this.toolbar?.setOutput(undefined);
+      this.toolbar?.notice('error', describe(error));
+    }
+  }
+
+  /**
+   * Ask the host to open the run folder or the report. The page names a target
+   * and never a path — the host resolves both from the run it owns.
+   */
+  private async revealOutput(target: 'folder' | 'report'): Promise<void> {
+    try {
+      const result = await this.bridge.call<OutputRevealResult>('output/reveal', { target });
+      this.toolbar?.notice(result.opened ? 'info' : 'warn', result.notice);
+      // Building the report can add nothing, but opening the folder is the
+      // moment someone wants the list to be current.
+      await this.refreshOutput();
+    } catch (error) {
       this.toolbar?.notice('error', describe(error));
     }
   }

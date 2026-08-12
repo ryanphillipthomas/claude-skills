@@ -1,6 +1,7 @@
 import type {
   AnimationInventoryResult,
   ElementIdentity,
+  OutputSummaryResult,
   OverlaySession,
   QueueJob,
   StateName,
@@ -33,6 +34,10 @@ export interface ToolbarCallbacks {
   onToggleBoxModel(next: boolean): void;
   /** Apply a state to the live page, or release it with `undefined`. */
   onPreviewState(state: StateName | undefined): void;
+  /** Ask the host what this run has written. Reads; changes nothing. */
+  onRefreshOutput(): void;
+  /** Ask the host to open the run folder, or build and open the report. */
+  onRevealOutput(target: 'folder' | 'report'): void;
 }
 
 export interface SelectionView {
@@ -88,6 +93,10 @@ export class Toolbar {
   private readonly animationHost: HTMLDivElement;
   private animations: AnimationInventoryResult | undefined;
   private animationsPending = false;
+  private readonly outputHost: HTMLDivElement;
+  private output: OutputSummaryResult | undefined;
+  private outputPending = false;
+  private reviewed = false;
   private readonly jobList: HTMLUListElement;
   private readonly noticeHost: HTMLDivElement;
   private readonly helpHost: HTMLDivElement;
@@ -183,6 +192,12 @@ export class Toolbar {
     this.animationHost = div('ua-section');
     animationSection.append(this.animationHost);
 
+    // --- Output -----------------------------------------------------------
+    // Where the files went, which the panel could not answer at all before.
+    const outputSection = section('Output');
+    this.outputHost = div('ua-section');
+    outputSection.append(this.outputHost);
+
     // --- Queue ------------------------------------------------------------
     const queueSection = section('Queue');
     this.jobList = document.createElement('ul');
@@ -206,6 +221,7 @@ export class Toolbar {
       viewportSection,
       captureSection,
       animationSection,
+      outputSection,
       queueSection,
       helpSection,
     );
@@ -217,7 +233,22 @@ export class Toolbar {
     this.renderStates();
     this.renderSelection();
     this.renderAnimations();
+    this.renderOutput();
     this.renderJobs([]);
+    this.renderFlow();
+  }
+
+  setOutputPending(pending: boolean): void {
+    this.outputPending = pending;
+    this.renderOutput();
+  }
+
+  setOutput(summary: OutputSummaryResult | undefined): void {
+    this.output = summary;
+    this.outputPending = false;
+    // Seeing the list *is* step 4; the flow line moves on once it has happened.
+    if (summary !== undefined) this.reviewed = true;
+    this.renderOutput();
     this.renderFlow();
   }
 
@@ -241,6 +272,8 @@ export class Toolbar {
       capturedHere: this.capturedHere,
       workingJobs: this.workingJobs,
       pageLabel: this.pageLabel,
+      runTotal: this.output?.counts.captured ?? this.capturedHere,
+      reviewed: this.reviewed,
     });
   }
 
@@ -322,6 +355,7 @@ export class Toolbar {
     this.renderViewportPresets();
     this.renderHelp();
     this.renderCaptureButtons();
+    this.renderOutput();
     this.renderFlow();
   }
 
@@ -621,6 +655,80 @@ export class Toolbar {
       note.textContent = warning;
       this.animationHost.append(note);
     }
+  }
+
+  /**
+   * Where the files went, and how to get to them.
+   *
+   * The panel could not answer "where is this saving?" at all before, which is
+   * a strange gap in a tool whose entire output is files. It shows names rather
+   * than a path on purpose: a file name is derived from the site's own content,
+   * where an absolute path would hand the page the user's home directory.
+   */
+  private renderOutput(): void {
+    this.outputHost.textContent = '';
+
+    const row = div('ua-row');
+    const refresh = button(this.output === undefined ? 'What have I captured?' : 'Refresh', () =>
+      this.callbacks.onRefreshOutput(),
+    );
+    refresh.disabled = this.outputPending;
+    refresh.className = this.output === undefined ? 'ua-btn ua-btn--primary' : 'ua-btn';
+    refresh.title = 'Lists the files this run has written so far.';
+
+    const folder = button('Open folder', () => this.callbacks.onRevealOutput('folder'));
+    folder.title = 'Reveals the run directory on your desktop, and prints its path in the terminal.';
+
+    const report = button('Open report', () => this.callbacks.onRevealOutput('report'));
+    report.title = 'Builds the browsable report from what is captured so far, and opens it.';
+
+    row.append(refresh, folder, report);
+    this.outputHost.append(row);
+
+    if (this.outputPending) {
+      const busy = div('ua-hint');
+      busy.textContent = 'Reading the run…';
+      this.outputHost.append(busy);
+      return;
+    }
+    if (this.output === undefined) {
+      const hint = div('ua-hint');
+      hint.textContent = `Everything is written under ${this.session?.outputLabel ?? 'this run'}.`;
+      this.outputHost.append(hint);
+      return;
+    }
+
+    const { counts, recent } = this.output;
+    const summary = div('ua-hint');
+    const parts = [`${String(counts.captured)} captured`];
+    if (counts.failed > 0) parts.push(`${String(counts.failed)} failed`);
+    if (counts.skipped > 0) parts.push(`${String(counts.skipped)} skipped`);
+    summary.textContent = `${parts.join(' · ')} in ${this.output.outputLabel}`;
+    this.outputHost.append(summary);
+
+    if (recent.length === 0) {
+      const empty = div('ua-empty');
+      empty.textContent = 'No files yet.';
+      this.outputHost.append(empty);
+      return;
+    }
+
+    const list = document.createElement('ul');
+    list.className = 'ua-files';
+    for (const entry of recent) {
+      const item = document.createElement('li');
+      const name = document.createElement('code');
+      name.className = 'ua-file__name';
+      name.textContent = entry.fileName;
+      const where = div('ua-hint');
+      where.textContent = entry.folder;
+      item.append(name, where);
+      // The folder is the run-relative path, which is exactly what you would
+      // type after `cd` into the run directory.
+      item.title = `${entry.folder}/${entry.fileName}`;
+      list.append(item);
+    }
+    this.outputHost.append(list);
   }
 
   private renderSelection(): void {

@@ -68,7 +68,7 @@ describe('the guided flow', () => {
 
     const flow = await flowLine();
     expect(flow.step).toBe('inspect');
-    expect(flow.badge).toBe('Step 1 of 3');
+    expect(flow.badge).toBe('Step 1 of 5');
     expect(flow.text).toContain('Press Inspect');
   });
 
@@ -78,7 +78,7 @@ describe('the guided flow', () => {
 
     await harness.session.page.getByRole('button', { name: 'Inspect', exact: true }).click();
     expect((await flowLine()).step).toBe('select');
-    expect((await flowLine()).badge).toBe('Step 2 of 3');
+    expect((await flowLine()).badge).toBe('Step 2 of 5');
 
     await selectMenuButton();
     await harness.session.page.waitForFunction(() => {
@@ -99,8 +99,8 @@ describe('the guided flow', () => {
         current: item.className.includes('current'),
       }));
     });
-    expect(steps).toHaveLength(3);
-    expect(steps.map((step) => step.current)).toEqual([true, false, false]);
+    expect(steps).toHaveLength(5);
+    expect(steps.map((step) => step.current)).toEqual([true, false, false, false, false]);
     expect(steps[0]?.text).toContain('never clicks the page');
   });
 
@@ -154,7 +154,7 @@ describe('the guided flow', () => {
     });
   });
 
-  it('counts what has been captured here and turns into a rhythm', async () => {
+  it('counts what has been captured here and sends you to review', async () => {
     await harness.session.navigate(harness.url('/states.html'));
     await harness.session.overlay.waitForMount();
 
@@ -164,11 +164,94 @@ describe('the guided flow', () => {
 
     await harness.session.page.waitForFunction(() => {
       const shadow = document.querySelector('[data-ui-atlas-overlay]')?.shadowRoot;
-      return shadow?.querySelector('.ua-flow')?.getAttribute('data-step') === 'continue';
+      return shadow?.querySelector('.ua-flow')?.getAttribute('data-step') === 'review';
     });
     const flow = await flowLine();
+    expect(flow.badge).toBe('Step 4 of 5');
     expect(flow.text).toContain('on /states.html');
-    expect(flow.text).toContain('open another page');
+    expect(flow.text).toContain('Output section');
+  });
+});
+
+describe('the Output section', () => {
+  async function captureOne(): Promise<void> {
+    await harness.session.navigate(harness.url('/states.html'));
+    await harness.session.overlay.waitForMount();
+    await harness.session.page.getByRole('button', { name: 'Inspect', exact: true }).click();
+    await selectMenuButton();
+    await captureSelection();
+  }
+
+  /** The file rows as the panel actually renders them. */
+  async function files(): Promise<Array<{ name: string; folder: string }>> {
+    return harness.session.page.evaluate(() => {
+      const shadow = document.querySelector('[data-ui-atlas-overlay]')?.shadowRoot;
+      return Array.from(shadow?.querySelectorAll('.ua-files li') ?? []).map((item) => ({
+        name: item.querySelector('.ua-file__name')?.textContent ?? '',
+        folder: item.querySelector('.ua-hint')?.textContent ?? '',
+      }));
+    });
+  }
+
+  it('lists what was written, by the name it was written under', async () => {
+    await captureOne();
+    await harness.session.page
+      .getByRole('button', { name: 'What have I captured?', exact: true })
+      .click();
+    await harness.session.page.locator('.ua-files li').first().waitFor({ timeout: 10_000 });
+
+    const written = await files();
+    expect(written[0]?.name).toBe('button--menu--default.png');
+    expect(written[0]?.folder).toContain('screenshots/');
+  });
+
+  it('never shows an absolute path, which would leak the home directory', async () => {
+    await captureOne();
+    await harness.session.page
+      .getByRole('button', { name: 'What have I captured?', exact: true })
+      .click();
+    await harness.session.page.locator('.ua-files li').first().waitFor({ timeout: 10_000 });
+
+    // The panel lives in an open shadow root, so anything rendered here is
+    // readable by the site. Names come from the site's own content; a path
+    // would come from the user's machine.
+    const text = await harness.session.page.evaluate(
+      () => document.querySelector('[data-ui-atlas-overlay]')?.shadowRoot?.textContent ?? '',
+    );
+    expect(text).not.toContain(harness.outputRoot);
+    expect(text).not.toMatch(/(^|\s)\/(Users|home|tmp)\//);
+  });
+
+  it('opens the run folder, and only ever the run folder', async () => {
+    await captureOne();
+    await harness.session.page.getByRole('button', { name: 'Open folder', exact: true }).click();
+
+    await expect.poll(() => harness.opened.length, { timeout: 10_000 }).toBeGreaterThan(0);
+    expect(harness.opened[0]).toBe(harness.session.writer.paths.runDir);
+  });
+
+  it('builds the report on demand and opens that instead', async () => {
+    await captureOne();
+    await harness.session.page.getByRole('button', { name: 'Open report', exact: true }).click();
+
+    await expect.poll(() => harness.opened.length, { timeout: 20_000 }).toBeGreaterThan(0);
+    expect(harness.opened[0]).toContain('report');
+    expect(harness.opened[0]).toContain(harness.session.writer.paths.runDir);
+  });
+
+  it('reaches the last step once the output has been looked at', async () => {
+    await captureOne();
+    await harness.session.page
+      .getByRole('button', { name: 'What have I captured?', exact: true })
+      .click();
+
+    await harness.session.page.waitForFunction(() => {
+      const shadow = document.querySelector('[data-ui-atlas-overlay]')?.shadowRoot;
+      return shadow?.querySelector('.ua-flow')?.getAttribute('data-step') === 'finish';
+    });
+    const flow = await flowLine();
+    expect(flow.badge).toBe('Step 5 of 5');
+    expect(flow.text).toContain('Open folder');
   });
 });
 

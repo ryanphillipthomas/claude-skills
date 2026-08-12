@@ -16,6 +16,8 @@ function flow(overrides: Partial<FlowInput> = {}): ReturnType<typeof nextStep> {
     capturedHere: 0,
     workingJobs: 0,
     pageLabel: '/pricing',
+    runTotal: 0,
+    reviewed: false,
     ...overrides,
   });
 }
@@ -38,8 +40,10 @@ describe('nextStep', () => {
       flow(),
       flow({ inspecting: true }),
       flow({ inspecting: true, hasSelection: true }),
+      flow({ inspecting: true, hasSelection: true, capturedHere: 2 }),
+      flow({ inspecting: true, hasSelection: true, capturedHere: 2, reviewed: true }),
     ];
-    expect(steps.map((advice) => advice.position)).toEqual([1, 2, 3]);
+    expect(steps.map((advice) => advice.position)).toEqual([1, 2, 3, 4, 5]);
     for (const advice of steps) expect(advice.position).toBeLessThanOrEqual(advice.total);
     expect(steps[0]?.total).toBe(FLOW_TOTAL);
   });
@@ -55,11 +59,28 @@ describe('nextStep', () => {
     expect(advice.text).toContain('3 jobs');
   });
 
-  it('turns into a rhythm once something has been captured here', () => {
+  it('sends you to review once something has been captured here', () => {
     const advice = flow({ inspecting: true, hasSelection: true, capturedHere: 4 });
-    expect(advice.step).toBe('continue');
+    expect(advice.step).toBe('review');
+    expect(advice.position).toBe(4);
     expect(advice.text).toContain('4 captures so far on /pricing');
-    expect(advice.text).toContain('open another page');
+    expect(advice.text).toContain('Output section');
+  });
+
+  it('only reaches the last step once the output has actually been looked at', () => {
+    const advice = flow({
+      inspecting: true,
+      hasSelection: true,
+      capturedHere: 4,
+      runTotal: 11,
+      reviewed: true,
+    });
+    expect(advice.step).toBe('finish');
+    expect(advice.position).toBe(5);
+    // The run total, not the page total: by now the question is "where is all
+    // of this?", not "what did I get on this page?".
+    expect(advice.text).toContain('11 captures so far in this run');
+    expect(advice.text).toContain('Open folder');
   });
 
   it('counts one capture in the singular', () => {
@@ -76,7 +97,7 @@ describe('nextStep', () => {
 describe('FLOW_INSTRUCTIONS', () => {
   it('has one numbered instruction per step, in order', () => {
     expect(FLOW_INSTRUCTIONS).toHaveLength(FLOW_TOTAL);
-    expect(FLOW_INSTRUCTIONS.map((item) => item.step)).toEqual([1, 2, 3]);
+    expect(FLOW_INSTRUCTIONS.map((item) => item.step)).toEqual([1, 2, 3, 4, 5]);
   });
 
   it('has an instruction for every position nextStep can point at', () => {
@@ -86,6 +107,7 @@ describe('FLOW_INSTRUCTIONS', () => {
         flow({ inspecting: true }),
         flow({ inspecting: true, hasSelection: true }),
         flow({ inspecting: true, hasSelection: true, capturedHere: 2 }),
+        flow({ inspecting: true, hasSelection: true, capturedHere: 2, reviewed: true }),
         flow({ inspecting: true, hasSelection: true, workingJobs: 1 }),
       ].map((advice) => advice.position),
     );

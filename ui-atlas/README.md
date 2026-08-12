@@ -39,7 +39,7 @@ npm run ui-atlas -- inspect https://example.com
 Opens a clean Chromium window with the inspector injected and runs until you
 close the browser.
 
-**There are three steps, and the panel tells you which one you are on.**
+**There are five steps, and the panel tells you which one you are on.**
 
 1. **Inspect** — turns the pointer into a picker. It highlights what is under it
    and never clicks the page.
@@ -48,12 +48,25 @@ close the browser.
    `↑ Parent` / `↓ Child` / `← Previous` / `→ Next` buttons adjust the selection
    when you catch slightly the wrong thing.
 3. **Capture** — pick the states you want and press Capture.
+4. **Review** — the **Output** section lists what was written and what each file
+   is called.
+5. **Open** — **Open folder** reveals the run in Finder (or Explorer, or your
+   file manager). **Open report** builds the browsable report from what is
+   captured so far and opens that.
 
-A line at the top of the panel says what to do next, and changes as you go:
-while captures are running it says so, and once you have captured something it
-turns into *"4 captures so far on /pricing — select the next element, or open
-another page."* The "How this works" section repeats the three steps and marks
-the one you are on; press **Hide** if you do not want it.
+A line at the top of the panel says what to do next and changes as you go: while
+captures are running it says so, after a capture it points you at Output, and
+once you have looked it tells you how to open the folder. The "How this works"
+section repeats the five steps and marks the one you are on; press **Hide** if
+you do not want it.
+
+**Where your files are** is a button, not a guess. The Output section lists the
+most recent files by name — `button--save-changes--hover.png` — with the folder
+each sits in, and the two buttons open the run or the report on your desktop.
+The absolute path is printed in the terminal rather than shown in the panel: the
+inspector is injected into the site you are looking at, and a path would tell it
+your home directory. File names, which come from the site's own content, tell it
+nothing new.
 
 Every control has a button. The keyboard shortcuts are faster once you know
 them, and none of them is the only way to reach anything:
