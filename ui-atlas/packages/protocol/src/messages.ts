@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { PROTOCOL_VERSION } from './constants.js';
 import { StructuredErrorSchema } from './errors.js';
 import {
+  AnimationSampleabilitySchema,
   BoxSchema,
   CaptureKindSchema,
   ElementIdentitySchema,
@@ -60,6 +61,12 @@ export const CaptureRequestSchema = z.object({
   responsive: z.boolean().default(false),
   label: z.string().max(120).optional(),
   probe: ElementProbeSchema.optional(),
+  /**
+   * Which animation an `animation-frame` or `animation-video` capture is of,
+   * as named by `animation/inventory`. Absent on a recording means the page as
+   * a whole, which is what motion no animation list can see needs.
+   */
+  animationId: z.string().max(120).optional(),
 });
 export type CaptureRequest = z.infer<typeof CaptureRequestSchema>;
 
@@ -171,6 +178,47 @@ export const StatePreviewResultSchema = z.object({
   notice: z.string().optional(),
 });
 
+/* -------------------------------------------------------------------------- */
+/* Animation panel                                                             */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * One animation as the toolbar shows it.
+ *
+ * The panel's whole purpose is to offer the action that will *work*. So each
+ * entry carries the inventory's own reason and two flags derived from it, and
+ * the toolbar never offers a sample that would produce a frame the site does
+ * not show.
+ */
+export const AnimationSummarySchema = z.object({
+  /** Names this animation back to the host in `capture/request`. */
+  id: z.string(),
+  label: z.string(),
+  target: z.string().optional(),
+  sampleability: AnimationSampleabilitySchema,
+  /** Why, in the words the inventory already used. Shown when there is no action. */
+  reason: z.string(),
+  /** A seek would reproduce this frame every time. */
+  canSample: z.boolean(),
+  /** A recording would show what a seek cannot. */
+  canRecord: z.boolean(),
+  durationMs: z.number().nonnegative().optional(),
+});
+export type AnimationSummary = z.infer<typeof AnimationSummarySchema>;
+
+export const AnimationInventoryParamsSchema = z.object({});
+export const AnimationInventoryResultSchema = z.object({
+  animations: z.array(AnimationSummarySchema),
+  /** Elements whose motion `getAnimations` cannot describe at all. */
+  unobservable: z.object({
+    canvas2d: z.number().int().nonnegative(),
+    webgl: z.number().int().nonnegative(),
+    video: z.number().int().nonnegative(),
+  }),
+  warnings: z.array(z.string()),
+});
+export type AnimationInventoryResult = z.infer<typeof AnimationInventoryResultSchema>;
+
 export const InspectModeParamsSchema = z.object({ active: z.boolean() });
 export const InspectModeResultSchema = z.object({ active: z.boolean() });
 
@@ -189,6 +237,10 @@ export const BRIDGE_METHODS = {
   'viewport/set': { params: SetViewportParamsSchema, result: SetViewportResultSchema },
   'inspect/mode': { params: InspectModeParamsSchema, result: InspectModeResultSchema },
   'state/preview': { params: StatePreviewParamsSchema, result: StatePreviewResultSchema },
+  'animation/inventory': {
+    params: AnimationInventoryParamsSchema,
+    result: AnimationInventoryResultSchema,
+  },
   log: { params: LogParamsSchema, result: z.object({}) },
 } as const;
 

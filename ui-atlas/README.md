@@ -45,7 +45,7 @@ close the browser.
 | `Alt`/`Option` + `C` | capture the selected element |
 | `Alt`/`Option` + `V` | capture the viewport |
 | `Alt`/`Option` + `R` | capture a responsive set |
-| `Alt`/`Option` + `A` | animation capture *(phase 4)* |
+| `Alt`/`Option` + `A` | list what is animating, and what can be done with each |
 | `Escape` | leave inspect mode, then clear the selection |
 | Arrow keys | move the selection to parent / child / sibling |
 | `Alt`/`Option` + click | let the click through to the page instead of selecting |
@@ -53,6 +53,16 @@ close the browser.
 In the toolbar you get the element's tag, role, accessible name, size and
 chosen locator (with its score and the reasons behind it), viewport presets and
 a custom size, capture buttons, and the capture queue.
+
+**The Animation panel lists rather than shoots.** Every other capture button
+photographs something immediately; this one cannot, because a page has several
+animations and most of them cannot be sampled at all. So it lists what moves and
+offers each row the one action that would work: **Sample** where a seek
+reproduces the frame, **Record** where it cannot, and neither — with the
+inventory's own reason — where nothing honest is possible. Canvas, WebGL and
+video are named too, with **Record the page**, because "nothing is animating" on
+a canvas-driven page is a lie of omission. Pressing it changes nothing: no
+animation is paused, seeked or captured until you pick a row.
 
 **The state chips are live.** Clicking `hover` both adds it to the capture set
 and applies it to the page in front of you, held until you click it off. The

@@ -195,6 +195,18 @@ button.ua-btn--primary:hover { background: #be185d; }
   padding: 0 4px;
 }
 
+.ua-anims { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.ua-anims li {
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: #111c33;
+  border: 1px solid #22314a;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ua-anim__title { font-size: 11.5px; font-weight: 600; word-break: break-all; }
+
 .ua-toggle-pill {
   position: fixed;
   top: 16px;

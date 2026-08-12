@@ -22,6 +22,7 @@ in its `warnings` or its `error`.
 | Animation video / screencast | **Built.** `animations --video` records the motion no seek can reproduce, for a bounded window. A recording is not a sample and says so. Details below. |
 | Design-system extraction | **Built.** `ui-atlas tokens <url>` and `crawl --tokens` count every element's computed values. Observations with counts, not a design system: nothing is named. Duplicate component grouping already spanned routes. Details below. |
 | CDP forced pseudo-states | Not implemented. `focus-visible` is reached with a real keyboard interaction or reported as `skipped` — never faked. |
+| Toolbar Animation panel | **Built.** The Animation button lists what moves and offers each row the one action that would work. Details below. |
 | Chrome extension packaging | Not required and not built. |
 
 ## Boundaries of what is possible
@@ -318,6 +319,26 @@ See [ADR 24](adr/0024-observed-values-are-candidates-not-tokens.md).
 - **Pseudo-element styles are not read.** `::before` content is often decorative
   and often carries a colour; `getComputedStyle` needs to be asked for it
   separately, and it is not.
+
+## Boundaries of the toolbar's Animation panel
+
+See [ADR 25](adr/0025-the-animation-button-is-a-list-not-a-shutter.md).
+
+- **It lists the page as it is now.** It does not update itself when the page
+  changes; *Refresh* re-reads it. Live-updating would mean watching every
+  document for animation events, which is a much larger promise than a list.
+- **A hover transition is still absent**, for the reason it is absent from the
+  inventory: it does not exist until something provokes it. Reaching one from
+  the toolbar would need the panel to hold a hover while it listed, which is the
+  `captureAnimation` recipe step's job.
+- **Recording from the toolbar opens a second browser context** and loads the
+  page again, visibly, in an interactive session. A persistent profile cannot
+  create that context and the job fails saying so.
+- **An animation is re-found by fingerprint at capture time**, not by the index
+  it was listed at. A page that changed in between yields "no longer running"
+  rather than a confident frame of whatever now sits at that index.
+- **Nothing in the panel is named for you.** It shows what the inventory said,
+  in the inventory's words.
 
 ## Things the tool reports that surprise people
 

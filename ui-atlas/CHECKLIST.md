@@ -334,9 +334,26 @@ is still empty and no non-`GET` request was issued.
 - [x] The unobservable-motion notice aggregated across the crawl and raised once
       with a route count, instead of once per page
 
+## Phase 4 — the toolbar's Animation panel (seventh slice)
+
+- [x] The Animation button **lists** rather than captures: which animation you
+      mean is a question only a list can answer, and most cannot be sampled
+- [x] Each row gets the one action that would work — `Sample`, `Record`, or
+      neither with the inventory's own reason. No row is a dead end
+- [x] Scroll-driven and instant animations are offered nothing, with the reason
+- [x] Canvas, WebGL and video counted and named, with `Record the page`
+- [x] Listing is a read: nothing paused, seeked or captured, asserted by a test
+- [x] Re-found by fingerprint at capture time, not by the index it was listed
+      at, so a page that changed yields "no longer running" not the wrong frame
+- [x] `Alt`+`A` opens the panel, for the same reason the button does
+- [x] `capabilities.animation` is true; one new bridge method,
+      `animation/inventory`, and `CaptureRequest.animationId`
+
+**The brief is delivered through phase 4.**
+
 ### Still to build
 
-- [ ] The toolbar's Animation button, still disabled
+(nothing in the brief)
 
 ## Still out of scope
 

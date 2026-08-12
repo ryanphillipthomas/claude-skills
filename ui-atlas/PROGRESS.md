@@ -3,7 +3,7 @@
 Running log for the build. Updated after each milestone so an interrupted
 session is recoverable.
 
-**Last updated:** 2026-08-11, after the animation inventory was wired into `crawl`.
+**Last updated:** 2026-08-11, after the toolbar's Animation panel landed. The brief is delivered.
 
 ## Status
 
@@ -13,10 +13,11 @@ frontier, declarative interaction recipes, the suggested-interaction inventory,
 worker concurrency with per-origin throttling, retry with status-aware backoff,
 and trace-on-failure. The repository is buildable, tested and documented.
 
-**Phase 4 is complete**, in six slices: the animation inventory, deterministic
+**Phase 4 is complete**, in seven slices: the animation inventory, deterministic
 frame sampling, provoked hover/focus motion, the screencast fallback,
-observed-value extraction, and the animation inventory during a crawl.
-Everything the brief scoped through phase 4 is built.
+observed-value extraction, the animation inventory during a crawl, and the
+toolbar's Animation panel. **Everything the brief scopes is built** — the last
+item on its own list was the Animation button, and it is no longer disabled.
 
 ```
 npm install
@@ -29,9 +30,9 @@ npm test
 `npm test` (builds, then Vitest — unit and browser integration):
 
 ```
-Test Files  37 passed (37)
-     Tests  433 passed | 3 skipped (436)
-  Duration  ~283s
+Test Files  38 passed (38)
+     Tests  442 passed | 3 skipped (445)
+  Duration  ~296s
 ```
 
 On a networked machine the three external smoke tests run instead of skipping:
@@ -76,6 +77,7 @@ the phase 1 exit criterion. Nothing is unverified now.
 | `integration/screencast` | 7 | **phase 4, fourth slice**: a real webm of the infinite animation, the record refusing to look like a sample, the sidecar, canvas and video as subjects, a page that needs no recording, an over-budget discard, and no scratch left behind |
 | `unit/tokens` | 24 | colour/length/font normalisation, category mapping, counting across pages, truncation warnings, near duplicates reported and never merged |
 | `integration/tokens` | 9 | **phase 4, fifth slice**: browser defaults excluded, script/style never read, the page unchanged either side, the per-page cap, the fixture's real colours, the CLI across several pages and past an unreachable one, a whole-site crawl scan, and doing nothing when switched off |
+| `integration/animation-panel` | 9 | **phase 4, seventh slice**: the panel driven through the real overlay — what it lists, the action each row gets, no row without a reason, listing changing nothing, a sample that restores, a recording that is not called a sample, canvas named with an action, an honest refusal when the animation has gone, and the keyboard route |
 | `integration/external-smoke` | 3 skipped | read-only public-site checks; skip without network |
 
 `npm run typecheck` passes for all thirteen packages and for the test sources.
@@ -969,20 +971,76 @@ missing. Neither was a code fault:
    wrong place, and moving it is the change above. So one half of the premise
    was wrong and the other half found a real defect.
 
-## Next smallest milestone
+## The toolbar's Animation panel (phase 4, seventh slice)
 
-**The toolbar's Animation button**, still disabled — the last unbuilt thing in
-the brief's own list.
+Done and covered by `tests/integration/animation-panel.test.ts`. See
+[ADR 25](docs/adr/0025-the-animation-button-is-a-list-not-a-shutter.md).
 
-1. Everything behind it exists: the inventory, sampling, provoked motion and the
-   screencast fallback are all built and tested.
-2. What is missing is UI plumbing: the bridge's `capabilities.animation` flag,
-   a queue job kind for an animation capture, and a toolbar panel to choose
-   between "list what moves here", "sample this one" and "record it".
-3. The honest framing to carry into the UI is the same one the records already
-   carry: the button should show *why* an animation cannot be sampled, in the
-   inventory's own words, rather than offering a sample and failing.
+The Animation button has been disabled since phase 1. It is not any more, and
+what it does is **list**, not photograph.
 
-Beyond that the brief is delivered. Anything further is new scope: perceptual
-near-duplicate hashing, extension packaging, distributed workers, sitemap
-seeding, `captureResponsive` during a crawl.
+### Why a list and not a shutter
+
+Every other capture button photographs something immediately, and can, because
+what to photograph is unambiguous. An animation button has no such answer: a
+page has several animations, the user means one, and **most of them cannot be
+sampled at all**. The fixture alone has an infinite one, a scroll-driven one and
+a multi-iteration one. A button that shot "the animation" would have to guess
+which, then fail for most pages.
+
+So the panel lists what moves and gives each row the one action that would work:
+
+| Verdict | The row shows |
+| --- | --- |
+| `sampleable` | **Sample** — a seek reproduces the frame every time |
+| `infinite`, `indeterminate` | **Record** — a seek cannot, but a recording shows it |
+| `scroll-driven` | nothing — a recording of a page not scrolling is a still |
+| `instant` | nothing — there are no intermediate frames |
+
+Every row without an action carries the **inventory's own reason**, the same
+sentence the `animations` command prints. A test requires no row to be a dead
+end: an action, or a reason, never neither.
+
+Canvas, WebGL and video are counted and named too, with **Record the page** —
+without that, `media.html` would show an empty panel, and "nothing is animating"
+on a canvas-driven page is a lie of omission.
+
+### Two things that make it safe
+
+**Listing is a read.** Pressing the button pauses nothing, seeks nothing and
+captures nothing. A test presses it and then requires every animation still
+unpaused and the queue still empty. That is what makes a panel a reasonable
+thing to put behind a button.
+
+**An animation is re-found by fingerprint at capture time**, not by the index it
+was listed at. Seconds pass between listing and clicking, and a transition that
+ends in that time takes every index after it along. A test cancels every
+animation between the two and requires the job to fail with *"no longer running
+on this page"* rather than produce a confident frame of the wrong one.
+
+### One test premise that was wrong
+
+The sampling test compared every animation's play state either side of the
+capture and required them identical. They are not: sampling takes a couple of
+seconds, and the fixture's finite 1200ms animation legitimately *finishes* in
+that time on the page's own clock. Restoration never promised to stop time. What
+it does promise is that nothing is left held — so the test now requires no
+animation to read `paused` (a failed restore) or `idle` (a cancel never undone).
+
+## Where this leaves the project
+
+**The brief is delivered.** Phases 0 through 4 are complete and every item on the
+brief's own list is built, including the Animation button that had been disabled
+since phase 1.
+
+Anything further is new scope rather than an unfinished milestone:
+
+- perceptual near-duplicate hashing (the report groups by exact image hash today)
+- sitemap seeding, and dedup by page structural fingerprint
+- `captureResponsive` during a crawl (the step validates and reports that it was
+  unavailable)
+- extension packaging, distributed workers, CDP forced pseudo-states
+
+The one environment-bound gap is unchanged and recorded under Exit criteria: the
+three external-site smoke tests skip themselves in a sandbox with no outbound
+browser network access.

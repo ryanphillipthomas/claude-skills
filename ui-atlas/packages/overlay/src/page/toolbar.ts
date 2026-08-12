@@ -1,4 +1,5 @@
 import type {
+  AnimationInventoryResult,
   ElementIdentity,
   OverlaySession,
   QueueJob,
@@ -15,6 +16,12 @@ export interface CaptureIntent {
 
 export interface ToolbarCallbacks {
   onToggleInspect(): void;
+  /** Ask the host what is moving on this page. Reads; changes nothing. */
+  onListAnimations(): void;
+  /** Photograph one animation at the configured offsets. */
+  onSampleAnimation(id: string, label: string): void;
+  /** Record the page for a bounded window. No id means the page as a whole. */
+  onRecordAnimation(id: string | undefined, label: string): void;
   onCapture(intent: CaptureIntent): void;
   onSetViewport(width: number, height: number, presetName?: string): void;
   onClearSelection(): void;
@@ -64,6 +71,9 @@ export class Toolbar {
   private previewing: StateName | undefined;
   private readonly viewportRow: HTMLDivElement;
   private readonly captureRow: HTMLDivElement;
+  private readonly animationHost: HTMLDivElement;
+  private animations: AnimationInventoryResult | undefined;
+  private animationsPending = false;
   private readonly jobList: HTMLUListElement;
   private readonly noticeHost: HTMLDivElement;
   private readonly helpHost: HTMLDivElement;
@@ -134,6 +144,11 @@ export class Toolbar {
     captureSection.append(this.captureRow);
     this.renderCaptureButtons();
 
+    // --- Animation --------------------------------------------------------
+    const animationSection = section('Animation');
+    this.animationHost = div('ua-section');
+    animationSection.append(this.animationHost);
+
     // --- Queue ------------------------------------------------------------
     const queueSection = section('Queue');
     this.jobList = document.createElement('ul');
@@ -154,6 +169,7 @@ export class Toolbar {
       stateSection,
       viewportSection,
       captureSection,
+      animationSection,
       queueSection,
       helpSection,
     );
@@ -162,7 +178,20 @@ export class Toolbar {
 
     this.renderStates();
     this.renderSelection();
+    this.renderAnimations();
     this.renderJobs([]);
+  }
+
+  /** The host is working on the list; say so rather than looking inert. */
+  setAnimationsPending(pending: boolean): void {
+    this.animationsPending = pending;
+    this.renderAnimations();
+  }
+
+  setAnimations(result: AnimationInventoryResult | undefined): void {
+    this.animations = result;
+    this.animationsPending = false;
+    this.renderAnimations();
   }
 
   setSession(session: OverlaySession): void {
@@ -346,19 +375,121 @@ export class Toolbar {
     );
     fullPage.disabled = this.session?.capabilities.fullPage !== true;
 
-    const animation = button('Animation', () =>
-      this.callbacks.onCapture({
-        kind: 'element',
-        states: ['default'],
-        responsive: false,
-        includeOverlay: false,
-        label: 'animation',
-      }),
-    );
+    // Animation capture is not one button, because an animation is not one
+    // thing you can always photograph. It has its own panel, which lists what
+    // moves and offers only the action that would work for each.
+    const animation = button('Animation…', () => this.callbacks.onListAnimations());
     animation.disabled = this.session?.capabilities.animation !== true;
-    animation.title = 'Animation capture lands in a later phase.';
+    animation.title =
+      this.session?.capabilities.animation === true
+        ? 'Lists what moves on this page, and what can be done with each.'
+        : 'Animation capture is not enabled for this session.';
 
     this.captureRow.append(element, viewport, fullPage, responsive, animation);
+  }
+
+  /**
+   * What is moving here, and the one action that will work for each.
+   *
+   * The rule this panel exists to keep: an animation that cannot be sampled
+   * gets **the inventory's own reason** and no Sample button, rather than a
+   * button that would produce a frame the site never shows. Where a recording
+   * would show what a seek cannot, that button appears instead.
+   */
+  private renderAnimations(): void {
+    this.animationHost.textContent = '';
+
+    const listButton = button(
+      this.animations === undefined ? 'What moves here?' : 'Refresh',
+      () => this.callbacks.onListAnimations(),
+    );
+    listButton.disabled =
+      this.animationsPending || this.session?.capabilities.animation !== true;
+    listButton.title =
+      this.session?.capabilities.animation === true
+        ? 'Lists every animation on the page. Nothing is paused, seeked or captured.'
+        : 'Animation capture is not enabled for this session.';
+    const row = div('ua-row');
+    row.append(listButton);
+    this.animationHost.append(row);
+
+    if (this.animationsPending) {
+      const busy = div('ua-hint');
+      busy.textContent = 'Reading the page…';
+      this.animationHost.append(busy);
+      return;
+    }
+    if (this.animations === undefined) return;
+
+    const { animations, unobservable, warnings } = this.animations;
+    if (animations.length === 0) {
+      const empty = div('ua-empty');
+      empty.textContent = 'Nothing was animating when the page settled.';
+      this.animationHost.append(empty);
+    }
+
+    const list = document.createElement('ul');
+    list.className = 'ua-anims';
+    for (const animation of animations) {
+      const item = document.createElement('li');
+
+      const title = div('ua-anim__title');
+      title.textContent = animation.target === undefined
+        ? animation.label
+        : `${animation.label} · ${animation.target}`;
+      item.append(title);
+
+      const reason = div('ua-hint');
+      reason.textContent = animation.reason;
+      item.append(reason);
+
+      const actions = div('ua-row');
+      if (animation.canSample) {
+        const sample = button('Sample', () =>
+          this.callbacks.onSampleAnimation(animation.id, animation.label),
+        );
+        sample.className = 'ua-btn ua-btn--primary';
+        sample.title = 'Pauses it, photographs it at each offset, and puts it back.';
+        actions.append(sample);
+      }
+      if (animation.canRecord) {
+        const record = button('Record', () =>
+          this.callbacks.onRecordAnimation(animation.id, animation.label),
+        );
+        record.title =
+          'Records the page for a bounded window. A recording is not a sample: ' +
+          'it shows one pass, and recording again gives a different file.';
+        actions.append(record);
+      }
+      if (actions.childElementCount > 0) item.append(actions);
+      list.append(item);
+    }
+    if (animations.length > 0) this.animationHost.append(list);
+
+    // Motion no animation list can see. Naming it is the difference between
+    // "nothing is animating" and "nothing I can describe is animating".
+    const unseen = unobservable.canvas2d + unobservable.webgl + unobservable.video;
+    if (unseen > 0) {
+      const note = div('ua-hint');
+      note.textContent =
+        `${String(unseen)} canvas, WebGL or video element(s) are here too, and no ` +
+        'animation list can describe their motion.';
+      this.animationHost.append(note);
+
+      const actions = div('ua-row');
+      actions.append(
+        button('Record the page', () =>
+          this.callbacks.onRecordAnimation(undefined, 'page recording'),
+        ),
+      );
+      this.animationHost.append(actions);
+    }
+
+    for (const warning of warnings) {
+      const note = div('ua-hint');
+      note.textContent = warning;
+      this.animationHost.append(note);
+    }
   }
 
   private renderSelection(): void {
