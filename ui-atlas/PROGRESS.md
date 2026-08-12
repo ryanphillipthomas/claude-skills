@@ -3,7 +3,7 @@
 Running log for the build. Updated after each milestone so an interrupted
 session is recoverable.
 
-**Last updated:** 2026-08-11, after observed-value extraction landed and phase 4 closed.
+**Last updated:** 2026-08-11, after the animation inventory was wired into `crawl`.
 
 ## Status
 
@@ -13,10 +13,10 @@ frontier, declarative interaction recipes, the suggested-interaction inventory,
 worker concurrency with per-origin throttling, retry with status-aware backoff,
 and trace-on-failure. The repository is buildable, tested and documented.
 
-**Phase 4 is complete**, in five slices: the animation inventory, deterministic
-frame sampling, provoked hover/focus motion, the screencast fallback and
-observed-value extraction. Everything the brief scoped through phase 4 is
-built.
+**Phase 4 is complete**, in six slices: the animation inventory, deterministic
+frame sampling, provoked hover/focus motion, the screencast fallback,
+observed-value extraction, and the animation inventory during a crawl.
+Everything the brief scoped through phase 4 is built.
 
 ```
 npm install
@@ -30,8 +30,8 @@ npm test
 
 ```
 Test Files  37 passed (37)
-     Tests  427 passed | 3 skipped (430)
-  Duration  ~246s
+     Tests  433 passed | 3 skipped (436)
+  Duration  ~283s
 ```
 
 On a networked machine the three external smoke tests run instead of skipping:
@@ -68,7 +68,7 @@ the phase 1 exit criterion. Nothing is unverified now.
 | `integration/retry` | 8 | **phase 3, fifth slice**: recovery after two failures, giving up honestly, no retry on 404, `Retry-After` honoured and clamped, origin backoff reported once, retries not eating the page budget, the run deadline winning |
 | `integration/traces` | 8 | **phase 3, sixth slice**: nothing written for a healthy crawl, a trace for an unreachable page and for a failed recipe, no trace for a 404, `maxTraces`, and the report not leaking `tracePath` |
 | `unit/animation` | 14 | sampleability rules, scroll beating every other signal, summaries, unobservable-motion wording |
-| `integration/animation` | 7 | **phase 4, first slice**: every kind of motion on the fixture, the scroll-driven verdict, the hover transition's honest absence, nothing perturbed, canvas/video counted, frames reached, end to end through the CLI |
+| `integration/animation` | 13 | **phase 4, first and sixth slices**: every kind of motion on the fixture, the scroll-driven verdict, the hover transition's honest absence, nothing perturbed, canvas/video counted, frames reached, end to end through the CLI — plus the crawl seam: every page described, nothing perturbed, off by default, the unobservable notice raised once for the run, and both caps reported where each belongs |
 | `integration/animation-sampling` | 8 | **phase 4, second slice**: only sampleable animations sampled, seek arithmetic, restoration after a full pass and after a thrown capture, the right animation of two sharing a name, the element really moving, real frames through the CLI |
 | `unit/animation-diff` | 10 | what an interaction started: index-independence, multiset counting, per-element and per-frame separation |
 | `integration/provoked-animation` | 13 | **phase 4, third slice**: the two transitions one hover starts, the group on one clock, the page's own animations left running, restore then release, no reverse frame, ascending seeks, an interaction that starts nothing, release after a thrown capture, and the step's inability to click |
@@ -919,19 +919,70 @@ It is matched against `#rrggbb` or `rgba(n, n, n, a)` rather than trusted, and a
 test feeds it a `color(display-p3 …)` and requires the row to render with no
 swatch at all.
 
+## The animation inventory during a crawl (phase 4, sixth slice)
+
+Done and covered by the second `describe` block in
+`tests/integration/animation.test.ts`.
+
+`crawl --animations` runs the phase-4 inventory on every page a crawl visits,
+into `animations.jsonl` keyed by route, so "what moves on this site" is
+answerable from one run. It reuses the seam the interaction inventory and the
+style scan already use — `runInventory` / `runTokens` / `runAnimations`, all
+called before recipes so each describes the page as served.
+
+Three things it deliberately does *not* do:
+
+- **It never samples.** Photographing motion costs a pause, a seek and a
+  screenshot per frame; that is a `captureAnimation` recipe step or the one-shot
+  command, not something a crawl spends on every page unasked.
+- **It needs no probe injected**, unlike an element capture, because it reads
+  the page's own animation state rather than describing an element.
+- **It leaves the page alone**, proved by the fixture's infinite `drift` still
+  reading `running` in its record.
+
+### Where a warning belongs turned out to be the design question
+
+Two caps, and they are not the same kind of fact:
+
+- The **per-page cap** ("motion.html has 300 animations; only the first 200 were
+  recorded") is about that page, so it travels with the page record.
+- The **run-level cap** ("the inventory reached its 5000 record budget") is about
+  the run. Attached to whichever page happened to trip it, it would be one line
+  inside one page record and easy to miss entirely, so it is raised once in the
+  run warnings.
+
+The same reasoning moved the unobservable-motion notice. "This page contains 2
+canvas elements whose motion cannot be described" is true of every page of a
+canvas-driven site; said fifty times it buries everything else. It is counted
+across the crawl and raised once, with a route count.
+
+### One test premise that was wrong, twice over
+
+The first crawl tests found zero animations, then found the caps' warnings
+missing. Neither was a code fault:
+
+1. The budget was `maxPages: 6`, and the fixture pages with motion are the
+   eighth and ninth discovered. The crawl never reached them. Raised to cover
+   the whole fixture.
+2. The warnings were asserted on `result.warnings` — but the per-page cap is a
+   page-record warning, which is correct. The run-level cap genuinely was in the
+   wrong place, and moving it is the change above. So one half of the premise
+   was wrong and the other half found a real defect.
+
 ## Next smallest milestone
 
-Phase 4 is complete, so the next thing is not a phase-4 slice. Two candidates,
-in the order they would pay off:
+**The toolbar's Animation button**, still disabled — the last unbuilt thing in
+the brief's own list.
 
-1. **Wire the animation inventory into `crawl`.** The interaction inventory and
-   the style scan both run per page already; the animation inventory is still
-   one-shot only, and it is the same seam (`runInventory`/`runTokens` in
-   `Crawler`). Small, and it makes "what moves on this site" answerable.
-2. **The toolbar's Animation button**, still disabled. It needs the bridge's
-   `capabilities.animation` flipped and a queue job kind — UI work rather than
-   capture work, since everything behind it now exists.
+1. Everything behind it exists: the inventory, sampling, provoked motion and the
+   screencast fallback are all built and tested.
+2. What is missing is UI plumbing: the bridge's `capabilities.animation` flag,
+   a queue job kind for an animation capture, and a toolbar panel to choose
+   between "list what moves here", "sample this one" and "record it".
+3. The honest framing to carry into the UI is the same one the records already
+   carry: the button should show *why* an animation cannot be sampled, in the
+   inventory's own words, rather than offering a sample and failing.
 
-Beyond that the brief is delivered through phase 4. Anything further is new
-scope: perceptual near-duplicate hashing, extension packaging, distributed
-workers.
+Beyond that the brief is delivered. Anything further is new scope: perceptual
+near-duplicate hashing, extension packaging, distributed workers, sitemap
+seeding, `captureResponsive` during a crawl.

@@ -4,8 +4,10 @@ import { emptyManifest, newRunId, readRunManifest, RunWriter } from '@ui-atlas/a
 import type { Page } from 'playwright';
 import { emulationOptions, launchSession, resolveViewport, viewportLabel } from '@ui-atlas/browser';
 import { CaptureService } from '@ui-atlas/capture';
+import { summariseAnimations } from '@ui-atlas/animation';
 import { TokenScanner } from '@ui-atlas/tokens';
 import {
+  CrawlAnimationInventory,
   Crawler,
   CrawlPolicy,
   describeTarget,
@@ -64,6 +66,10 @@ ui-atlas crawl <site-config.yml | url> [options]
   --tokens            count every page's computed colours, spacing, type and
                       radii into tokens.json. Observations with counts, not a
                       design system: nothing is named for you.
+  --animations        list every page's animations and how samplable each is,
+                      into animations.jsonl. It describes only: nothing is
+                      paused, seeked or captured. Photographing motion is a
+                      captureAnimation recipe step, or the animations command.
   --seed <url>        add a seed (repeatable via config); overrides crawl.seeds
   --max-pages <n>     hard cap on pages visited
   --max-depth <n>     seeds are depth 0
@@ -136,6 +142,7 @@ export async function runCrawl(args: ParsedArgs, logger: Logger): Promise<number
   if (Object.keys(budgetOverrides).length > 0) crawlOverrides['budgets'] = budgetOverrides;
 
   if (args.flags.get('inventory') === true) crawlOverrides['inventory'] = { enabled: true };
+  if (args.flags.get('animations') === true) crawlOverrides['animations'] = { enabled: true };
   const concurrency = flagNumber(args, 'concurrency');
   if (concurrency !== undefined) crawlOverrides['concurrency'] = concurrency;
   const delayMs = flagNumber(args, 'delay-ms');
@@ -338,6 +345,10 @@ export async function runCrawl(args: ParsedArgs, logger: Logger): Promise<number
       enabled: config.tokens.enabled || args.flags.get('tokens') === true,
     },
   });
+  // No probe needed: the animation inventory reads the page's own animation
+  // state, unlike an element capture, which must describe an element exactly
+  // the way the inspector does.
+  const animations = new CrawlAnimationInventory({ config: config.crawl.animations, runId });
   const inventory = new InteractionInventory({
     config: config.crawl.inventory,
     runId,
@@ -356,6 +367,7 @@ export async function runCrawl(args: ParsedArgs, logger: Logger): Promise<number
       seeds: seedsForRun,
       recipes: recipesForPage(page),
       inventory,
+      animations,
       tokens,
       ...(createWorker === undefined ? {} : { createWorker }),
       ...(resumeState === undefined ? {} : { resume: resumeState }),
@@ -428,6 +440,7 @@ function summarise(result: CrawlResult): Record<string, unknown> {
     unreachable: unreachable(result).map((record) => record.requestedUrl),
     recipes: result.recipes,
     inventory: summariseInventory(result.interactions),
+    animations: summariseAnimations(result.animations),
     skipCounts: Object.fromEntries(
       Object.entries(result.skipCounts).filter(([, count]) => count > 0),
     ),
@@ -456,6 +469,19 @@ function report(result: CrawlResult, logger: Logger): void {
         `${String(summary.byClass.navigation)} navigation, ${String(summary.byClass.inert)} inert, ` +
         `${String(summary.byClass.mutation)} may change something, ` +
         `${String(summary.byClass.unknown)} unclear (none were clicked)`,
+    );
+  }
+
+  if (result.animations.length > 0) {
+    const summary = summariseAnimations(result.animations);
+    const routes = new Set(result.animations.map((animation) => animation.routeKey));
+    logger.info(
+      `animations: ${String(summary.total)} across ${String(routes.size)} route(s) — ` +
+        `${String(summary.bySampleability.sampleable)} could be sampled deterministically, ` +
+        `${String(summary.bySampleability.infinite)} infinite, ` +
+        `${String(summary.bySampleability['scroll-driven'])} scroll-driven, ` +
+        `${String(summary.bySampleability.indeterminate)} indeterminate, ` +
+        `${String(summary.bySampleability.instant)} instant (none were sampled)`,
     );
   }
 

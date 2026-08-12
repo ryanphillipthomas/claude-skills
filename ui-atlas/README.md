@@ -348,7 +348,13 @@ could be sampled at a chosen point and give the same frame every time:
 and no screenshot is taken — a test snapshots every animation's play state and
 playback rate before and after a pass and requires them identical.
 
-Written to `animations.jsonl`. Two gaps it tells you about rather than hiding:
+Written to `animations.jsonl`. `crawl --animations` runs the same inventory on
+every page a crawl visits, so "what moves on this site" is answerable from one
+run — describing only, never sampling: photographing motion costs a pause, a
+seek and a screenshot per frame, which is not something a crawl should spend on
+every page unasked.
+
+Two gaps it tells you about rather than hiding:
 
 - **Canvas, WebGL and video are not `Animation`s**, so `getAnimations` cannot
   see them. Those elements are counted and named, because "no animations found"

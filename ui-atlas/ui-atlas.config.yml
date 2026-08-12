@@ -190,6 +190,19 @@ crawl:
   # do — navigation, inert, mutation or unknown. It reads and nothing else: no
   # clicking, no hovering. Writes interactions.jsonl plus a suggested-recipes.yml
   # you can review and edit. `--inventory` switches it on for one run.
+  # Lists each page's animations and how samplable each one is, into
+  # animations.jsonl. It DESCRIBES: nothing is paused, seeked or captured, which
+  # is what makes it cheap enough to run on every page. Photographing motion is
+  # a captureAnimation recipe step, or `ui-atlas animations <url> --sample`.
+  #
+  # Not to be confused with `capture.animation`, which says how to sample a
+  # frame once something has decided to.
+  animations:
+    enabled: false
+    # Cap per page across every frame; the page record says when it bites.
+    maxPerPage: 200
+    # Cap for the whole run; the run warnings say when it bites.
+    maxTotal: 5000
   inventory:
     enabled: false
     # Added to the built-in list (delete, buy, send, save, sign out, ...), not

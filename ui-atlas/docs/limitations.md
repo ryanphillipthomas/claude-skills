@@ -16,10 +16,11 @@ in its `warnings` or its `error`.
 | Worker concurrency | **Built.** `--concurrency <n>` runs isolated workers, each with its own context. `perPageDelayMs` is enforced per origin across all of them. Details below. |
 | Retry and backoff | **Built.** Bounded retries with jitter for timeouts and 5xx; a 429 or 503 holds the whole origin back, honouring `Retry-After`. Details below. |
 | Trace on failure | **Built.** `--trace-on-failure` keeps a Playwright trace for unreachable pages and for pages a recipe failed on. Off by default: a trace can contain session cookies. Details below. |
-| Animation inventory | **Built.** `ui-atlas animations <url>` lists every animation the Web Animations API can see and says how samplable each is. It reads and only reads. Details below. |
+| Animation inventory | **Built.** `ui-atlas animations <url>` lists every animation the Web Animations API can see and says how samplable each is, and `crawl --animations` does the same for every page of a site. It reads and only reads. Details below. |
 | Animation frame sampling | **Built.** `animations --sample` photographs the sampleable animations at chosen offsets and restores them. Details below. |
-| Animation video / screencast | Not built. `animation-video` still reports that it is unimplemented; it is for motion that cannot be represented as keyframes. |
-| Design-system extraction | Not built. Token extraction and duplicate component grouping are the rest of phase 4. |
+| Provoked motion | **Built.** The `captureAnimation` recipe step hovers or focuses, works out which animations that started, photographs them as one moment and puts them back. It can never click. Details below. |
+| Animation video / screencast | **Built.** `animations --video` records the motion no seek can reproduce, for a bounded window. A recording is not a sample and says so. Details below. |
+| Design-system extraction | **Built.** `ui-atlas tokens <url>` and `crawl --tokens` count every element's computed values. Observations with counts, not a design system: nothing is named. Duplicate component grouping already spanned routes. Details below. |
 | CDP forced pseudo-states | Not implemented. `focus-visible` is reached with a real keyboard interaction or reported as `skipped` — never faked. |
 | Chrome extension packaging | Not required and not built. |
 
@@ -191,9 +192,17 @@ See [ADR 20](adr/0020-animation-inventory-describes-without-touching.md).
 - **`sampleable` is a statement about determinism, not about usefulness.** It
   says a seek would reproduce a frame; it does not promise the frame is
   interesting.
-- **Nothing is wired into `crawl` yet.** The inventory is a one-shot command; a
-  site-wide animation inventory would be a small addition alongside the
-  interaction inventory.
+- **During a crawl it describes and nothing else.** `crawl --animations` runs
+  the same inventory on every page, but never samples: photographing motion
+  costs a pause, a seek and a screenshot per frame, which is a
+  `captureAnimation` recipe step or the one-shot command, not something a crawl
+  spends on every page unasked.
+- **Two caps, reported in different places.** The per-page cap is a fact about
+  that page and travels with its page record; the run-level cap is a fact about
+  the run and is raised once in the run warnings.
+- **The unobservable-motion notice is aggregated across a crawl.** Said per page
+  it would be true of every page of a canvas-driven site and would bury
+  everything else, so it is counted and raised once with a route count.
 
 ## Boundaries of frame sampling
 

@@ -246,6 +246,27 @@ export const InventoryConfigSchema = z.object({
 export type InventoryConfig = z.infer<typeof InventoryConfigSchema>;
 
 /**
+ * Listing each crawled page's animations, and how samplable each one is.
+ *
+ * The inventory *describes*: nothing is paused, seeked or captured, which is
+ * what makes it safe to run on every page of a crawl. Photographing motion is a
+ * `captureAnimation` recipe step or the one-shot `animations` command — both
+ * cost far more per page than a crawl should spend without being asked.
+ *
+ * Not to be confused with `capture.animation`, which says *how* to sample a
+ * frame once something has decided to.
+ */
+export const CrawlAnimationsConfigSchema = z.object({
+  /** Off by default: it costs two page evaluations per frame per page. */
+  enabled: z.boolean().default(false),
+  /** Cap per page, across every frame, so one busy page cannot dominate. */
+  maxPerPage: z.number().int().min(1).max(2_000).default(200),
+  /** Cap for the whole run, so a large crawl cannot produce a vast file. */
+  maxTotal: z.number().int().min(1).max(200_000).default(5_000),
+});
+export type CrawlAnimationsConfig = z.infer<typeof CrawlAnimationsConfigSchema>;
+
+/**
  * Statuses worth trying again. A `404` will not improve, and neither will a
  * `403`; these are the ones that mean "not right now" rather than "no".
  */
@@ -469,6 +490,11 @@ export const CrawlConfigSchema = z.object({
    * likely to do. Observation only: nothing here is ever clicked.
    */
   inventory: InventoryConfigSchema.prefault({}),
+  /**
+   * List each page's animations and how samplable each one is. Describes only:
+   * nothing is paused, seeked or captured.
+   */
+  animations: CrawlAnimationsConfigSchema.prefault({}),
 });
 export type CrawlConfig = z.infer<typeof CrawlConfigSchema>;
 

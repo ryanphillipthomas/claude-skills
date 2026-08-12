@@ -1,9 +1,10 @@
 # Implementation checklist
 
-Phases 0 through 4 are complete. Phase 4 shipped in five slices: the animation
+Phases 0 through 4 are complete. Phase 4 shipped in six slices: the animation
 inventory, deterministic frame sampling, provoked (hover/focus) motion, the
-screencast fallback and observed-value extraction. What is still unbuilt is
-listed in [docs/limitations.md](docs/limitations.md).
+screencast fallback, observed-value extraction, and the animation inventory
+during a crawl. What is still unbuilt is listed in
+[docs/limitations.md](docs/limitations.md).
 
 ## Phase 0 — foundation
 
@@ -319,10 +320,23 @@ is still empty and no non-`GET` request was issued.
 
 **Phase 4 is complete.**
 
+## Phase 4 — the animation inventory during a crawl (sixth slice)
+
+- [x] `crawl --animations` runs the same inventory on every page, into
+      `animations.jsonl`, keyed by route
+- [x] It describes and nothing else: no pausing, no seeking, no capture, proved
+      by the infinite fixture animation still reading `running`
+- [x] Needs no probe injected, unlike an element capture
+- [x] Runs before recipes, so it describes the page as served
+- [x] Per-page cap, reported on the page record it is about
+- [x] Run-level cap, raised once in the run warnings rather than buried on
+      whichever page tripped it
+- [x] The unobservable-motion notice aggregated across the crawl and raised once
+      with a route count, instead of once per page
+
 ### Still to build
 
 - [ ] The toolbar's Animation button, still disabled
-- [ ] Wiring the animation inventory into `crawl`
 
 ## Still out of scope
 
