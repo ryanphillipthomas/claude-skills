@@ -501,6 +501,17 @@ panel could not say where anything was saved.
       folder" is a test rather than a comment
 - [x] A platform with no opener says so and prints the path, rather than failing
 
+- [x] Sections collapse, main path open and occasional ones closed, every
+      heading a keyboard-reachable toggle
+- [x] **📁 Folder** in the title bar, which never scrolls away however tall the
+      panel is or wherever it is dragged
+- [x] The panel recomputes its height from its own top edge, and on resize —
+      `max-height: calc(100vh - 32px)` was only correct at the starting position
+- [x] The drag clamp and the height calculation share one margin; a 1px overflow
+      when dragged to the bottom was caught by a test
+- [x] A section that receives content opens itself, so a button never produces a
+      result the user cannot see
+
 ### Still to build
 
 (nothing in the brief)

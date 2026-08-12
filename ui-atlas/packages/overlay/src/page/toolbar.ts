@@ -93,6 +93,8 @@ export class Toolbar {
   private readonly animationHost: HTMLDivElement;
   private animations: AnimationInventoryResult | undefined;
   private animationsPending = false;
+  private readonly animationSection: Section;
+  private readonly outputSection: Section;
   private readonly outputHost: HTMLDivElement;
   private output: OutputSummaryResult | undefined;
   private outputPending = false;
@@ -114,7 +116,18 @@ export class Toolbar {
     this.runLabel = document.createElement('span');
     this.runLabel.className = 'ua-run';
     this.runLabel.textContent = 'connecting…';
-    titlebar.append(title, this.runLabel);
+
+    // The titlebar never scrolls away, so the one action you want at the end —
+    // "where did my files go?" — is reachable no matter how tall the panel has
+    // grown or how far down the window it has been dragged.
+    const revealButton = button('📁 Folder', () => this.callbacks.onRevealOutput('folder'));
+    revealButton.className = 'ua-btn ua-btn--titlebar';
+    revealButton.title = 'Open this run\u2019s folder on your desktop.';
+    // The titlebar is the drag handle; a press on a button in it must not also
+    // start a drag.
+    revealButton.addEventListener('pointerdown', (event) => event.stopPropagation());
+
+    titlebar.append(title, this.runLabel, revealButton);
     makeDraggable(this.element, titlebar);
 
     const body = div('ua-body');
@@ -124,18 +137,18 @@ export class Toolbar {
     // it is the answer to the question a first-time user actually has.
     this.flowHost = div('ua-flow');
 
-    const instructionsSection = section('How this works');
+    const instructionsSection = section('How this works', true);
     this.instructionsToggle = button('Hide', () => {
       this.instructionsOpen = !this.instructionsOpen;
       this.renderInstructions();
     });
     this.instructionsToggle.className = 'ua-btn ua-btn--quiet';
-    instructionsSection.append(this.instructionsToggle);
+    instructionsSection.body.append(this.instructionsToggle);
     this.instructionsHost = div('ua-steps');
-    instructionsSection.append(this.instructionsHost);
+    instructionsSection.body.append(this.instructionsHost);
 
     // --- Mode -------------------------------------------------------------
-    const modeSection = section('Mode');
+    const modeSection = section('Mode', true);
     const modeRow = div('ua-row');
     this.inspectButton = button('Inspect', () => this.callbacks.onToggleInspect());
     this.inspectButton.setAttribute('aria-pressed', 'false');
@@ -147,26 +160,26 @@ export class Toolbar {
     this.boxModelButton.setAttribute('aria-pressed', 'false');
     const clearButton = button('Clear', () => this.callbacks.onClearSelection());
     modeRow.append(this.inspectButton, this.boxModelButton, clearButton);
-    modeSection.append(modeRow);
+    modeSection.body.append(modeRow);
 
     // --- Element ----------------------------------------------------------
-    const elementSection = section('Element');
+    const elementSection = section('Element', true);
     // Walking the tree was arrow-keys-only, which meant it may as well not have
     // existed: the one operation you always want after clicking slightly the
     // wrong thing had no visible control at all.
     this.treeRow = div('ua-row');
-    elementSection.append(this.treeRow);
+    elementSection.body.append(this.treeRow);
     this.detailsHost = div('ua-section');
-    elementSection.append(this.detailsHost);
+    elementSection.body.append(this.detailsHost);
 
     // --- States -----------------------------------------------------------
-    const stateSection = section('States to capture');
+    const stateSection = section('States to capture', true);
     this.stateRow = div('ua-row');
     this.stateNote = div('ua-hint');
-    stateSection.append(this.stateRow, this.stateNote);
+    stateSection.body.append(this.stateRow, this.stateNote);
 
     // --- Viewport ---------------------------------------------------------
-    const viewportSection = section('Viewport');
+    const viewportSection = section('Viewport', false);
     this.viewportRow = div('ua-row');
     const customRow = div('ua-row');
     this.widthInput = numberInput(1440);
@@ -179,51 +192,53 @@ export class Toolbar {
       }
     });
     customRow.append(this.widthInput, this.heightInput, applyButton);
-    viewportSection.append(this.viewportRow, customRow);
+    viewportSection.body.append(this.viewportRow, customRow);
 
     // --- Capture ----------------------------------------------------------
-    const captureSection = section('Capture');
+    const captureSection = section('Capture', true);
     this.captureRow = div('ua-row');
-    captureSection.append(this.captureRow);
+    captureSection.body.append(this.captureRow);
     this.renderCaptureButtons();
 
     // --- Animation --------------------------------------------------------
-    const animationSection = section('Animation');
+    const animationSection = section('Animation', false);
+    this.animationSection = animationSection;
     this.animationHost = div('ua-section');
-    animationSection.append(this.animationHost);
+    animationSection.body.append(this.animationHost);
 
     // --- Output -----------------------------------------------------------
     // Where the files went, which the panel could not answer at all before.
-    const outputSection = section('Output');
+    const outputSection = section('Output', true);
+    this.outputSection = outputSection;
     this.outputHost = div('ua-section');
-    outputSection.append(this.outputHost);
+    outputSection.body.append(this.outputHost);
 
     // --- Queue ------------------------------------------------------------
-    const queueSection = section('Queue');
+    const queueSection = section('Queue', false);
     this.jobList = document.createElement('ul');
     this.jobList.className = 'ua-jobs';
-    queueSection.append(this.jobList);
+    queueSection.body.append(this.jobList);
 
     this.noticeHost = div('ua-section');
 
     // --- Help -------------------------------------------------------------
-    const helpSection = section('Shortcuts');
+    const helpSection = section('Shortcuts', false);
     this.helpHost = div('ua-help');
-    helpSection.append(this.helpHost);
+    helpSection.body.append(this.helpHost);
 
     body.append(
       this.flowHost,
       this.noticeHost,
-      instructionsSection,
-      modeSection,
-      elementSection,
-      stateSection,
-      viewportSection,
-      captureSection,
-      animationSection,
-      outputSection,
-      queueSection,
-      helpSection,
+      instructionsSection.element,
+      modeSection.element,
+      elementSection.element,
+      stateSection.element,
+      viewportSection.element,
+      captureSection.element,
+      animationSection.element,
+      outputSection.element,
+      queueSection.element,
+      helpSection.element,
     );
     this.element.append(titlebar, body);
     root.append(this.element);
@@ -247,7 +262,10 @@ export class Toolbar {
     this.output = summary;
     this.outputPending = false;
     // Seeing the list *is* step 4; the flow line moves on once it has happened.
-    if (summary !== undefined) this.reviewed = true;
+    if (summary !== undefined) {
+      this.reviewed = true;
+      this.outputSection.setOpen(true);
+    }
     this.renderOutput();
     this.renderFlow();
   }
@@ -340,12 +358,16 @@ export class Toolbar {
   /** The host is working on the list; say so rather than looking inert. */
   setAnimationsPending(pending: boolean): void {
     this.animationsPending = pending;
+    if (pending) this.animationSection.setOpen(true);
     this.renderAnimations();
   }
 
   setAnimations(result: AnimationInventoryResult | undefined): void {
     this.animations = result;
     this.animationsPending = false;
+    // The list is the answer to a button press; a collapsed section would hide
+    // it and read as "nothing happened".
+    if (result !== undefined) this.animationSection.setOpen(true);
     this.renderAnimations();
   }
 
@@ -797,12 +819,78 @@ function div(className: string): HTMLDivElement {
   return element;
 }
 
-function section(title: string): HTMLDivElement {
+interface Section {
+  element: HTMLDivElement;
+  /** Everything below the heading. Collapsing hides this, never the heading. */
+  body: HTMLDivElement;
+  /**
+   * Open it from code. An action that produces content inside a collapsed
+   * section must reveal it: pressing "Animation…" and getting a list you cannot
+   * see is worse than the button not working, because it looks like nothing
+   * happened.
+   */
+  setOpen(open: boolean): void;
+}
+
+/**
+ * A collapsible section.
+ *
+ * The panel grew to eleven sections, which on a short window pushed the last of
+ * them — Output, the one you press *last* — below the fold. Collapsing is the
+ * fix that scales: the headings stay, so nothing becomes unfindable, and the
+ * sections you are not using stop costing height.
+ *
+ * The ones that start closed are the ones you visit occasionally (viewport
+ * presets, animations, the queue, the shortcut list). The ones on the main path
+ * start open.
+ */
+function section(title: string, startOpen = true): Section {
   const element = div('ua-section');
   const heading = document.createElement('h3');
-  heading.textContent = title;
-  element.append(heading);
-  return element;
+  heading.className = 'ua-section__heading';
+
+  const caret = document.createElement('span');
+  caret.className = 'ua-section__caret';
+  const label = document.createElement('span');
+  label.textContent = title;
+  heading.append(caret, label);
+
+  const body = div('ua-section__body');
+  let open = startOpen;
+
+  const apply = (): void => {
+    body.hidden = !open;
+    caret.textContent = open ? '▾' : '▸';
+    heading.setAttribute('aria-expanded', String(open));
+  };
+
+  // A heading is a real button, so it is reachable by keyboard and announced as
+  // expandable rather than being a div that happens to respond to clicks.
+  heading.setAttribute('role', 'button');
+  heading.tabIndex = 0;
+  heading.addEventListener('click', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    open = !open;
+    apply();
+  });
+  heading.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    event.preventDefault();
+    open = !open;
+    apply();
+  });
+
+  apply();
+  element.append(heading, body);
+  return {
+    element,
+    body,
+    setOpen: (next: boolean) => {
+      open = next;
+      apply();
+    },
+  };
 }
 
 function button(label: string, onClick: () => void): HTMLButtonElement {
@@ -840,8 +928,35 @@ function humanise(action: string): string {
   return action.replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase();
 }
 
+/** Enough panel to be worth having on screen: title bar plus a few controls. */
+const MIN_PANEL_HEIGHT = 220;
+/**
+ * Gap kept below the panel. The drag clamp and the height calculation must use
+ * the *same* margin: when they disagreed, dragging to the very bottom left the
+ * panel one pixel past the fold — which a test caught, and which is the same
+ * class of bug at any size.
+ */
+const PANEL_MARGIN = 16;
+
+/**
+ * Keep the panel inside the window from wherever its top edge now is.
+ *
+ * The CSS `max-height: calc(100vh - 32px)` is only correct while the panel sits
+ * at its starting `top: 16px`. Drag it down and the limit no longer matches the
+ * space left below it, so the bottom of the panel — the Output section, the one
+ * you press last — goes off screen with no way to scroll to it.
+ */
+function fitToViewport(panel: HTMLElement): void {
+  const top = panel.getBoundingClientRect().top;
+  const available = Math.max(MIN_PANEL_HEIGHT, window.innerHeight - top - PANEL_MARGIN);
+  panel.style.maxHeight = `${String(Math.round(available))}px`;
+}
+
 /** Drag by the title bar. Position is clamped so the panel cannot be lost. */
 function makeDraggable(panel: HTMLElement, handle: HTMLElement): void {
+  // A window that shrinks — a rotated phone, a split editor — must not strand
+  // the bottom of the panel either.
+  window.addEventListener('resize', () => fitToViewport(panel));
   let dragging = false;
   let offsetX = 0;
   let offsetY = 0;
@@ -859,12 +974,16 @@ function makeDraggable(panel: HTMLElement, handle: HTMLElement): void {
   handle.addEventListener('pointermove', (event) => {
     if (!dragging) return;
     const maxX = Math.max(0, window.innerWidth - panel.offsetWidth);
-    const maxY = Math.max(0, window.innerHeight - 40);
+    // Leave room for a usable panel rather than for a title bar alone. Dragging
+    // to `innerHeight - 40` left 40px of panel on screen and everything else
+    // below the fold, with no way to scroll to it.
+    const maxY = Math.max(0, window.innerHeight - MIN_PANEL_HEIGHT - PANEL_MARGIN);
     const x = Math.min(Math.max(0, event.clientX - offsetX), maxX);
     const y = Math.min(Math.max(0, event.clientY - offsetY), maxY);
     panel.style.left = `${String(Math.round(x))}px`;
     panel.style.top = `${String(Math.round(y))}px`;
     panel.style.right = 'auto';
+    fitToViewport(panel);
     event.stopPropagation();
   });
 

@@ -302,3 +302,111 @@ describe('capture filenames', () => {
     expect(index).toContain('does **not** update `captures.jsonl`');
   });
 });
+
+describe('the panel fits on screen', () => {
+  it('stays inside the window, so the last section is reachable', async () => {
+    await harness.session.navigate(harness.url('/states.html'));
+    await harness.session.overlay.waitForMount();
+
+    const fit = await harness.session.page.evaluate(() => {
+      const shadow = document.querySelector('[data-ui-atlas-overlay]')?.shadowRoot;
+      const panel = shadow?.querySelector('.ua-panel') as HTMLElement | null;
+      const rect = panel?.getBoundingClientRect();
+      return {
+        bottom: rect?.bottom ?? 0,
+        windowHeight: window.innerHeight,
+      };
+    });
+    expect(fit.bottom).toBeLessThanOrEqual(fit.windowHeight);
+  });
+
+  it('collapses the sections you visit occasionally, and keeps their headings', async () => {
+    await harness.session.navigate(harness.url('/states.html'));
+    await harness.session.overlay.waitForMount();
+
+    const sections = await harness.session.page.evaluate(() => {
+      const shadow = document.querySelector('[data-ui-atlas-overlay]')?.shadowRoot;
+      return Array.from(shadow?.querySelectorAll('.ua-section__heading') ?? []).map((heading) => ({
+        title: heading.textContent?.replace(/[▾▸]/g, '').trim() ?? '',
+        open: heading.getAttribute('aria-expanded') === 'true',
+      }));
+    });
+
+    const byTitle = new Map(sections.map((item) => [item.title, item.open]));
+    // The main path stays open; every heading is present either way, so nothing
+    // becomes unfindable by being collapsed.
+    expect(byTitle.get('Mode')).toBe(true);
+    expect(byTitle.get('Capture')).toBe(true);
+    expect(byTitle.get('Output')).toBe(true);
+    expect(byTitle.get('Shortcuts')).toBe(false);
+    expect(byTitle.get('Queue')).toBe(false);
+  });
+
+  it('opens a collapsed section when its heading is pressed', async () => {
+    await harness.session.navigate(harness.url('/states.html'));
+    await harness.session.overlay.waitForMount();
+
+    await harness.session.page.getByRole('button', { name: 'Shortcuts' }).click();
+    const open = await harness.session.page.evaluate(() => {
+      const shadow = document.querySelector('[data-ui-atlas-overlay]')?.shadowRoot;
+      const headings = Array.from(shadow?.querySelectorAll('.ua-section__heading') ?? []);
+      const target = headings.find((h) => (h.textContent ?? '').includes('Shortcuts'));
+      return target?.getAttribute('aria-expanded') === 'true';
+    });
+    expect(open).toBe(true);
+  });
+
+  it('keeps the folder button on screen after the panel is dragged down', async () => {
+    await harness.session.navigate(harness.url('/states.html'));
+    await harness.session.overlay.waitForMount();
+
+    // Drag the title bar as far down as it will go.
+    const before = await harness.session.page.evaluate(() => {
+      const shadow = document.querySelector('[data-ui-atlas-overlay]')?.shadowRoot;
+      const bar = shadow?.querySelector('.ua-titlebar') as HTMLElement | null;
+      const rect = bar?.getBoundingClientRect();
+      return { x: (rect?.left ?? 0) + 20, y: (rect?.top ?? 0) + 8, height: window.innerHeight };
+    });
+    await harness.session.page.mouse.move(before.x, before.y);
+    await harness.session.page.mouse.down();
+    await harness.session.page.mouse.move(before.x, before.height - 60, { steps: 8 });
+    await harness.session.page.mouse.up();
+
+    const after = await harness.session.page.evaluate(() => {
+      const shadow = document.querySelector('[data-ui-atlas-overlay]')?.shadowRoot;
+      const panel = shadow?.querySelector('.ua-panel') as HTMLElement | null;
+      const rect = panel?.getBoundingClientRect();
+      return { top: rect?.top ?? 0, bottom: rect?.bottom ?? 0, windowHeight: window.innerHeight };
+    });
+    // Dragged down, but still fully on screen and still tall enough to use.
+    expect(after.bottom).toBeLessThanOrEqual(after.windowHeight + 1);
+    expect(after.bottom - after.top).toBeGreaterThanOrEqual(200);
+  });
+
+  it('offers the folder from the title bar, which never scrolls away', async () => {
+    await harness.session.navigate(harness.url('/states.html'));
+    await harness.session.overlay.waitForMount();
+
+    await harness.session.page.getByRole('button', { name: '📁 Folder', exact: true }).click();
+    await expect.poll(() => harness.opened.length, { timeout: 10_000 }).toBeGreaterThan(0);
+    expect(harness.opened[0]).toBe(harness.session.writer.paths.runDir);
+  });
+
+  it('reveals a collapsed section when its own button fills it', async () => {
+    await harness.session.navigate(harness.url('/states.html'));
+    await harness.session.overlay.waitForMount();
+
+    const isOpen = async (title: string): Promise<boolean> =>
+      harness.session.page.evaluate((name) => {
+        const shadow = document.querySelector('[data-ui-atlas-overlay]')?.shadowRoot;
+        const headings = Array.from(shadow?.querySelectorAll('.ua-section__heading') ?? []);
+        const target = headings.find((h) => (h.textContent ?? '').includes(name));
+        return target?.getAttribute('aria-expanded') === 'true';
+      }, title);
+
+    expect(await isOpen('Animation')).toBe(false);
+    await harness.session.page.getByRole('button', { name: 'Animation…', exact: true }).click();
+    // A list rendered into a collapsed section reads as "nothing happened".
+    await expect.poll(() => isOpen('Animation'), { timeout: 10_000 }).toBe(true);
+  });
+});

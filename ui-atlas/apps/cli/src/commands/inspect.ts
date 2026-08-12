@@ -4,6 +4,7 @@ import { flagBoolean, flagNumber, flagString, requireHttpUrl, type ParsedArgs } 
 import type { Logger } from '../logger.js';
 import { AtlasSession } from '../session.js';
 import { loadCliConfig, TOOL_VERSION } from '../config.js';
+import { navigationHint } from '../navigation-hint.js';
 
 export const INSPECT_HELP = `
 ui-atlas inspect <url> [options]
@@ -51,6 +52,8 @@ export async function runInspect(args: ParsedArgs, logger: Logger): Promise<numb
     const page = await session.navigate(url);
     if (page.error !== undefined) {
       logger.error(`navigation failed: ${page.error.message}`);
+      const hint = navigationHint(page.error.message, url);
+      if (hint !== undefined) logger.error(hint);
       return 1;
     }
     const mounted = await session.overlay.waitForMount();

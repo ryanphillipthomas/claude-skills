@@ -11,6 +11,7 @@ import {
 } from '@ui-atlas/protocol';
 import { flagString, requireHttpUrl, type ParsedArgs } from '../args.js';
 import { loadCliConfig, TOOL_VERSION } from '../config.js';
+import { navigationHint } from '../navigation-hint.js';
 import type { Logger } from '../logger.js';
 import { AtlasSession } from '../session.js';
 
@@ -86,6 +87,8 @@ export async function runCapture(args: ParsedArgs, logger: Logger): Promise<numb
     const page = await session.navigate(url);
     if (page.error !== undefined) {
       logger.error(`navigation failed: ${page.error.message}`);
+      const hint = navigationHint(page.error.message, url);
+      if (hint !== undefined) logger.error(hint);
       return 1;
     }
 

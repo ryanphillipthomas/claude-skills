@@ -96,10 +96,31 @@ export const OVERLAY_STYLES = `
   user-select: none;
   border-bottom: 1px solid #1e293b;
 }
-.ua-title { font-weight: 600; letter-spacing: 0.02em; flex: 1; }
-.ua-run { color: #94a3b8; font-size: 11px; font-family: ui-monospace, Menlo, monospace; }
+.ua-title { font-weight: 600; letter-spacing: 0.02em; }
+.ua-run {
+  color: #94a3b8;
+  font-size: 11px;
+  font-family: ui-monospace, Menlo, monospace;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Always on screen, however tall the panel gets or wherever it is dragged. */
+button.ua-btn--titlebar { padding: 3px 7px; font-size: 10px; cursor: pointer; }
 
-.ua-body { overflow: auto; padding: 10px; display: flex; flex-direction: column; gap: 10px; }
+.ua-body {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  scrollbar-width: thin;
+  scrollbar-color: #334155 transparent;
+}
+.ua-body::-webkit-scrollbar { width: 8px; }
+.ua-body::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
 
 .ua-section { display: flex; flex-direction: column; gap: 6px; }
 .ua-section > h3 {
@@ -110,6 +131,22 @@ export const OVERLAY_STYLES = `
   color: #7c8aa5;
   font-weight: 600;
 }
+/* A collapsible heading is a control, so it looks and focuses like one. */
+h3.ua-section__heading {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  user-select: none;
+  border-radius: 4px;
+  padding: 1px 2px;
+  margin: 0 -2px;
+}
+h3.ua-section__heading:hover { color: #cbd5f5; background: #16233c; }
+h3.ua-section__heading:focus-visible { outline: 2px solid #38bdf8; outline-offset: 1px; }
+.ua-section__caret { font-size: 8px; opacity: 0.7; width: 8px; }
+.ua-section__body { display: flex; flex-direction: column; gap: 6px; }
+.ua-section__body[hidden] { display: none; }
 
 .ua-row { display: flex; flex-wrap: wrap; gap: 6px; }
 

@@ -40,7 +40,7 @@ npm test
 
 ```
 Test Files  45 passed (45)
-     Tests  551 passed | 3 skipped (554)
+     Tests  565 passed | 3 skipped (568)
   Duration  ~310s
 ```
 
@@ -89,7 +89,7 @@ the phase 1 exit criterion. Nothing is unverified now.
 | `integration/animation-panel` | 9 | **phase 4, seventh slice**: the panel driven through the real overlay — what it lists, the action each row gets, no row without a reason, listing changing nothing, a sample that restores, a recording that is not called a sample, canvas named with an action, an honest refusal when the animation has gone, and the keyboard route |
 | `unit/naming` | 31 | slug composition and what it refuses to invent, word-boundary trimming, stem sanitising that keeps `--`, the index's grouping, descriptions and relative links |
 | `unit/flow` | 13 | what the panel says at each point in the sequence, and that every step it points at has an instruction |
-| `integration/guided-flow` | 14 | **eighth slice**: the flow line through a real browser at each step, the instructions and their current-step marking, tree navigation as buttons, the count after a real capture, and the filenames, sidecar and index the run writes |
+| `integration/guided-flow` | 20 | **eighth slice**: the flow line through a real browser at each step, the instructions and their current-step marking, tree navigation as buttons, the count after a real capture, and the filenames, sidecar and index the run writes |
 | `unit/signin` | 19 | what a storage state drops and when that matters, login-path matching, and the three-valued verdict with its evidence |
 | `integration/doctor` | 10 | **tenth slice**: the request behind an "Unexpected token" error found, the HTML identified as a challenge, the page's own error captured, nothing reported for a page that works, and query strings kept out of the output |
 | `integration/signin` | 12 | **ninth and eleventh slices**: the page-side probes against real pages — a login page read as signed out, a way out read as signed in, an ordinary page read as unclear, a hidden password field ignored, a redirect noticed, IndexedDB/sessionStorage actually found, a challenge page recognised by its markup and its wording, neither an ordinary nor a sign-in page mistaken for one, and a challenged crawl stopping with zero pages and the warning in `run.json` |
@@ -1506,6 +1506,44 @@ run.
 label now appears twice — the titlebar as identity, the Output section as the
 answer to "where is this saving?" — so the match became ambiguous. The
 duplication is deliberate and the locator now names the titlebar.
+
+## A panel that fits (fourteenth slice)
+
+Reported from real use: the panel is too tall to see the bottom of, so the
+Output buttons — added in the last slice, and the ones you press *last* — could
+not be reached at all.
+
+### Three separate causes
+
+**Eleven sections.** They all render at once, and the sum was taller than a
+laptop window. Sections now collapse: the main path (Mode, Element, States,
+Capture, Output) starts open, the occasional ones (Viewport, Animation, Queue,
+Shortcuts) start closed, and every heading is a real button — keyboard
+reachable, `aria-expanded` set — so nothing becomes unfindable by being closed.
+
+**A height that only worked in one place.** `max-height: calc(100vh - 32px)` is
+correct while the panel sits at its starting `top: 16px`, and wrong the moment
+it is dragged: the limit no longer matches the space below it, so the bottom
+goes off screen with no way to scroll to it. It now recomputes from the panel's
+own top edge, and on window resize.
+
+**The last action was in the last place.** **📁 Folder** now sits in the title
+bar, which never scrolls away, so "where did my files go?" is reachable whatever
+the panel is doing. It stops pointer events so pressing it does not start a
+drag.
+
+### Two bugs the tests found
+
+A 1px overflow when dragged to the very bottom: the drag clamp used
+`innerHeight - MIN_PANEL_HEIGHT` while the height calculation subtracted a 16px
+margin, so the two disagreed about where the bottom was. They now share one
+constant.
+
+And a worse one: collapsing the Animation section by default meant pressing
+**Animation…** rendered its list into something hidden. Eight animation-panel
+tests went red, which is exactly right — a button that produces a result you
+cannot see is worse than a button that does nothing, because it looks like
+nothing happened. Sections now open themselves when content arrives.
 
 ## Where this leaves the project
 

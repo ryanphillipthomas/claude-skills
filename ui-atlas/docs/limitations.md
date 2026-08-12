@@ -434,6 +434,18 @@ See [ADR 26](adr/0026-captures-are-named-from-what-they-already-know.md).
 - **A capture that produced no file is listed, not hidden**, under "Not captured
   here" with its reason. A gap you can see beats a gap you have to notice.
 
+## Boundaries of the panel's size and position
+
+- **The panel keeps itself inside the window**, recomputing its height from
+  wherever its top edge is and on every window resize. It will not shrink below
+  a usable height, so a window shorter than ~240px cannot hold it.
+- **Collapsed state is per page load.** Persisting it would mean writing to the
+  site's own storage, which this tool does not do.
+- **A section that receives content opens itself.** Pressing a button and
+  getting a result you cannot see reads as "nothing happened", so it never
+  stays collapsed with fresh content inside.
+- **The panel does not resize horizontally.** It is a fixed 320px wide.
+
 ## Boundaries of the Output section
 
 See [ADR 31](adr/0031-the-panel-can-open-the-folder-but-never-names-it.md).
