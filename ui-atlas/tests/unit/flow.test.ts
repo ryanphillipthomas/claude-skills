@@ -64,7 +64,7 @@ describe('nextStep', () => {
     expect(advice.step).toBe('review');
     expect(advice.position).toBe(4);
     expect(advice.text).toContain('4 captures so far on /pricing');
-    expect(advice.text).toContain('Output section');
+    expect(advice.text).toContain('Output tab');
   });
 
   it('only reaches the last step once the output has actually been looked at', () => {

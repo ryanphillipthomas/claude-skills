@@ -71,7 +71,11 @@ export const OVERLAY_STYLES = `
   top: 16px;
   right: 16px;
   width: 320px;
-  max-height: calc(100vh - 32px);
+  /* A starting point, not the whole window. It used to be
+     calc(100vh - 32px), which on a 1000px display made the panel 970px — 97%
+     of the screen, for a tool you are meant to be looking *past* at the site
+     you are capturing. The resize handle is how you ask for more. */
+  max-height: min(620px, calc(100vh - 32px));
   display: flex;
   flex-direction: column;
   pointer-events: auto;
@@ -202,6 +206,58 @@ button.ua-btn--quiet:hover { background: #1e293b; color: #e2e8f0; }
 .ua-steps__list li strong { color: #cbd5f5; }
 .ua-steps__list li.ua-steps__item--current { color: #dbeafe; }
 .ua-steps__list li.ua-steps__item--current strong { color: #93c5fd; }
+
+/* Tabs: only one group of sections renders at a time. */
+.ua-tabs {
+  display: flex;
+  gap: 2px;
+  border-bottom: 1px solid #1e293b;
+  padding-bottom: 0;
+}
+button.ua-tab {
+  all: unset;
+  box-sizing: border-box;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-size: 11px;
+  color: #7c8aa5;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+button.ua-tab:hover { color: #cbd5f5; }
+button.ua-tab:focus-visible { outline: 2px solid #38bdf8; outline-offset: -2px; }
+button.ua-tab--active { color: #dbeafe; border-bottom-color: #3b82f6; font-weight: 600; }
+.ua-tabpanel { display: flex; flex-direction: column; gap: 10px; }
+
+/* Compact mode: the flow line, the capture buttons, and nothing else. */
+.ua-compact:empty { display: none; }
+.ua-panel--compact .ua-tabs,
+.ua-panel--compact .ua-tabpanel,
+.ua-panel--compact .ua-section:has(.ua-section__heading),
+.ua-panel--compact .ua-resize { display: none; }
+.ua-panel--compact { max-height: none; }
+
+/* The bottom edge, draggable. */
+.ua-resize {
+  height: 10px;
+  flex: 0 0 auto;
+  cursor: ns-resize;
+  background: #111c33;
+  border-top: 1px solid #1e293b;
+  position: relative;
+}
+.ua-resize::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 4px;
+  width: 28px;
+  height: 2px;
+  margin-left: -14px;
+  border-radius: 1px;
+  background: #334155;
+}
+.ua-resize:hover::after { background: #64748b; }
 
 .ua-files { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 5px; }
 .ua-files li { background: #111c33; border-radius: 6px; padding: 5px 7px; }

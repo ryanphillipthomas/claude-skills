@@ -512,6 +512,25 @@ panel could not say where anything was saved.
 - [x] A section that receives content opens itself, so a button never produces a
       result the user cannot see
 
+## A panel the size of what you are doing (fifteenth slice)
+
+Measured first: the panel was 970px of a 1000px window, and 274px of that was
+the instructions block.
+
+- [x] Four tabs — Capture, Viewport, Animation, Output — one rendered at a time
+- [x] The whole main loop (Mode, Element, States, Capture) in the first tab: a
+      tab boundary inside select-then-capture would be worse than scrolling
+- [x] Instructions collapsed by default; the flow line already says what to do
+- [x] One collapse mechanism, not two — the heading is the toggle, and the inner
+      Hide/Show button that duplicated it is gone
+- [x] Default height ~370px instead of the whole window, with a drag handle on
+      the bottom edge for when you want more
+- [x] A compact toggle in the title bar: flow line plus the capture buttons,
+      ~220px. The capture row is **moved**, not copied, so there is only ever
+      one of it
+- [x] A tab that receives content brings itself forward, for the same reason a
+      collapsed section opens itself
+
 ### Still to build
 
 (nothing in the brief)

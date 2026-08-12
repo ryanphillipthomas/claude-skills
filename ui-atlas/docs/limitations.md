@@ -436,15 +436,22 @@ See [ADR 26](adr/0026-captures-are-named-from-what-they-already-know.md).
 
 ## Boundaries of the panel's size and position
 
+- **The panel opens at ~370px, not the window height.** It used to ask for
+  `calc(100vh - 32px)`, which on a 1000px display made it 970px — 97% of the
+  screen, for a tool you are meant to be looking *past*.
+- **Four tabs, one rendered at a time.** The whole main loop is in the first
+  one; a tab boundary inside select-then-capture would be worse than the
+  scrolling tabs replaced.
+- **A section, or a tab, that receives content brings itself forward.** Pressing
+  a button and getting a result behind a collapsed heading or an unselected tab
+  reads as "nothing happened".
+- **Collapsed state, the active tab and a dragged size are per page load.**
+  Persisting them would mean writing to the site's own storage, which this tool
+  does not do.
 - **The panel keeps itself inside the window**, recomputing its height from
   wherever its top edge is and on every window resize. It will not shrink below
   a usable height, so a window shorter than ~240px cannot hold it.
-- **Collapsed state is per page load.** Persisting it would mean writing to the
-  site's own storage, which this tool does not do.
-- **A section that receives content opens itself.** Pressing a button and
-  getting a result you cannot see reads as "nothing happened", so it never
-  stays collapsed with fresh content inside.
-- **The panel does not resize horizontally.** It is a fixed 320px wide.
+- **Resizing is vertical only.** The panel is a fixed 320px wide.
 
 ## Boundaries of the Output section
 
