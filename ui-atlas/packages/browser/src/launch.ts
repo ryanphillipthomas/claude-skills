@@ -1,7 +1,14 @@
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
 import type { BrowserConfig } from '@ui-atlas/config';
 import { UiAtlasError, type BrowserMode, type Viewport } from '@ui-atlas/protocol';
-import { authPaths, ensureAuthDirs, readStorageState, STORAGE_STATE_WARNING } from './auth.js';
+import {
+  authPaths,
+  ensureAuthDirs,
+  mismatchWarning,
+  readStorageState,
+  savedAuthShape,
+  STORAGE_STATE_WARNING,
+} from './auth.js';
 import { emulationOptions } from './viewport.js';
 
 /**
@@ -126,6 +133,10 @@ async function launchProfile(options: LaunchOptions): Promise<BrowserSession> {
   await ensureAuthDirs(paths);
   const userDataDir = paths.profileDir(config.profile);
 
+  // Checked *before* launching, because launching creates the directory and
+  // makes an unsigned-in profile indistinguishable from a signed-in one.
+  const mismatch = mismatchWarning(config.profile, 'profile', savedAuthShape(config.profile, paths));
+
   let context: BrowserContext;
   try {
     context = await chromium.launchPersistentContext(userDataDir, {
@@ -149,6 +160,7 @@ async function launchProfile(options: LaunchOptions): Promise<BrowserSession> {
     browserVersion: context.browser()?.version(),
     headless: config.headless,
     warnings: [
+      ...(mismatch === undefined ? [] : [mismatch]),
       `Using the dedicated UI Atlas profile "${config.profile}". ${STORAGE_STATE_WARNING}`,
     ],
     close: async () => {
@@ -162,6 +174,11 @@ async function launchStorageState(options: LaunchOptions): Promise<BrowserSessio
   if (config.profile === undefined) {
     throw new UiAtlasError('config.invalid', 'browser.mode "storage-state" requires browser.profile');
   }
+  const mismatch = mismatchWarning(
+    config.profile,
+    'storage-state',
+    savedAuthShape(config.profile),
+  );
   const statePath = await readStorageState(config.profile);
   const browser = await launchBrowser(config);
   const context = await browser.newContext({
@@ -176,7 +193,10 @@ async function launchStorageState(options: LaunchOptions): Promise<BrowserSessio
     context,
     browserVersion: browser.version(),
     headless: config.headless,
-    warnings: [`Seeded an isolated context from profile "${config.profile}". ${STORAGE_STATE_WARNING}`],
+    warnings: [
+      ...(mismatch === undefined ? [] : [mismatch]),
+      `Seeded an isolated context from profile "${config.profile}". ${STORAGE_STATE_WARNING}`,
+    ],
     close: async () => {
       await context.close().catch(() => undefined);
       await browser.close().catch(() => undefined);

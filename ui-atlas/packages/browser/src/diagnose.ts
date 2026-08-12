@@ -9,8 +9,16 @@ import type { Page, Request, Response } from 'playwright';
  * was, so it is indistinguishable from a dozen unrelated problems. This finds
  * the response behind it.
  */
+export type FindingKind =
+  | 'html-for-json'
+  | 'unauthorised'
+  | 'rate-limited'
+  | 'server-error'
+  | 'request-failed'
+  | 'cancelled';
+
 export interface NetworkFinding {
-  kind: 'html-for-json' | 'unauthorised' | 'rate-limited' | 'server-error' | 'request-failed';
+  kind: FindingKind;
   url: string;
   status: number | undefined;
   contentType: string | undefined;
@@ -19,6 +27,20 @@ export interface NetworkFinding {
   preview: string | undefined;
   reason: string;
 }
+
+/**
+ * Most significant first. A page's telemetry beacons abort by the handful on
+ * every navigation, and in the run this ordering was written for they buried
+ * the one 401 that explained everything under five lines of `ERR_ABORTED`.
+ */
+const KIND_RANK: Record<FindingKind, number> = {
+  'html-for-json': 0,
+  unauthorised: 1,
+  'rate-limited': 2,
+  'server-error': 3,
+  'request-failed': 4,
+  cancelled: 5,
+};
 
 export interface PageDiagnosis {
   requestedUrl: string;
@@ -79,7 +101,7 @@ function classify(response: Response, request: Request): NetworkFinding['kind'] 
   return undefined;
 }
 
-function reasonFor(kind: NetworkFinding['kind'], status: number | undefined): string {
+function reasonFor(kind: FindingKind, status: number | undefined): string {
   switch (kind) {
     case 'html-for-json':
       return 'the page asked for data and received an HTML document — this is what produces "Unexpected token \'<\'"';
@@ -91,7 +113,19 @@ function reasonFor(kind: NetworkFinding['kind'], status: number | undefined): st
       return `the server answered ${String(status ?? 0)}`;
     case 'request-failed':
       return 'the request never completed';
+    case 'cancelled':
+      return 'cancelled before it finished — usually the page itself, a navigation, or a blocker; rarely the problem';
   }
+}
+
+/**
+ * `ERR_ABORTED` is what a fire-and-forget beacon looks like when the page
+ * navigates away from it, and what a content blocker looks like from inside the
+ * page. Reporting it at the same weight as a 401 is how a real diagnosis got
+ * buried under analytics noise.
+ */
+function isCancellation(errorText: string | undefined): boolean {
+  return errorText !== undefined && /ERR_ABORTED|ERR_BLOCKED_BY_CLIENT/i.test(errorText);
 }
 
 /**
@@ -141,14 +175,16 @@ export function watchPage(page: Page, requestedUrl: string): { stop: () => PageD
 
   const onRequestFailed = (request: Request): void => {
     if (findings.length >= MAX_FINDINGS) return;
+    const errorText = request.failure()?.errorText;
+    const kind: FindingKind = isCancellation(errorText) ? 'cancelled' : 'request-failed';
     findings.push({
-      kind: 'request-failed',
+      kind,
       url: safeUrl(request.url()),
       status: undefined,
       contentType: undefined,
       resourceType: request.resourceType(),
-      preview: request.failure()?.errorText,
-      reason: reasonFor('request-failed', undefined),
+      preview: errorText,
+      reason: reasonFor(kind, undefined),
     });
   };
 
@@ -178,7 +214,13 @@ export function watchPage(page: Page, requestedUrl: string): { stop: () => PageD
         status: undefined,
         pageErrors,
         consoleErrors,
-        findings,
+        // Stable within a rank, so the order requests happened in survives.
+        findings: findings
+          .map((finding, index) => ({ finding, index }))
+          .sort((a, b) =>
+            KIND_RANK[a.finding.kind] - KIND_RANK[b.finding.kind] || a.index - b.index,
+          )
+          .map((entry) => entry.finding),
       };
     },
   };
@@ -198,7 +240,7 @@ export async function settleDiagnosis(): Promise<void> {
  * a list of responses into "you are being challenged" versus "you are signed
  * out" — two things that look identical from inside the page.
  */
-export function summarise(diagnosis: PageDiagnosis): string[] {
+export function summarise(diagnosis: PageDiagnosis, signedOut?: boolean): string[] {
   const lines: string[] = [];
   const htmlForJson = diagnosis.findings.filter((finding) => finding.kind === 'html-for-json');
   const refused = diagnosis.findings.filter(
@@ -227,10 +269,20 @@ export function summarise(diagnosis: PageDiagnosis): string[] {
   }
 
   if (refused.length > 0 && htmlForJson.length === 0) {
+    const first = refused[0];
     lines.push(
-      `${String(refused.length)} request(s) were refused outright (${refused[0]?.status ?? 0}). ` +
+      `${String(refused.length)} request(s) were refused outright (${String(first?.status ?? 0)}). ` +
         'The page loaded, but its data did not.',
     );
+    // A 401 and a "Sign in" button are one fact, not two, and saying so is the
+    // difference between a diagnosis and a list.
+    if (signedOut === true && refused.some((finding) => finding.status === 401)) {
+      lines.push(
+        `That 401 and the sign-in control on the page are the same fact: the session ` +
+          'this run used is not authenticated. This is not a bot challenge — no request ' +
+          'was answered with a challenge page.',
+      );
+    }
   }
 
   if (lines.length === 0 && diagnosis.pageErrors.length > 0) {

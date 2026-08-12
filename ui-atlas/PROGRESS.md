@@ -40,7 +40,7 @@ npm test
 
 ```
 Test Files  44 passed (44)
-     Tests  526 passed | 3 skipped (529)
+     Tests  534 passed | 3 skipped (537)
   Duration  ~310s
 ```
 
@@ -1293,6 +1293,39 @@ JSON — a JSON body is the user's data.
 It writes nothing at all: no run directory, no captures. It deliberately does
 not reuse `AtlasSession`, because a diagnosis has to work on a page too broken
 to capture.
+
+### Three things the first real run against grok.com corrected
+
+Running it in anger immediately found flaws in its own output, all three now
+fixed and covered:
+
+**Analytics noise buried the finding.** Five `net::ERR_ABORTED` beacons printed
+above the one 401 that explained everything. `ERR_ABORTED` and
+`ERR_BLOCKED_BY_CLIENT` are now their own `cancelled` kind, ranked last and
+listed separately as "rarely the problem".
+
+**It gave advice that was already being followed.** The storage-state guidance
+fired while the run was in `--mode profile`, telling the user to use profile
+mode. Advice that describes what you are already doing is worse than silence,
+because it reads as a finding. It is now suppressed in profile mode.
+
+**A 401 and a "Sign in" button were reported as two facts.** They are one, and
+saying so is the difference between a diagnosis and a list. `summarise` now
+takes the sign-in verdict and, when both are present, says explicitly that this
+is *not* a bot challenge — because ruling that out is what tells the user
+re-saving the profile will actually help.
+
+### The trap underneath it
+
+`--mode profile` reads `~/.ui-atlas/profiles/<name>`; the default `auth save`
+writes `~/.ui-atlas/storage-state/<name>.json`. Ask for profile mode with only a
+storage state saved and `launchPersistentContext` cheerfully **creates** an
+empty profile directory — the launch succeeds, and you are signed out with no
+indication why.
+
+`savedAuthShape` and `mismatchWarning` now check before launching (after would
+be too late: launching is what creates the directory) and say exactly that, in
+both directions.
 
 ### What it does not do
 

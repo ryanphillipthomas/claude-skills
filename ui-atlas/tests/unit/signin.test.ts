@@ -3,6 +3,7 @@ import {
   assessStorage,
   judgeSignIn,
   looksLikeLoginUrl,
+  mismatchWarning,
   type SignInSignals,
   type StorageProbe,
 } from '@ui-atlas/browser';
@@ -125,5 +126,46 @@ describe('judgeSignIn', () => {
     for (const input of cases) {
       expect(judgeSignIn(input).evidence.length).toBeGreaterThan(0);
     }
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* Asking for a mode nothing was saved in                                      */
+/* -------------------------------------------------------------------------- */
+
+describe('mismatchWarning', () => {
+  it('names the trap: profile mode with only a storage state saved', () => {
+    const warning = mismatchWarning('grok', 'profile', {
+      hasProfile: false,
+      hasStorageState: true,
+    });
+    expect(warning).toContain('has never been signed in');
+    expect(warning).toContain('--mode storage-state');
+    expect(warning).toContain('--persistent');
+  });
+
+  it('still says something when nothing at all was saved', () => {
+    const warning = mismatchWarning('grok', 'profile', {
+      hasProfile: false,
+      hasStorageState: false,
+    });
+    expect(warning).toContain('empty browser profile');
+  });
+
+  it('points the other way round too', () => {
+    const warning = mismatchWarning('grok', 'storage-state', {
+      hasProfile: true,
+      hasStorageState: false,
+    });
+    expect(warning).toContain('--mode profile');
+  });
+
+  it('says nothing when the request matches what is on disk', () => {
+    expect(
+      mismatchWarning('grok', 'profile', { hasProfile: true, hasStorageState: false }),
+    ).toBeUndefined();
+    expect(
+      mismatchWarning('grok', 'storage-state', { hasProfile: false, hasStorageState: true }),
+    ).toBeUndefined();
   });
 });

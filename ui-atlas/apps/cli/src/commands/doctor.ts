@@ -73,9 +73,9 @@ export async function runDoctor(args: ParsedArgs, logger: Logger): Promise<numbe
     await settleDiagnosis();
     const diagnosis: PageDiagnosis = { ...watch.stop(), status };
 
-    report(diagnosis, logger);
-
     const reading = judgeSignIn(await probeSignIn(page, url).catch(() => emptySignals(url)));
+    report(diagnosis, logger, reading.verdict === 'signed-out');
+
     logger.info('');
     logger.info(`sign-in: ${reading.verdict}`);
     for (const line of reading.evidence) logger.info(`  ${line}`);
@@ -84,8 +84,13 @@ export async function runDoctor(args: ParsedArgs, logger: Logger): Promise<numbe
       logger.info('  (this run used a clean browser, so being signed out is expected)');
     }
 
+    // Only worth saying when a storage state is what is actually in use. Told
+    // to someone already running `--mode profile`, it is advice to do what they
+    // are doing — which is worse than silence, because it looks like a finding.
     const storage = await probeStorage(page).catch(() => undefined);
-    if (storage !== undefined && (storage.indexedDbNames.length > 0 || storage.sessionStorageKeys > 0)) {
+    const droppable =
+      storage !== undefined && (storage.indexedDbNames.length > 0 || storage.sessionStorageKeys > 0);
+    if (droppable && storage !== undefined && config.browser.mode !== 'profile') {
       logger.info('');
       logger.info('this origin keeps state a storage state cannot carry:');
       if (storage.indexedDbNames.length > 0) {
@@ -109,24 +114,30 @@ export async function runDoctor(args: ParsedArgs, logger: Logger): Promise<numbe
   }
 }
 
-function report(diagnosis: PageDiagnosis, logger: Logger): void {
+function report(diagnosis: PageDiagnosis, logger: Logger, signedOut: boolean): void {
   logger.info(`requested ${diagnosis.requestedUrl}`);
   if (diagnosis.finalUrl !== diagnosis.requestedUrl) logger.info(`landed on ${diagnosis.finalUrl}`);
   if (diagnosis.status !== undefined) logger.info(`document status ${String(diagnosis.status)}`);
 
-  const conclusions = summarise(diagnosis);
+  const conclusions = summarise(diagnosis, signedOut);
   if (conclusions.length > 0) {
     logger.info('');
     for (const line of conclusions) logger.warn(line);
   }
 
-  if (diagnosis.findings.length === 0) {
+  // Cancellations are listed separately and briefly. A page's telemetry
+  // beacons abort by the handful on every navigation, and printing them at full
+  // weight buries the one finding that explains the failure.
+  const significant = diagnosis.findings.filter((finding) => finding.kind !== 'cancelled');
+  const cancelled = diagnosis.findings.filter((finding) => finding.kind === 'cancelled');
+
+  if (significant.length === 0) {
     logger.info('');
     logger.info('no request was refused, failed, or answered with HTML where data was expected');
   } else {
     logger.info('');
-    logger.info(`${String(diagnosis.findings.length)} request(s) worth looking at:`);
-    for (const finding of diagnosis.findings) {
+    logger.info(`${String(significant.length)} request(s) worth looking at:`);
+    for (const finding of significant) {
       const status = finding.status === undefined ? 'no response' : String(finding.status);
       logger.info(`  [${finding.kind}] ${status} ${finding.resourceType} ${finding.url}`);
       logger.info(`      ${finding.reason}`);
@@ -134,6 +145,15 @@ function report(diagnosis: PageDiagnosis, logger: Logger): void {
         logger.info(`      body: "${finding.preview}"`);
       }
     }
+  }
+
+  if (cancelled.length > 0) {
+    logger.info('');
+    logger.info(
+      `${String(cancelled.length)} request(s) were cancelled before finishing ` +
+        '(beacons, analytics, or a content blocker). Rarely the problem:',
+    );
+    for (const finding of cancelled) logger.info(`  ${finding.resourceType} ${finding.url}`);
   }
 
   if (diagnosis.pageErrors.length > 0) {

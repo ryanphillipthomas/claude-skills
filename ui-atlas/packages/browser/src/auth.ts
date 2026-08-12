@@ -110,6 +110,50 @@ export async function readStorageState(
   return path;
 }
 
+/**
+ * What is actually saved under a profile name.
+ *
+ * `--mode profile` and `--mode storage-state` read two different places, and
+ * `launchPersistentContext` happily *creates* an empty directory when asked for
+ * one that does not exist. So asking for profile mode with only a storage state
+ * saved launches successfully, signed out, silently — which is the most
+ * expensive way this tool can be wrong.
+ */
+export interface SavedAuthShape {
+  hasProfile: boolean;
+  hasStorageState: boolean;
+}
+
+export function savedAuthShape(name: string, paths: AuthPaths = authPaths()): SavedAuthShape {
+  return {
+    hasProfile: existsSync(paths.profileDir(name)),
+    hasStorageState: existsSync(paths.storageStatePath(name)),
+  };
+}
+
+/**
+ * The warning for asking for a mode nothing was saved in, or `undefined` when
+ * the request matches what is on disk.
+ */
+export function mismatchWarning(
+  name: string,
+  mode: 'profile' | 'storage-state',
+  shape: SavedAuthShape,
+): string | undefined {
+  if (mode === 'profile' && !shape.hasProfile) {
+    return shape.hasStorageState
+      ? `profile "${name}" has never been signed in, but a storage state of that name has. ` +
+          `--mode profile reads a different place and will start signed out: either use ` +
+          `--mode storage-state, or run \`ui-atlas auth save ${name} <url> --persistent\`.`
+      : `profile "${name}" has never been signed in; this run starts with an empty browser profile.`;
+  }
+  if (mode === 'storage-state' && !shape.hasStorageState && shape.hasProfile) {
+    return `no storage state is saved for "${name}", but a browser profile of that name is. ` +
+      'Use --mode profile to use it.';
+  }
+  return undefined;
+}
+
 export interface ClearedAuth {
   removedStorageState: boolean;
   removedProfile: boolean;

@@ -427,6 +427,18 @@ session look identical.
 - [x] Fixture reproducing the real failure: a 200 document whose fetch receives
       text/html and throws
 
+### Corrected by the first real run
+
+- [x] `ERR_ABORTED` / `ERR_BLOCKED_BY_CLIENT` demoted to a `cancelled` kind,
+      ranked last and listed separately — beacons were burying the real finding
+- [x] Storage-state advice suppressed in profile mode; telling someone to do
+      what they are already doing reads as a finding
+- [x] A 401 plus a sign-in control reported as one fact, explicitly ruling out
+      a bot challenge
+- [x] `--mode profile` with only a storage state saved now warns before
+      launching — `launchPersistentContext` creates the empty directory, so
+      after would be too late
+
 ### Still to build
 
 (nothing in the brief)
