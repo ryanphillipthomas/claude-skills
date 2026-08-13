@@ -231,6 +231,12 @@ function rememberUrl(url: string): void {
 
 async function handle(request: LauncherRequest): Promise<void> {
   switch (request.kind) {
+    case 'hello':
+      // The renderer is up and has nothing drawn. Answer immediately rather
+      // than waiting for the next state change, which may never come.
+      push();
+      return;
+
     case 'measured':
       resizePopover(request.height);
       return;
@@ -434,6 +440,12 @@ function createPopover(): BrowserWindow {
 
   window.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   void window.loadFile(join(here, 'renderer', 'index.html'));
+
+  // The renderer's `hello` is the reliable path; this covers a reload, where
+  // the page is replaced and its listener with it.
+  window.webContents.on('did-finish-load', () => {
+    push();
+  });
 
   // Clicking away closes it, exactly like a real menu bar extra.
   window.on('blur', () => {

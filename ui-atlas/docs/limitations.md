@@ -521,10 +521,17 @@ See [ADR 27](adr/0027-the-panel-says-what-to-do-next.md).
 - **macOS-shaped.** The tray, the vibrant popover and `⌘Q` assume macOS. The
   supervisor underneath is platform-neutral and would work anywhere Electron
   does, but nothing else has been tried.
-- **The popover is not covered by an automated UI test.** Its decisions are —
-  `startup.ts`, `signin.ts`, `popover.ts` and `build-plan.ts` are pure and are
-  unit-tested — but nothing drives the rendered Electron window, so a change
-  that broke only the drawing would not fail the suite.
+- **The popover is now driven as a real window.**
+  `tests/integration/launcher-window.test.ts` launches Electron, attaches over
+  CDP and asserts the panel paints itself and offers Start. That gap used to be
+  recorded here as uncovered, and the thing it failed to cover promptly broke:
+  the only state push happened before the page had loaded, `webContents.send`
+  dropped it, and the popover sat empty with no Start button on it. The
+  renderer asks for state on load now, and the test fails without that.
+- **What that test does *not* cover:** it evaluates JavaScript rather than
+  moving a pointer, so it proves the popover draws and its handlers are wired,
+  not that the window is positioned, visible or clickable on screen. Nothing
+  clicks the tray icon.
 
 ## Boundaries of the browser extension
 

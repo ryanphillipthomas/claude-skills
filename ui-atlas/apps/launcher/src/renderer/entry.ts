@@ -37,4 +37,8 @@ window.launcher.subscribe((snapshot: LauncherSnapshot) => {
   requestAnimationFrame(reportHeight);
 });
 
+// Subscribe first, then ask. Anything sent before the listener is attached
+// would be the same dropped-message bug in the other direction.
+window.launcher.send({ kind: 'hello' });
+
 export { PANEL_WIDTH };

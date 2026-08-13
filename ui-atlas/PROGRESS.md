@@ -1716,6 +1716,44 @@ decision the popover makes. Chrome reading the host manifest, checking the id
 and rendering the popup has been built to spec and reasoned about, but not
 executed here. That is in `docs/limitations.md` rather than implied away.
 
+## The panel that never drew itself (seventeenth slice)
+
+Reported from real use, in three words: hitting Start did nothing.
+
+It was not Start. Driving the same code path over the extension socket worked
+perfectly — cold, starting, running — and clicking the real button through the
+debugger worked too, once there *was* a button. The popover was empty. `#panel`
+had zero children.
+
+### One dropped message
+
+The launcher pushed state once at startup, and `webContents.send` to a page
+that has not finished loading is dropped silently. Nothing re-sent it, so the
+panel stayed blank until some later event happened to change state. Open the
+menu bar in the first seconds after launching — which is exactly what you do
+after running `npm run launcher` — and there is nothing to press.
+
+The renderer asks now, with a `hello` on load, instead of being told. Asking is
+reliable in a way that being told is not: the renderer knows when it exists and
+the main process only guesses. `did-finish-load` pushes as well, to cover a
+reload replacing the page and its listener.
+
+### The gap that was recorded, and then happened
+
+`docs/limitations.md` said it plainly: every decision the popover makes is
+unit-tested, but nothing drove the rendered window, so a change that broke only
+the drawing would pass. That is precisely the bug that shipped.
+
+So the fix comes with the missing test. It launches Electron with its own
+user-data directory and its own socket — so it cannot collide with a launcher
+already running, or steal its socket — attaches over CDP, and asserts the panel
+paints itself without being touched. Removing either half of the fix makes it
+fail with `expected 0 to be greater than 0`, which is the bug exactly.
+
+It evaluates JavaScript rather than moving a pointer, so it proves the popover
+draws and its handlers are wired, not that the window is on screen where you can
+click it. Nothing clicks the tray icon; that is still recorded as uncovered.
+
 ## Where this leaves the project
 
 **The brief is delivered.** Phases 0 through 4 are complete and every item on the
@@ -1736,8 +1774,11 @@ Anything further is new scope rather than an unfinished milestone:
 - sitemap seeding, and dedup by page structural fingerprint
 - `captureResponsive` during a crawl (the step validates and reports that it was
   unavailable)
-- extension packaging, distributed workers, CDP forced pseudo-states
+- signed Web Store packaging of the extension (it loads unpacked today),
+  distributed workers, CDP forced pseudo-states
 
-The one environment-bound gap is unchanged and recorded under Exit criteria: the
-three external-site smoke tests skip themselves in a sandbox with no outbound
-browser network access.
+The environment-bound gap recorded under Exit criteria is **closed on a
+networked machine**: the three external-site smoke tests ran and passed against
+example.com, wikipedia.org and developer.mozilla.org during the sixteenth slice.
+They still skip themselves in a sandbox with no outbound browser network
+access, which is the behaviour that was always intended.

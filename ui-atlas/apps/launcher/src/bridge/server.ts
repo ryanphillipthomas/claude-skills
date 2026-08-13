@@ -25,8 +25,13 @@ import {
   type BridgeStatus,
 } from './protocol.js';
 
+/**
+ * `UI_ATLAS_SOCKET` overrides the location, which the native host already
+ * honours. A second launcher — a test, or a checkout being tried out — must not
+ * silently take over the socket a running one is serving.
+ */
 export function socketPath(home = homedir()): string {
-  return join(home, '.ui-atlas', 'launcher.sock');
+  return process.env['UI_ATLAS_SOCKET'] ?? join(home, '.ui-atlas', 'launcher.sock');
 }
 
 export interface BridgeServerOptions {

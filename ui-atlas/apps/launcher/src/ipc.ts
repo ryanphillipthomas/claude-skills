@@ -13,6 +13,16 @@ export const CHANNEL_STATE = 'launcher:state';
 export const CHANNEL_ACTION = 'launcher:action';
 
 export type LauncherRequest =
+  /**
+   * The renderer is loaded and has nothing to draw yet.
+   *
+   * State used to be pushed at startup and never re-sent, which is a race the
+   * renderer always loses: `webContents.send` to a page that has not finished
+   * loading is dropped silently, and the popover then sat empty — with no
+   * Start button on it — until something else happened to change state.
+   * Asking is reliable in a way that being told is not.
+   */
+  | { kind: 'hello' }
   | { kind: 'start' }
   | { kind: 'cancel' }
   | { kind: 'stop' }

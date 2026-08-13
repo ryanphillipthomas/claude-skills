@@ -561,6 +561,18 @@ panel could not say where anything was saved.
 - [x] The relay and socket are driven end to end by an integration test, with
       real Chrome-style framing, as a real subprocess
 
+## The popover, drawn rather than only decided
+
+- [x] The renderer asks for state on load; a push at startup races the page
+      load and is dropped, which left the panel empty with no Start on it
+- [x] `did-finish-load` pushes too, for a reload that replaces the listener
+- [x] An integration test launches Electron and asserts the panel paints itself
+      and offers Start — the gap `docs/limitations.md` had recorded, and the
+      one that actually broke
+- [x] That test runs with its own user-data directory and its own socket, so it
+      cannot collide with a running launcher or take over its socket
+- [x] `UI_ATLAS_SOCKET` overrides the socket path for exactly that reason
+
 ### Still to build
 
 (nothing in the brief)
