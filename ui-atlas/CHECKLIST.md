@@ -727,6 +727,24 @@ A project is a website; a session is one sitting in front of it.
       prints the command rather than drawing a Finder button that would do
       nothing
 
+### A second launcher says why it is quitting
+
+- [x] `npm run launcher` over a running one no longer exits 0 in silence — the
+      failure that has you testing the build you replaced ten minutes ago
+- [x] It distinguishes "already running" from "already running and older than
+      what you just built", by comparing the launcher's own output mtimes
+      against the record the running instance wrote at startup
+- [x] One second of tolerance, so a build finishing in the same second is not
+      reported as a rebuild
+- [x] The engine's outputs are excluded on purpose: they are spawned fresh per
+      run, so rebuilding those *does* reach a running launcher
+- [x] Stale exits 1 — you asked for that build to be running and it is not;
+      same-build exits 0
+- [x] Never claims the running one is newer than disk (a reverted tree, or a
+      clock that went backwards)
+- [x] An unwritable or corrupt record degrades to the plain message rather than
+      guessing, and never stops a launch
+
 ## Still out of scope
 
 Signed Web Store packaging of the extension, distributed workers, AI control,

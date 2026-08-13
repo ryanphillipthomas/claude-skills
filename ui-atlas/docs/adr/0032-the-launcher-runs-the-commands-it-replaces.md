@@ -128,6 +128,37 @@ The distinguishing evidence is one line: `document.hasFocus()` returned `false`.
 So `togglePopover` calls `app.focus({ steal: true })` before `show()`, then
 `popover.focus()`. Activate, show, focus — in that order.
 
+### A second instance says why it is quitting
+
+`requestSingleInstanceLock` is right, and quitting silently was not. `npm run
+launcher` with one already in the menu bar exited 0, printed nothing and opened
+no window — and the moment that matters is immediately after a rebuild, where
+you relaunch, get nothing, and carry on testing the build you just replaced.
+
+It cost exactly that once. The only reason it was caught is that a footer had
+three items where the new build has five; nothing else about the window said it
+was old.
+
+So the second instance reports before it goes, and reports the useful thing
+where it can: not "already running" but "already running, and older than the
+build you just asked for". It can tell because the instance holding the lock
+records the newest mtime across the launcher's own outputs when it starts, and
+the second reads that back and compares against the files on disk now — with a
+second of tolerance, because a build finishing in the same second is clock noise
+rather than evidence.
+
+The engine's outputs are deliberately *not* part of that comparison. Those are
+spawned fresh for every run, so rebuilding them does reach a launcher that has
+been sitting in the menu bar all afternoon; only the launcher's own compiled
+entry points are loaded once and stuck.
+
+A stale second instance exits 1, because you asked for that build to be running
+and it is not — exiting 0 is how `npm run launcher && …` carries on as though it
+worked. The same-build case is not a failure and exits 0.
+
+The verdict is a pure function, so what it says in each case is a unit test
+rather than something found by rebuilding and squinting at a terminal.
+
 ## Consequences
 
 - Electron is a new devDependency, and the first non-CLI surface in the repo.

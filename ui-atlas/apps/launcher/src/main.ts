@@ -17,6 +17,14 @@ import { loadConfig } from '@ui-atlas/config';
 import { authPaths } from '@ui-atlas/browser';
 import { CHANNEL_ACTION, CHANNEL_STATE, type LauncherRequest, type LauncherSnapshot } from './ipc.js';
 import { BridgeServer } from './bridge/server.js';
+import { LAUNCHER_OUTPUTS } from './build-plan.js';
+import {
+  describeSecondInstance,
+  newestMtime,
+  readRunningBuild,
+  runningBuildPath,
+  writeRunningBuild,
+} from './instance.js';
 import { BRIDGE_PROTOCOL_VERSION, commandFor, type BridgeRequest, type BridgeStatus } from './bridge/protocol.js';
 import {
   normalizeTargetUrl,
@@ -637,7 +645,22 @@ function createTray(): Tray {
 // --- Lifecycle ----------------------------------------------------------------
 
 if (!app.requestSingleInstanceLock()) {
-  app.quit();
+  // Quitting is right; quitting in silence was not. The instance holding the
+  // lock may be from the build before the one just compiled, and a launcher
+  // does not reload itself — so this says which case it is before it goes.
+  void (async () => {
+    const verdict = describeSecondInstance({
+      running: await readRunningBuild(runningBuildPath(app.getPath('userData'))),
+      builtAt: await newestMtime(LAUNCHER_OUTPUTS.map((path) => join(WORKSPACE_ROOT, path))),
+      now: Date.now(),
+    });
+    process.stderr.write(`${verdict.message}\n`);
+    // A stale one is a failure of what was asked for: you wanted this build
+    // running and it is not. Exiting 0 there is how `npm run launcher &&
+    // something` carries on as though it worked.
+    if (verdict.stale) app.exit(1);
+    else app.quit();
+  })();
 } else {
   // A menu bar extra has no Dock tile and no windows of its own.
   app.dock?.hide();
@@ -652,6 +675,14 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   void app.whenReady().then(async () => {
+    // Written before anything else, so a second instance started seconds later
+    // can tell whether this one is the build it wanted.
+    await writeRunningBuild(runningBuildPath(app.getPath('userData')), {
+      startedAt: Date.now(),
+      builtAt:
+        (await newestMtime(LAUNCHER_OUTPUTS.map((path) => join(WORKSPACE_ROOT, path)))) ?? 0,
+    });
+
     supervisor = new Supervisor({
       workspaceRoot: WORKSPACE_ROOT,
       onEvent: apply,

@@ -19,6 +19,21 @@ export const BUILD_OUTPUTS: readonly string[] = [
   'packages/reporter/dist/app-bundle.js',
 ];
 
+/**
+ * The launcher's *own* compiled entry points, as distinct from the engine's.
+ *
+ * A running launcher re-reads nothing: it loaded these once at startup, and
+ * rebuilding them changes nothing about the instance already in the menu bar.
+ * The engine outputs above are the opposite — they are spawned fresh for every
+ * run, so a rebuild of those reaches a launcher that has been sitting there all
+ * afternoon.
+ */
+export const LAUNCHER_OUTPUTS: readonly string[] = [
+  'apps/launcher/dist/main.js',
+  'apps/launcher/dist/popover.js',
+  'apps/launcher/dist/renderer/entry.js',
+];
+
 export type BuildStep = { label: string; args: readonly string[] };
 
 /**
