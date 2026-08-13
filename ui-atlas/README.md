@@ -62,6 +62,34 @@ offer `--mode attach`, which drives a browser it did not start and cannot
 close. Design notes are in
 [ADR 0032](docs/adr/0032-the-launcher-runs-the-commands-it-replaces.md).
 
+### The browser extension
+
+```bash
+npm run build
+npm run launcher:install-extension    # prints the path to load, and the id
+```
+
+Then load it unpacked: `chrome://extensions` → Developer mode → Load unpacked →
+the printed path, and restart the browser so it picks up the host manifest.
+
+The extension captures the page you are already looking at. Its popover offers
+**Element**, **Page** and **Whole site**, which run `inspect`, `capture` and
+`crawl` — the tab always reopens in a clean window, so a capture never depends
+on the extensions, flags or scroll position of the browser you were reading in.
+
+If the launcher is not running, the popover shows the same Start button rather
+than an error.
+
+It talks to the launcher over a **unix domain socket** in `~/.ui-atlas`, not a
+localhost port. A port is reachable by every page in every browser on the
+machine; a socket file is reachable by nothing that runs in a page. Chrome gets
+to it through a native messaging host it spawns itself and will only spawn for
+the one allowlisted extension id — two independent gates, neither of them a
+string compare in our code. The protocol is four methods, and the only data the
+extension can send is a URL and a capture mode.
+[ADR 0033](docs/adr/0033-the-extension-talks-over-a-socket-not-a-port.md) has
+the reasoning.
+
 ## Commands
 
 ### Guided inspection
@@ -847,7 +875,8 @@ has no network access.
 
 ```
 apps/cli          command parsing, session wiring, process lifecycle
-apps/launcher     the menu bar extra: staged startup, sign-in step, popover
+apps/launcher     the menu bar extra: staged startup, sign-in step, popover,
+                  the extension bridge and the extension itself
 packages/protocol versioned schemas: records, manifests, bridge messages
 packages/config   configuration schema, discovery and validation
 packages/artifacts atomic writes, run manifest, JSONL, path safety, PNG headers

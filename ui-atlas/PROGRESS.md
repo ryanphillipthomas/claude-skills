@@ -1646,6 +1646,76 @@ What is *not* covered: nothing drives the rendered Electron window, so a change
 that broke only the drawing would pass. That is recorded in `docs/limitations.md`
 rather than implied away.
 
+## Capturing the page you are already on (sixteenth slice)
+
+Design turn 6's third stage: an extension, so the page you are looking at can be
+captured without retyping its URL somewhere else. Its staging note says it
+"needs only a local connection to the already-running engine" — and the launcher
+from the last slice deliberately had no such connection, because not having one
+is what let stage one ship without touching the engine.
+
+So the whole slice is that connection, and the interesting decision is its
+shape.
+
+### The obvious answer, and why not
+
+The design's mock shows `port 7333`. A localhost port is reachable by every page
+in every browser on the machine, and the guards you would put in front of it are
+weak: CORS does not stop a request being *made*, only read, and the capture
+would already have started. A token fixes that, and the extension has no private
+way to learn one — anything it can read, a page can be made to read.
+
+`~/.ui-atlas/launcher.sock`, mode 0600, is reachable by nothing that runs in a
+page. The check is the kernel's rather than a string compare in our code, and
+the directory is already 0700 because it holds saved sessions.
+
+Chrome will not talk to a socket, so a relay translates its length-prefixed
+stdio protocol to newline-delimited JSON. Chrome spawns that relay itself, and
+only for an extension whose id is in the host manifest. Two gates, neither ours.
+
+The relay holds no state and validates nothing — it forwards bytes and lets the
+launcher parse them. Two parsers would eventually disagree, and the one that
+disagreed quietly would be the security hole.
+
+### What the extension is allowed to say
+
+Four methods, and none of them names a path, a command, a flag or a profile. It
+can ask for status, start, stop, or capture a URL in one of three modes. The URL
+is schema-validated as http(s) and then passed as a single argv element, so a
+host with a space or a quote in it stays one argument.
+
+The three modes map to `inspect`, `capture` and `crawl` — a mapping that lives
+on this side of the socket. Which meant the third stage row could no longer be
+called "Open browser with panel": two of the three never mount a panel, and one
+of them is a crawl. The row is named from the command now.
+
+### The one-line CLI change underneath it
+
+Only `inspect` printed `run <id> → <dir>`, and the launcher watches for that
+line — so Page and Whole site had nothing to watch. Both commands print it now,
+same format, same position. That is independently worth having: a crawl is the
+longest thing this tool does, and knowing where it is writing before it finishes
+matters most there.
+
+### Two things the tests found
+
+A rejected request came back as `id: "unknown"`, because validation fails before
+the id can be read — so a client with two requests in flight learned only that
+*something* had been refused. Rejections now carry the id when the line had a
+usable one.
+
+And the sign-in state gave contradictory advice: a caption reading "answer this
+in the menu bar first" beside an enabled Start button, which would relaunch and
+ask the same question again. Start is disabled while a question is open.
+
+### What is not verified
+
+Chrome cannot be driven from this suite. Everything up to it is: the framing,
+the relay as a real subprocess against a real socket, the validation, and every
+decision the popover makes. Chrome reading the host manifest, checking the id
+and rendering the popup has been built to spec and reasoned about, but not
+executed here. That is in `docs/limitations.md` rather than implied away.
+
 ## Where this leaves the project
 
 **The brief is delivered.** Phases 0 through 4 are complete and every item on the
@@ -1653,9 +1723,10 @@ brief's own list is built, including the Animation button that had been disabled
 since phase 1. The eighth slice is usability work on top of a delivered brief,
 driven by what the first real external run felt like to use.
 
-The fifteenth slice is the first surface outside the CLI: a menu bar launcher
-covering design turn 6's stages one and two. Stage three, the browser-extension
-popover, is still out of scope because extension packaging is.
+Design turn 6 is delivered in full. The fifteenth slice is the first surface
+outside the CLI — a menu bar launcher covering stages one and two — and the
+sixteenth adds the extension, which is stage three. What remains unbuilt there
+is signed Web Store packaging; the extension is loaded unpacked.
 
 Anything further is new scope rather than an unfinished milestone:
 

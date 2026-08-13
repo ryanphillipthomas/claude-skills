@@ -1,3 +1,4 @@
+import { relative } from 'node:path';
 import { buildElementIdentity, buildFramePath } from '@ui-atlas/identity';
 import { probeSelector } from '@ui-atlas/overlay';
 import {
@@ -81,6 +82,11 @@ export async function runCapture(args: ParsedArgs, logger: Logger): Promise<numb
     logger,
     overlay: false,
   });
+
+  // Same line, same format, as `inspect`. Announcing the run at the start
+  // rather than only in the closing `artifacts:` line means you can find it on
+  // disk while it is still running — and it is what the launcher watches for.
+  logger.info(`run ${session.runId} → ${relative(process.cwd(), session.writer.paths.runDir)}`);
 
   const records: CaptureRecord[] = [];
   try {

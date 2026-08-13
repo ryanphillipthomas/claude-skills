@@ -13,7 +13,7 @@
  */
 import { build } from 'esbuild';
 import { deflateSync } from 'node:zlib';
-import { mkdir, copyFile, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, copyFile, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { stat } from 'node:fs/promises';
@@ -23,10 +23,15 @@ const here = dirname(fileURLToPath(import.meta.url));
 const targets = [
   { entry: 'src/preload.ts', out: 'dist/preload.cjs', format: 'cjs', platform: 'node' },
   { entry: 'src/renderer/entry.ts', out: 'dist/renderer/entry.js', format: 'iife', platform: 'browser' },
+  // Into `chrome-extension/`, not `extension/`: tsc compiles `src/extension`
+  // to `dist/extension`, and the directory Chrome loads must contain only the
+  // extension — not a pile of `.d.ts` and source maps beside it.
+  { entry: 'src/extension/popup.ts', out: 'dist/chrome-extension/popup.js', format: 'iife', platform: 'browser' },
 ];
 
 await mkdir(resolve(here, 'dist/renderer'), { recursive: true });
 await mkdir(resolve(here, 'dist/assets'), { recursive: true });
+await mkdir(resolve(here, 'dist/chrome-extension/icons'), { recursive: true });
 
 let failed = false;
 for (const target of targets) {
@@ -82,8 +87,11 @@ function chunk(type, data) {
   return Buffer.concat([length, body, crc]);
 }
 
-/** 8-bit greyscale + alpha, which is all a macOS template image carries. */
-function encodePng(size, coverage) {
+/**
+ * 8-bit greyscale + alpha, which is all a macOS template image carries — and
+ * enough for the extension's toolbar icon too, which is a single grey.
+ */
+function encodePng(size, coverage, grey = 0) {
   const header = Buffer.alloc(13);
   header.writeUInt32BE(size, 0);
   header.writeUInt32BE(size, 4);
@@ -95,7 +103,7 @@ function encodePng(size, coverage) {
     raw.writeUInt8(0, offset); // filter: none
     offset += 1;
     for (let x = 0; x < size; x += 1) {
-      raw.writeUInt8(0, offset); // black; macOS recolours it
+      raw.writeUInt8(grey, offset); // macOS recolours a template image
       raw.writeUInt8(Math.round(coverage[y * size + x] * 255), offset + 1);
       offset += 2;
     }
@@ -162,5 +170,20 @@ for (const [name, size] of [
   await writeFile(resolve(here, 'dist/assets', name), png);
   process.stdout.write(`dist/assets/${name}: ${size}×${size}, ${png.length} bytes\n`);
 }
+
+// --- Extension ----------------------------------------------------------------
+
+await copyFile(resolve(here, 'extension/manifest.json'), resolve(here, 'dist/chrome-extension/manifest.json'));
+await copyFile(resolve(here, 'extension/popup.html'), resolve(here, 'dist/chrome-extension/popup.html'));
+await copyFile(resolve(here, 'src/bridge/native-host.mjs'), resolve(here, 'dist/native-host.mjs'));
+await chmod(resolve(here, 'dist/native-host.mjs'), 0o755);
+
+// A toolbar icon is not a template image: Chrome renders it as-is, so it needs
+// its own colour rather than the menu bar's black-plus-alpha.
+for (const size of [16, 32, 128]) {
+  const png = encodePng(size, drawCamera(size), 0x1d);
+  await writeFile(resolve(here, `dist/chrome-extension/icons/icon${size}.png`), png);
+}
+process.stdout.write('dist/chrome-extension: manifest, popup, icons at 16/32/128\n');
 
 if (failed) process.exit(1);

@@ -19,7 +19,7 @@ import { join } from 'node:path';
 import { BUILD_OUTPUTS, BUILD_STEPS, buildNote, decideBuild, type BuildDecision } from './build-plan.js';
 import { createLineSplitter, readProgress, type ProgressSignal } from './progress.js';
 import { hostOf } from './signin.js';
-import type { LauncherEvent, SignInPrompt } from './startup.js';
+import type { LauncherEvent, RunMode, SignInPrompt } from './startup.js';
 
 export interface InspectTarget {
   url: string;
@@ -34,6 +34,8 @@ export interface SupervisorOptions {
   onEvent: (event: LauncherEvent) => void;
   /** Every line from every child, in order, for the `Show log` disclosure. */
   onLog: (line: string) => void;
+  /** A one-shot run finished; there is no window left open to say so. */
+  onFinished?: (result: { ok: boolean; runDir: string | undefined }) => void;
   now?: () => number;
 }
 
@@ -52,6 +54,8 @@ export class Supervisor {
   private ready = false;
   /** Guards against a second `start` while one is in flight. */
   private busy = false;
+  /** True for `capture` and `crawl`, which end by themselves. */
+  private oneShot = false;
   private lastRunDir: string | undefined;
   /** Target details the sign-in card needs, remembered from the last `start`. */
   private host = '';
@@ -86,7 +90,13 @@ export class Supervisor {
     this.emit({ kind: 'build-checked', buildNeeded: decision.needed });
   }
 
-  async start(target: InspectTarget): Promise<void> {
+  /**
+   * `command` overrides what the engine runs — the extension's Page and
+   * Whole-site modes send `capture` and `crawl` instead of `inspect`. Those are
+   * one-shot: they end by themselves, so the run *completing* is success rather
+   * than the process having died before a panel appeared.
+   */
+  async start(target: InspectTarget, command?: readonly string[]): Promise<void> {
     if (this.busy) return;
     this.busy = true;
     this.ready = false;
@@ -94,9 +104,14 @@ export class Supervisor {
     this.lines.length = 0;
     this.setTarget(target);
 
+    const argv = command ?? ['inspect', target.url, '--auto-inspect'];
+    const verb = argv[0];
+    this.oneShot = verb !== 'inspect';
+    const mode: RunMode = verb === 'crawl' ? 'crawl' : verb === 'capture' ? 'capture' : 'inspect';
+
     try {
       const decision = await this.decideBuild();
-      this.emit({ kind: 'start', at: this.now(), buildNeeded: decision.needed });
+      this.emit({ kind: 'start', at: this.now(), buildNeeded: decision.needed, mode });
 
       if (decision.needed) {
         this.emit({ kind: 'stage-began', at: this.now(), stage: 'build' });
@@ -120,7 +135,7 @@ export class Supervisor {
       }
 
       this.emit({ kind: 'stage-began', at: this.now(), stage: 'engine' });
-      this.spawnInspect(target);
+      this.spawnEngine(target, argv);
     } finally {
       this.busy = false;
     }
@@ -258,8 +273,8 @@ export class Supervisor {
     });
   }
 
-  private spawnInspect(target: InspectTarget): void {
-    const args = ['apps/cli/dist/bin.js', 'inspect', target.url, '--auto-inspect'];
+  private spawnEngine(target: InspectTarget, argv: readonly string[]): void {
+    const args = ['apps/cli/dist/bin.js', ...argv];
     if (target.mode !== undefined) args.push('--mode', target.mode);
     if (target.profile !== undefined) args.push('--profile', target.profile);
 
@@ -274,6 +289,25 @@ export class Supervisor {
     child.on('close', (code) => {
       if (this.child !== child) return;
       this.child = undefined;
+
+      if (this.oneShot) {
+        // A one-shot run ending *is* the success case, so exiting is only a
+        // failure when the exit code says so.
+        if (code === 0) {
+          this.emit({ kind: 'stage-done', at: this.now(), stage: 'browser' });
+          this.options.onFinished?.({ ok: true, runDir: this.lastRunDir });
+          this.emit({ kind: 'stopped', at: this.now() });
+          return;
+        }
+        this.emit({
+          kind: 'failed',
+          at: this.now(),
+          stage: 'browser',
+          message: `the run exited with code ${String(code ?? 1)}`,
+        });
+        return;
+      }
+
       if (this.ready) {
         // Closing the browser window is how a session ends. Not a failure.
         this.emit({ kind: 'stopped', at: this.now() });

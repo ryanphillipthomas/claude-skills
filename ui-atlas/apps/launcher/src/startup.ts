@@ -29,6 +29,20 @@ export const STAGE_TITLES: Readonly<Record<StageId, string>> = {
   browser: 'Open browser with panel',
 };
 
+/**
+ * What the third stage is depends on what was asked for. `inspect` opens a
+ * window you then work in; `capture` and `crawl` are one-shot and finish by
+ * themselves. Calling all three "Open browser with panel" would be wrong for
+ * two of them — the extension's Page and Whole-site modes never mount a panel.
+ */
+export type RunMode = 'inspect' | 'capture' | 'crawl';
+
+export const FINAL_STAGE_TITLES: Readonly<Record<RunMode, string>> = {
+  inspect: 'Open browser with panel',
+  capture: 'Capture this page',
+  crawl: 'Crawl this site',
+};
+
 export type StageStatus = 'pending' | 'running' | 'done' | 'skipped' | 'failed';
 
 /**
@@ -62,6 +76,8 @@ export interface LauncherState {
   stages: Readonly<Record<StageId, StageState>>;
   /** False once the build output is found to be present already. */
   buildNeeded: boolean;
+  /** Which command this launch is running; names the third stage. */
+  mode: RunMode;
   signIn: SignInPrompt | undefined;
   failure: { stage: StageId; message: string } | undefined;
 }
@@ -74,7 +90,7 @@ export type LauncherEvent =
    * seconds the first time" on every run forever.
    */
   | { kind: 'build-checked'; buildNeeded: boolean }
-  | { kind: 'start'; at: number; buildNeeded: boolean }
+  | { kind: 'start'; at: number; buildNeeded: boolean; mode?: RunMode }
   | { kind: 'stage-began'; at: number; stage: StageId }
   | { kind: 'stage-note'; stage: StageId; note: string }
   | { kind: 'stage-done'; at: number; stage: StageId }
@@ -97,6 +113,7 @@ export function initialState(): LauncherState {
     // Assumed true until a `start` event says otherwise, so the cold card never
     // promises a fast launch it cannot deliver.
     buildNeeded: true,
+    mode: 'inspect',
     signIn: undefined,
     failure: undefined,
   };
@@ -121,6 +138,7 @@ export function reduce(state: LauncherState, event: LauncherEvent): LauncherStat
         ...initialState(),
         phase: 'starting',
         buildNeeded: event.buildNeeded,
+        mode: event.mode ?? 'inspect',
       };
 
     case 'stage-began':
@@ -312,7 +330,8 @@ export function view(state: LauncherState, now: number, facts: ViewFacts = NO_FA
 
 function stageRow(state: LauncherState, id: StageId, now: number): StageRow {
   const stage = state.stages[id];
-  return { id, title: STAGE_TITLES[id], status: stage.status, note: stageNote(state, id, now) };
+  const title = id === 'browser' ? FINAL_STAGE_TITLES[state.mode] : STAGE_TITLES[id];
+  return { id, title, status: stage.status, note: stageNote(state, id, now) };
 }
 
 /**
@@ -386,5 +405,7 @@ function runningSubtitle(facts: ViewFacts): string {
 
 function failureTitle(state: LauncherState): string {
   if (state.failure === undefined) return 'Startup failed';
-  return `${STAGE_TITLES[state.failure.stage]} failed`;
+  const stage = state.failure.stage;
+  const title = stage === 'browser' ? FINAL_STAGE_TITLES[state.mode] : STAGE_TITLES[stage];
+  return `${title} failed`;
 }

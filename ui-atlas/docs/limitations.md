@@ -23,7 +23,7 @@ in its `warnings` or its `error`.
 | Design-system extraction | **Built.** `ui-atlas tokens <url>` and `crawl --tokens` count every element's computed values. Observations with counts, not a design system: nothing is named. Duplicate component grouping already spanned routes. Details below. |
 | CDP forced pseudo-states | Not implemented. `focus-visible` is reached with a real keyboard interaction or reported as `skipped` — never faked. |
 | Toolbar Animation panel | **Built.** The Animation button lists what moves and offers each row the one action that would work. Details below. |
-| Chrome extension packaging | Not required and not built. The launcher's browser-extension popover (design 6c) waits on this. |
+| Chrome extension | **Built, unpacked.** `launcher:install-extension` writes the native messaging host manifest; the extension is loaded through Developer mode. Signed Web Store packaging is still not built. Details below. |
 | Menu bar launcher | **Built.** `npm run launcher` runs the build and `inspect` as child processes and shows them as three rows, plus the sign-in step. A supervisor, not a daemon: no port, no background service, no engine change. Details below. |
 
 ## Boundaries of what is possible
@@ -518,8 +518,6 @@ See [ADR 27](adr/0027-the-panel-says-what-to-do-next.md).
   neither "Sign in…" nor "Capture anyway". There is no honest action there.
 - **`--mode attach` is not offered.** It drives a browser the launcher did not
   start and cannot close. The CLI still offers it.
-- **No browser extension.** Design 6c needs extension packaging, which is listed
-  above as not built.
 - **macOS-shaped.** The tray, the vibrant popover and `⌘Q` assume macOS. The
   supervisor underneath is platform-neutral and would work anywhere Electron
   does, but nothing else has been tried.
@@ -527,6 +525,33 @@ See [ADR 27](adr/0027-the-panel-says-what-to-do-next.md).
   `startup.ts`, `signin.ts`, `popover.ts` and `build-plan.ts` are pure and are
   unit-tested — but nothing drives the rendered Electron window, so a change
   that broke only the drawing would not fail the suite.
+
+## Boundaries of the browser extension
+
+- **Unpacked and unsigned.** It is loaded through Developer mode, not the Web
+  Store. Packaging and signing a `.crx` is not built.
+- **The extension id comes from the load path.** Chrome derives an unpacked
+  extension's id from the absolute directory it was loaded from, and the host
+  manifest names that id. Moving the checkout, or loading a copy from elsewhere,
+  means running `launcher:install-extension` again.
+- **A socket, not a port.** The launcher listens on `~/.ui-atlas/launcher.sock`
+  at mode 0600. Nothing running in a web page can reach it. There is still no
+  `port 7333`, and the design's mock of one remains fiction.
+- **Four methods, and none of them names a path.** The extension can ask for
+  status, start, stop, or capture a URL in one of three modes. It cannot name a
+  command, a flag, a profile or a directory. The URL is validated as http(s)
+  and passed as a single argv element.
+- **macOS host paths only.** `NATIVE_HOST_DIRECTORIES` lists Chromium-family
+  locations under `~/Library/Application Support`. Linux and Windows would each
+  need their own, and Windows would need a named pipe instead of the socket.
+- **Chrome is not in the test suite.** Everything up to the browser is tested,
+  including the native messaging framing and the relay driven as a real
+  subprocess against a real socket. What is *not* verified is Chrome reading the
+  host manifest, checking the extension id, and rendering the popup — that path
+  has been reasoned about and built to spec, but not executed here.
+- **Page and Whole site are one-shot.** They run `capture` and `crawl`, which
+  end by themselves; the launcher reports the finished run and returns to cold.
+  Only Element leaves a window open.
 
 ## Environment notes
 

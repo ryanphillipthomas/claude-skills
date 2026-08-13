@@ -15,6 +15,8 @@ import { fileURLToPath } from 'node:url';
 import { loadConfig } from '@ui-atlas/config';
 import { authPaths } from '@ui-atlas/browser';
 import { CHANNEL_ACTION, CHANNEL_STATE, type LauncherRequest, type LauncherSnapshot } from './ipc.js';
+import { BridgeServer } from './bridge/server.js';
+import { BRIDGE_PROTOCOL_VERSION, commandFor, type BridgeRequest, type BridgeStatus } from './bridge/protocol.js';
 import { popoverModel, type AuthVerdict, type PopoverFacts, type RecentRun } from './popover.js';
 import { countRunsTodayOnDisk, listProfiles, readAuthStatus, readRecentRuns } from './runs.js';
 import { initialState, reduce, type LauncherEvent, type LauncherState } from './startup.js';
@@ -47,6 +49,7 @@ interface Session {
 let tray: Tray | undefined;
 let popover: BrowserWindow | undefined;
 let supervisor: Supervisor;
+let bridge: BridgeServer | undefined;
 
 const session: Session = {
   state: initialState(),
@@ -126,6 +129,63 @@ function apply(event: LauncherEvent): void {
   if (event.kind === 'ready' || event.kind === 'stopped') void refreshRuns();
   if (event.kind === 'ready') session.notice = undefined;
   push();
+  bridge?.broadcast();
+}
+
+// --- The extension bridge ------------------------------------------------------
+
+/**
+ * The only view of the launcher an extension gets. Deliberately narrow: a
+ * phase, two already-worded lines, and the last run's counts. No paths, no
+ * output root, no profile material — a browser is the far end of this.
+ */
+function bridgeStatus(): BridgeStatus {
+  const model = popoverModel(session.state, Date.now(), {
+    engineLabel: session.engineLabel,
+    runsToday: session.runsToday,
+    targetUrl: session.target.url,
+    recentUrls: session.recentUrls,
+    auth: { profile: session.target.profile, verdict: session.authVerdict, expiresAt: undefined, checkedAt: session.authCheckedAt },
+    runs: session.runs,
+  });
+  const latest = session.runs[0];
+  return {
+    protocol: BRIDGE_PROTOCOL_VERSION,
+    phase: session.state.phase,
+    title: model.header.title,
+    subtitle: model.header.subtitle,
+    ...(session.target.profile === undefined ? {} : { profile: session.target.profile }),
+    ...(session.authVerdict === 'unknown' ? {} : { signedIn: session.authVerdict === 'signed-in' }),
+    ...(latest === undefined
+      ? {}
+      : { lastRun: { label: latest.label, files: latest.fileCount, hasReport: latest.hasReport } }),
+  };
+}
+
+/**
+ * A request from the extension. `capture` is the only one that carries data,
+ * and the URL has already been validated as http(s) by the schema — it is then
+ * passed as an argv element, never interpolated into a command string.
+ */
+async function handleBridge(request: BridgeRequest): Promise<void> {
+  switch (request.method) {
+    case 'status':
+      return;
+    case 'stop':
+      supervisor.stop();
+      return;
+    case 'start':
+      await supervisor.start(session.target);
+      return;
+    case 'capture': {
+      session.target = { ...session.target, url: request.url };
+      rememberUrl(request.url);
+      session.authVerdict = 'unknown';
+      session.authCheckedAt = undefined;
+      await supervisor.start(session.target, commandFor(request.mode, request.url));
+      return;
+    }
+  }
 }
 
 // --- Facts from disk ----------------------------------------------------------
@@ -457,6 +517,7 @@ if (!app.requestSingleInstanceLock()) {
   });
   app.on('before-quit', () => {
     supervisor.stop();
+    void bridge?.close();
   });
 
   void app.whenReady().then(async () => {
@@ -466,6 +527,18 @@ if (!app.requestSingleInstanceLock()) {
       onLog: () => {
         if (session.logOpen) push();
       },
+      onFinished: (result) => {
+        // A one-shot run leaves no window behind, so the only place it can
+        // report itself is here.
+        void refreshRuns().then(() => {
+          const latest = session.runs[0];
+          session.notice =
+            result.ok && latest !== undefined
+              ? `Finished ${latest.label} — ${String(latest.fileCount)} files.`
+              : 'The run finished.';
+          push();
+        });
+      },
     });
 
     ipcMain.on(CHANNEL_ACTION, (_event, request: LauncherRequest) => {
@@ -474,6 +547,23 @@ if (!app.requestSingleInstanceLock()) {
 
     popover = createPopover();
     tray = createTray();
+
+    // The extension bridge. A failure to listen must not stop the launcher —
+    // the menu bar is the primary surface and works without any extension.
+    bridge = new BridgeServer({
+      status: bridgeStatus,
+      onRequest: handleBridge,
+      onError: (error) => {
+        session.notice = error instanceof Error ? error.message : 'the extension bridge failed';
+        push();
+      },
+    });
+    try {
+      await bridge.listen();
+    } catch {
+      bridge = undefined;
+    }
+
     await loadWorkspace();
     await supervisor.checkBuild();
     push();

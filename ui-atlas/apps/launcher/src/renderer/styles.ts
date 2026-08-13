@@ -115,6 +115,18 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; bo
 
 .caption { font-size: 11px; color: var(--text-4); text-align: center; }
 
+/* Segmented control — the extension's Element / Page / Whole site chooser. */
+.segmented { display: flex; padding: 2px; gap: 2px; border-radius: 8px; background: rgba(255, 255, 255, 0.08); }
+.segment {
+  flex: 1; text-align: center; padding: 4px 0; border-radius: 6px;
+  font-size: 11.5px; color: var(--text-3);
+}
+.segment:hover { color: var(--text); }
+.segment--on {
+  font-weight: 590; color: #fff;
+  background: rgba(120, 120, 128, 0.44); box-shadow: 0 0.5px 2px rgba(0, 0, 0, 0.3);
+}
+
 /* --- Progress hairline ----------------------------------------------------- */
 
 .progress { position: relative; height: 2px; background: rgba(255, 255, 255, 0.08); overflow: hidden; flex: none; }

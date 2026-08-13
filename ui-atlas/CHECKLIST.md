@@ -538,12 +538,34 @@ panel could not say where anything was saved.
 - [x] Every decision is pure and unit-tested; the renderer draws the model and
       has no conditions of its own
 
+## Browser extension — capture the page you are already on (design 6c)
+
+- [x] MV3 extension with a popover: Element / Page / Whole site, mapping to
+      `inspect`, `capture` and `crawl`
+- [x] A unix domain socket at mode 0600, not a localhost port — a port is
+      reachable by every page in every browser on the machine
+- [x] Chrome reaches it through a native messaging host it spawns itself, and
+      only for one allowlisted extension id: two independent gates
+- [x] The relay forwards bytes verbatim and validates nothing, so there is one
+      idea of what a valid request is rather than two
+- [x] Four methods, none of which names a path, a command, a flag or a profile
+- [x] The URL is schema-validated as http(s) and passed as one argv element
+- [x] A rejection carries the request id, so a client with two requests in
+      flight is not told only that *something* failed
+- [x] `launcher:install-extension` derives the extension id the way Chrome does
+      and writes the host manifest for every Chromium-family browser present
+- [x] A stopped launcher shows the same Start button, never an error
+- [x] Start is disabled while a sign-in question is open — the caption sends you
+      to the menu bar, and an enabled button beside it is contradictory advice
+- [x] `capture` and `crawl` announce their run id like `inspect` always did
+- [x] The relay and socket are driven end to end by an integration test, with
+      real Chrome-style framing, as a real subprocess
+
 ### Still to build
 
 (nothing in the brief)
 
 ## Still out of scope
 
-Extension packaging — which the launcher's browser-extension popover (design 6c)
-waits on — distributed workers, AI control, CDP animation, perceptual
-(near-duplicate) hashing.
+Signed Web Store packaging of the extension, distributed workers, AI control,
+CDP animation, perceptual (near-duplicate) hashing.

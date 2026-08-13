@@ -12,7 +12,8 @@
     "@ui-atlas/artifacts": "*",
     "@ui-atlas/browser": "*",
     "@ui-atlas/config": "*",
-    "@ui-atlas/protocol": "*"
+    "@ui-atlas/protocol": "*",
+    "zod": "^4.1.12"
   },
   "devDependencies": {
     "electron": "^43.0.0"
