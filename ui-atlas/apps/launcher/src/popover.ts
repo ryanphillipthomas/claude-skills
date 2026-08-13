@@ -112,7 +112,13 @@ export type PopoverBody =
 
 export interface FooterItem {
   label: string;
-  action: LauncherAction | 'reveal-captures' | 'open-project-page' | 'settings' | 'quit';
+  action:
+    | LauncherAction
+    | 'reveal-captures'
+    | 'open-project-page'
+    | 'export-attachments'
+    | 'settings'
+    | 'quit';
   /** Shown right-aligned in monospace, e.g. `⌘Q`. */
   shortcut: string | undefined;
 }
@@ -127,6 +133,7 @@ export interface PopoverModel {
 
 export const FOOTER: readonly FooterItem[] = [
   { label: 'Open project page', action: 'open-project-page', shortcut: undefined },
+  { label: 'Export images for Claude Design', action: 'export-attachments', shortcut: undefined },
   { label: 'Show captures in Finder', action: 'reveal-captures', shortcut: undefined },
   { label: 'Settings…', action: 'settings', shortcut: '⌘,' },
   { label: 'Quit UI Atlas', action: 'quit', shortcut: '⌘Q' },

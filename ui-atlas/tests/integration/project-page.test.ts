@@ -322,6 +322,57 @@ describe('exporting a project', () => {
     expect(hover?.group).toBe('component');
   });
 
+  it('archives the folder beside it, not inside it, under the project’s name', async () => {
+    await buildProject();
+    const paths = projectPaths(dir, PROJECT);
+    const contents = await readProjectContents(dir, PROJECT);
+
+    const written = await writeDesignExport({
+      projectDir: paths.projectDir,
+      exportsDir: paths.exportsDir,
+      plan: planDesignExport(contents.captures),
+      zipPath: paths.exportZip,
+    });
+
+    expect(written.zip?.path).toBe(join(paths.projectDir, `${PROJECT}-reference.zip`));
+    // Four images plus the manifest that says where each came from.
+    expect(written.zip?.entries).toBe(5);
+    // Beside the folder: an archive inside the directory it archives grows
+    // every time, and the clean step would delete it anyway.
+    expect((await readdir(paths.exportsDir)).some((name) => name.endsWith('.zip'))).toBe(false);
+  });
+
+  it('offers the zip for download once it exists, and the command before that', async () => {
+    await buildProject();
+    const paths = projectPaths(dir, PROJECT);
+
+    const before = await generateProjectPage({ outputRoot: dir, project: PROJECT });
+    expect(before.facts.attachments.folderExists).toBe(false);
+    expect(before.facts.attachments.zipExists).toBe(false);
+    const beforeHtml = await readFile(before.path, 'utf8');
+    expect(beforeHtml).toContain(`ui-atlas export ${PROJECT} --open`);
+    expect(beforeHtml).not.toContain('Download the zip');
+
+    const contents = await readProjectContents(dir, PROJECT);
+    await writeDesignExport({
+      projectDir: paths.projectDir,
+      exportsDir: paths.exportsDir,
+      plan: planDesignExport(contents.captures),
+      zipPath: paths.exportZip,
+    });
+
+    const after = await generateProjectPage({ outputRoot: dir, project: PROJECT });
+    expect(after.facts.attachments.folderExists).toBe(true);
+    expect(after.facts.attachments.zipExists).toBe(true);
+    expect(after.facts.attachments.fileCount).toBe(4);
+    expect(after.facts.attachments.totalBytes).toBeGreaterThan(0);
+
+    const afterHtml = await readFile(after.path, 'utf8');
+    expect(afterHtml).toContain('Download the zip');
+    expect(afterHtml).toContain(`href="${PROJECT}-reference.zip" download`);
+    expect(afterHtml).toContain('href="exports/"');
+  });
+
   it('clears a stale export rather than leaving a file nothing points at', async () => {
     await buildProject();
     const paths = projectPaths(dir, PROJECT);

@@ -20,6 +20,7 @@ const KNOWN_BOOLEAN_FLAGS = new Set([
   'open',
   'dry-run',
   'sessions',
+  'zip',
   'inventory',
   'trace-on-failure',
   'sample',

@@ -158,6 +158,17 @@ export class Supervisor {
     return this.runToCompletion(args);
   }
 
+  /**
+   * Write the reference set for a project and resolve with its exit code.
+   *
+   * A one-off like `signIn`, not an engine run: it opens no browser, reports no
+   * stages, and ends by itself. Going through `start` would put the popover
+   * into a launch sequence for something that never launches anything.
+   */
+  async exportProject(project: string): Promise<number> {
+    return this.runToCompletion(['apps/cli/dist/bin.js', 'export', project]);
+  }
+
   cancel(): void {
     this.kill();
     this.emit({ kind: 'cancelled', at: this.now() });

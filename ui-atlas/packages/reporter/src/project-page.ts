@@ -98,7 +98,7 @@ ${componentsSection(facts)}
 ${motionSection(facts)}
 ${valuesSection(facts)}
 ${filesSection(facts)}
-${promptSection(prompt)}
+${promptSection(facts, prompt)}
 </main>
 
 <footer class="footer">
@@ -412,7 +412,67 @@ function fileRow(entry: ExportPlanEntry): string {
       </tr>`;
 }
 
-function promptSection(prompt: BuiltPrompt): string {
+/**
+ * The half of the handover that is not text.
+ *
+ * This page is opened from `file://`. It cannot reach Finder, cannot build an
+ * archive, and cannot run a command — so it offers what a static page actually
+ * can, and names the command for the rest rather than drawing a button that
+ * would do nothing.
+ *
+ * The folder leads because loose images are what a design tool can read; a zip
+ * of PNGs is a file it has to be talked out of. The archive is for sending the
+ * set somewhere, which is a different job and gets a different button.
+ */
+function attachmentsCard(facts: ProjectFacts): string {
+  const { attachments } = facts;
+  const command = `ui-atlas export ${facts.project} --open`;
+
+  if (attachments.fileCount === 0) {
+    return `<div class="pattach">
+    <h3>Attachments</h3>
+    <p class="muted">Nothing has been captured to attach yet.</p>
+  </div>`;
+  }
+
+  if (!attachments.folderExists) {
+    return `<div class="pattach">
+    <h3>Attachments</h3>
+    <p>${String(attachments.fileCount)} images · ${bytes(attachments.totalBytes)} — not written out yet.
+    Run this to put them in one folder, named for reading in order, and reveal it:</p>
+    <pre id="attach-command" class="pcommand">${escapeHtml(command)}</pre>
+    <div class="pattach__actions">
+      <button type="button" class="pcopy" data-copy="attach-command">Copy command</button>
+    </div>
+  </div>`;
+  }
+
+  const zip = attachments.zipExists
+    ? `<a class="pbutton" href="${escapeHtml(encodeURI(attachments.zipHref))}" download>Download the zip` +
+      `${attachments.zipBytes === undefined ? '' : ` <span class="pbutton__note">${bytes(attachments.zipBytes)}</span>`}</a>`
+    : '';
+
+  return `<div class="pattach">
+    <h3>Attachments</h3>
+    <p>${String(attachments.fileCount)} images · ${bytes(attachments.totalBytes)}, named to sort into reading order.
+    Attach them alongside Stage 1.</p>
+    <div class="pattach__actions">
+      <a class="pbutton pbutton--primary" href="${escapeHtml(encodeURI(attachments.folderHref))}">Open the folder</a>
+      ${zip}
+    </div>
+    <p class="muted">Drag the images out of the folder — a design tool can read a PNG and cannot read a zip.
+    The zip is for sending the set somewhere. To reveal the folder in Finder:
+    <code>${escapeHtml(command)}</code></p>
+  </div>`;
+}
+
+function bytes(value: number): string {
+  if (value === 0) return '0 kB';
+  if (value < 1_000_000) return `${String(Math.max(1, Math.round(value / 1000)))} kB`;
+  return `${(value / 1_000_000).toFixed(1)} MB`;
+}
+
+function promptSection(facts: ProjectFacts, prompt: BuiltPrompt): string {
   if (prompt.stages.length === 0) {
     return emptySection('prompt', 'Design prompt', 'There is nothing captured to build a prompt from yet.');
   }
@@ -444,8 +504,8 @@ function promptSection(prompt: BuiltPrompt): string {
     <h2>Design prompt</h2>
     <button type="button" class="pcopy pcopy--all" data-copy="stage-all">Copy all stages</button>
   </div>
-  <p class="lede">Built from what this project actually captured. Run the stages in order — each one assumes the previous one's output.
-  Attach the images from <code>exports/</code> alongside Stage 1.</p>
+  <p class="lede">Built from what this project actually captured. Run the stages in order — each one assumes the previous one's output.</p>
+  ${attachmentsCard(facts)}
   ${omitted}
   <div class="pstages">
     ${stages}

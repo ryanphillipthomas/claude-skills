@@ -701,6 +701,32 @@ A project is a website; a session is one sitting in front of it.
       name this run no longer assigns
 - [x] `--dry-run` prints the names without writing a few hundred files
 
+### Getting the attachments out
+
+- [x] Two shapes, because two things are wanted: the folder is what you drag
+      images from (a design tool reads a PNG, not a zip), the archive beside it
+      is what you send
+- [x] `<project>-reference.zip`, named for a Downloads folder full of other
+      people's `exports.zip`, and written beside the export rather than inside
+      the directory it archives
+- [x] The archive carries `manifest.json`, so an image can still be traced to
+      the session that took it
+- [x] On by default; `--no-zip` opts out, and the command prints the size so the
+      third copy of the bytes is visible
+- [x] A store-only zip writer of our own rather than a dependency — a PNG is
+      already a deflate stream, so compressing again usually grows it
+- [x] Both ZIP64 limits refused with a message naming them, not written as an
+      archive that fails when someone opens it
+- [x] Verified against the format's bytes *and* against real `unzip -t`
+- [x] A failed entry leaves neither a half-archive nor its temporary, and no
+      unhandled stream error — which is what the test caught
+- [x] The launcher's footer writes both and reveals the folder in Finder; it is
+      the only surface here that can
+- [x] The project page opens with an Attachments card: count, size, a link to
+      the folder, a download of the archive. It is a `file://` page, so it
+      prints the command rather than drawing a Finder button that would do
+      nothing
+
 ## Still out of scope
 
 Signed Web Store packaging of the extension, distributed workers, AI control,

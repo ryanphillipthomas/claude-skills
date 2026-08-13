@@ -67,11 +67,12 @@ describe('which body the popover shows', () => {
     const model = popoverModel(initialState(), T0, facts());
     expect(model.footer.map((item) => item.label)).toEqual([
       'Open project page',
+      'Export images for Claude Design',
       'Show captures in Finder',
       'Settings…',
       'Quit UI Atlas',
     ]);
-    expect(model.footer[3]?.shortcut).toBe('⌘Q');
+    expect(model.footer[4]?.shortcut).toBe('⌘Q');
   });
 });
 

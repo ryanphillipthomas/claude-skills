@@ -42,16 +42,24 @@ export interface ProjectPaths {
   indexHtml: string;
   /** Renamed copies, written by `ui-atlas export`. */
   exportsDir: string;
+  /**
+   * The archive of that folder, beside it rather than in it. Named after the
+   * project, because it is downloaded into a Downloads folder full of other
+   * people's `exports.zip`.
+   */
+  exportZip: string;
 }
 
 export function projectPaths(outputRoot: string, project: string): ProjectPaths {
-  const projectDir = resolveWithinRoot(outputRoot, sanitizeSegment(project, 'default'));
+  const segment = sanitizeSegment(project, 'default');
+  const projectDir = resolveWithinRoot(outputRoot, segment);
   return {
     outputRoot,
     projectDir,
     manifest: resolveWithinRoot(projectDir, 'project.json'),
     indexHtml: resolveWithinRoot(projectDir, 'index.html'),
     exportsDir: resolveWithinRoot(projectDir, 'exports'),
+    exportZip: resolveWithinRoot(projectDir, `${segment}-reference.zip`),
   };
 }
 

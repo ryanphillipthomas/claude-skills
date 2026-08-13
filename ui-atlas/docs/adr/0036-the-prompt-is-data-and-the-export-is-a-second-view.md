@@ -89,6 +89,43 @@ first, so a name this run no longer assigns cannot linger.
 The project page lists the export name for every file before the export exists,
 so you can see what you would get without producing it.
 
+### The folder is the attachment; the zip is the parcel
+
+A handover is a prompt *and* its images, and the images were the half you had to
+go and find. There are two shapes for that and they are not interchangeable:
+
+- **Loose files in a folder** are what you attach. A design tool reads a PNG; it
+  cannot read a zip, so an archive is the wrong thing to drag into one.
+- **An archive** is what you send. It travels as one item and carries
+  `manifest.json`, which says which session each image came from.
+
+So an export writes both, and every surface leads with the folder. `--no-zip`
+opts out, because the archive is a third copy of the bytes and a large crawl
+makes that real.
+
+Only one surface here can open Finder, and it is not the page: `index.html` is
+opened from `file://`, where there is no way to reveal a directory, build an
+archive, or run a command. So the page offers what a static page genuinely can —
+a link to the folder, a `download` of an archive that is already on disk — and
+prints the command for the rest instead of drawing a button that would do
+nothing. The launcher, which is an application, gets the real Finder button.
+
+### The zip writer is ours, and stores rather than deflates
+
+Node has no zip. `packages/artifacts/src/zip.ts` is about a hundred lines of a
+format that has not changed since 1993, against a dependency to audit, pin and
+carry (ADR 2).
+
+Stored, not deflated: a PNG is already a deflate stream, so compressing it again
+typically *grows* it and costs the CPU to discover that. The only file here that
+would compress is the manifest, and a few kilobytes is not worth an
+implementation of deflate.
+
+Both ZIP64 thresholds — 65,535 entries and 4 GB — are checked and refused with a
+message naming the limit, rather than written as an archive that is only
+discovered to be corrupt by whoever tries to open it. It is verified against the
+format's own bytes and, where `unzip` exists, against a real implementation.
+
 ## Consequences
 
 - `exports/` duplicates the bytes of every capture with a file. For a large
@@ -100,3 +137,6 @@ so you can see what you would get without producing it.
   rather than tests asserting the wording.
 - `ui-atlas export --dry-run` prints the names without writing, which is how you
   check a naming change before it copies a few hundred files.
+- With the archive on by default an export is three copies of the bytes: the
+  originals, the renamed folder, and the zip. `--no-zip` is the escape hatch,
+  and the command prints the archive's size so the cost is visible.

@@ -61,8 +61,9 @@ session list spans every site you have pointed it at rather than one configured
 project. Each row names its project and offers **Resume**, which reopens that
 session and keeps capturing into it — a row only offers it when something
 recorded where that session was pointed, because a resume that guessed a URL
-would open the wrong page. `Open project page` in the footer opens the current
-project's `index.html`.
+would open the wrong page. The footer opens the current project's `index.html`,
+and `Export images for Claude Design` writes the reference set and reveals it in
+Finder — the launcher is the one surface here that can actually open Finder.
 
 The launcher never claims what it cannot observe. It names the profile it
 loaded rather than an account name it has no way of knowing, and it does not
@@ -952,6 +953,37 @@ else would otherwise be called the same thing, so `button-save-hover` stays
 Exporting **copies**; the originals are never renamed, so a capture record, its
 sidecar and its image stay pointing at each other. Re-running replaces the
 folder, and `--dry-run` prints the names without writing anything.
+
+### Handing it over
+
+Two things come out of an export, because two things are wanted:
+
+```
+ui-atlas-output/stripe-com/
+  exports/                        drag images out of here
+  stripe-com-reference.zip        send this
+```
+
+The **folder** is the one you attach from. Claude Design reads a PNG and cannot
+read a zip, so loose files are what you drag in. The **archive** beside it is
+for sending the set somewhere — it carries `manifest.json` too, which says which
+session each image came from. `--no-zip` skips it if the third copy of the bytes
+is not worth the disk.
+
+Getting to them, in order of how little work it is:
+
+- **The launcher** — `Export images for Claude Design` in the footer writes both
+  and reveals the folder in Finder.
+- **The project page** — the Design prompt section opens with an Attachments
+  card: how many images and how large, a link to the folder, and a download
+  button for the zip. It is a `file://` page, so it cannot reach Finder itself;
+  it prints the command instead of drawing a button that would do nothing.
+- **The CLI** — `ui-atlas export <project> --open` writes both and reveals the
+  folder.
+
+The zip is written by a small store-only writer in `packages/artifacts/src/zip.ts`
+rather than a dependency. Stored rather than deflated because a PNG is already a
+deflate stream, and compressing it again usually makes it bigger.
 
 Every write is atomic: a temporary file in the same directory, fsynced,
 checksummed, then renamed. A capture that failed or was skipped is written as a

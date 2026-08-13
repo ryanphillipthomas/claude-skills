@@ -131,6 +131,46 @@ export const PROJECT_STYLES = `
 .pstage__head h3 { margin: 0; }
 .pstage__head p { margin: 2px 0 0; font-size: 12px; }
 
+.pattach {
+  margin: 0 0 18px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+.pattach h3 { margin: 0 0 6px; }
+.pattach p { margin: 0 0 10px; }
+.pattach p:last-child { margin-bottom: 0; font-size: 12px; }
+.pattach__actions { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+
+.pbutton {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 7px 16px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--fg);
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+}
+.pbutton:hover { background: var(--surface-2); }
+.pbutton--primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.pbutton--primary:hover { filter: brightness(1.05); }
+.pbutton__note { font-weight: 400; opacity: 0.8; }
+
+.pcommand {
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font: 12px/1.5 var(--mono);
+  overflow-x: auto;
+}
+
 .pstages { display: flex; flex-direction: column; gap: 18px; }
 .pstage {
   border: 1px solid var(--border);

@@ -1,6 +1,6 @@
-import { isAbsolute, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { planDesignExport, projectPaths, readProjectContents, writeDesignExport } from '@ui-atlas/artifacts';
-import { flagString, type ParsedArgs } from '../args.js';
+import { flagBoolean, flagString, type ParsedArgs } from '../args.js';
 import { loadCliConfig } from '../config.js';
 import type { Logger } from '../logger.js';
 import { platformOpener } from '../reveal.js';
@@ -16,9 +16,14 @@ ui-atlas export <project> [options]
   The originals are never touched. Re-running replaces the folder, so it always
   matches what the project currently holds.
 
+  Two things come out, because two things are wanted. The folder is what you
+  drag images out of — a model can read a PNG and cannot read a zip. The
+  archive beside it, <project>-reference.zip, is what you send somewhere.
+
   --to <dir>          where to write (default: <project>/exports)
+  --no-zip            skip the archive and write the folder alone
   --dry-run           print the names without copying anything
-  --open              open the folder afterwards
+  --open              reveal the folder afterwards
   --output <dir>      artifact root (default: ./ui-atlas-output)
   --config <path>     explicit config file
   --json              print the plan as JSON on stdout
@@ -56,10 +61,21 @@ export async function runExport(args: ParsedArgs, logger: Logger): Promise<numbe
     return 0;
   }
 
+  // On by default: running this command *is* preparing a handover, and the
+  // archive is the half of it that travels. `--no-zip` is there because the
+  // bytes are a third copy, which matters on a large crawl.
+  const wantsZip = flagBoolean(args, 'zip') !== false;
+  // Beside the folder it archives, wherever that folder was put. With no --to
+  // that is the project directory, which is where the project page looks for
+  // it; with one, a zip left behind in the project directory would be a
+  // surprise nobody asked for.
+  const zipPath = join(dirname(exportsDir), basename(contents.paths.exportZip));
+
   const written = await writeDesignExport({
     projectDir: contents.paths.projectDir,
     exportsDir,
     plan,
+    ...(wantsZip ? { zipPath } : {}),
   });
 
   for (const failure of written.failed) {
@@ -79,6 +95,7 @@ export async function runExport(args: ParsedArgs, logger: Logger): Promise<numbe
           copied: written.copied,
           failed: written.failed,
           skipped: plan.skipped.length,
+          ...(written.zip === undefined ? {} : { zip: written.zip }),
         },
         null,
         2,
@@ -86,11 +103,14 @@ export async function runExport(args: ParsedArgs, logger: Logger): Promise<numbe
     );
   } else {
     process.stdout.write(`${written.exportsDir}\n`);
+    if (written.zip !== undefined) process.stdout.write(`${written.zip.path}\n`);
     logger.info(
       `${String(written.copied)} files exported` +
+        (written.zip === undefined ? '' : `, zipped to ${megabytes(written.zip.byteLength)}`) +
         (written.failed.length === 0 ? '' : `, ${String(written.failed.length)} could not be copied`) +
         (plan.skipped.length === 0 ? '' : `, ${String(plan.skipped.length)} captures had no file`),
     );
+    logger.info('drag the images out of the folder; send the zip');
   }
 
   if (args.flags.get('open') === true) {
@@ -100,4 +120,10 @@ export async function runExport(args: ParsedArgs, logger: Logger): Promise<numbe
   }
 
   return written.failed.length > 0 ? 1 : 0;
+}
+
+function megabytes(bytes: number): string {
+  return bytes < 1_000_000
+    ? `${String(Math.round(bytes / 1000))} kB`
+    : `${(bytes / 1_000_000).toFixed(1)} MB`;
 }

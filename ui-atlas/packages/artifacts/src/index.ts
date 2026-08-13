@@ -11,3 +11,4 @@ export * from './thumbnail.js';
 export * from './read.js';
 export * from './run-writer.js';
 export * from './validate.js';
+export * from './zip.js';

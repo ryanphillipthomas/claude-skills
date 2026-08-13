@@ -7,7 +7,7 @@
  */
 
 import type { LauncherRequest, LauncherSnapshot } from '../ipc.js';
-import type { PopoverBody, PopoverModel, RunRow } from '../popover.js';
+import type { FooterItem, PopoverBody, PopoverModel, RunRow } from '../popover.js';
 import type { LauncherButton, LauncherTone, StageRow } from '../startup.js';
 
 export type Dispatch = (request: LauncherRequest) => void;
@@ -61,6 +61,29 @@ function pressable(node: HTMLElement, dispatch: Dispatch, request: LauncherReque
     dispatch(request);
   });
   return node;
+}
+
+/**
+ * The footer's own actions, plus the shared ones `requestFor` already handles.
+ * A switch rather than a chain of ternaries: the default branch narrows to a
+ * `LauncherAction`, so adding a footer item that is not one fails to compile
+ * rather than falling through to a request that does not exist.
+ */
+function footerRequest(item: FooterItem): LauncherRequest {
+  switch (item.action) {
+    case 'reveal-captures':
+      return { kind: 'reveal-captures' };
+    case 'open-project-page':
+      return { kind: 'open-project-page' };
+    case 'export-attachments':
+      return { kind: 'export-attachments' };
+    case 'settings':
+      return { kind: 'settings' };
+    case 'quit':
+      return { kind: 'quit' };
+    default:
+      return requestFor({ label: item.label, action: item.action });
+  }
 }
 
 function requestFor(button: LauncherButton): LauncherRequest {
@@ -359,17 +382,7 @@ function footer(model: PopoverModel, dispatch: Dispatch): HTMLElement {
     button.append(el('span', undefined, item.label));
     if (item.shortcut !== undefined) button.append(el('span', 'shortcut', item.shortcut));
 
-    const request: LauncherRequest =
-      item.action === 'reveal-captures'
-        ? { kind: 'reveal-captures' }
-        : item.action === 'open-project-page'
-          ? { kind: 'open-project-page' }
-          : item.action === 'settings'
-            ? { kind: 'settings' }
-            : item.action === 'quit'
-              ? { kind: 'quit' }
-              : requestFor({ label: item.label, action: item.action });
-    menu.append(pressable(button, dispatch, request));
+    menu.append(pressable(button, dispatch, footerRequest(item)));
   }
   return menu;
 }

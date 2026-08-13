@@ -377,6 +377,33 @@ async function handle(request: LauncherRequest): Promise<void> {
       await openPath(join(projectDir(currentProject()), 'index.html'));
       return;
 
+    case 'export-attachments': {
+      // The engine is left alone: this writes files and opens a window, and a
+      // live inspect session has no business being stopped for it.
+      if (supervisor.running) {
+        session.notice = 'Finish or stop the current session first.';
+        push();
+        return;
+      }
+
+      const project = currentProject();
+      session.notice = 'Writing the reference images…';
+      push();
+
+      const code = await supervisor.exportProject(project);
+      if (code !== 0) {
+        session.notice = 'Nothing to export for this project yet.';
+        push();
+        return;
+      }
+
+      session.notice = undefined;
+      // Reveal rather than open: the point is to have the files in front of
+      // you to drag out, not to look at a folder window's contents.
+      await openPath(join(projectDir(project), 'exports'));
+      return;
+    }
+
     case 'resume-session': {
       const run = session.runs.find((item) => item.runId === request.runId);
       if (run === undefined) return;

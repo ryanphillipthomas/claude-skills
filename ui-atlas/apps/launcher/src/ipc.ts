@@ -43,6 +43,11 @@ export type LauncherRequest =
    */
   | { kind: 'resume-session'; runId: string }
   | { kind: 'open-project-page' }
+  /**
+   * Write the reference set for the current project and reveal it. The one
+   * surface that can actually open Finder, which a `file://` page cannot.
+   */
+  | { kind: 'export-attachments' }
   | { kind: 'settings' }
   | { kind: 'quit' }
   /** Content height after a redraw; only the renderer can know it. */

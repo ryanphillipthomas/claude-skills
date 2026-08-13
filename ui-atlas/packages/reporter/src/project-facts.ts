@@ -12,9 +12,9 @@
  * applies to everything the prompt is built from.
  */
 
-import { existsSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import {
   planDesignExport,
   readPages,
@@ -90,6 +90,28 @@ export interface TokenFact {
 
 export type TokenGroups = Partial<Record<TokenCategory, TokenFact[]>>;
 
+/**
+ * What there is to hand over, and whether it exists yet.
+ *
+ * The page is opened from `file://` and cannot reach Finder, cannot zip
+ * anything, and cannot run a command. So it reports the state honestly and
+ * offers what a static page really can: a link to a folder, a download of an
+ * archive that is already there, and the exact command for the rest.
+ */
+export interface AttachmentFacts {
+  /** Files the export would carry. */
+  fileCount: number;
+  /** Their combined size, so nobody drags 400 MB into a chat unknowingly. */
+  totalBytes: number;
+  /** `exports/`, relative to the project directory. */
+  folderHref: string;
+  folderExists: boolean;
+  /** `<project>-reference.zip`, relative to the project directory. */
+  zipHref: string;
+  zipExists: boolean;
+  zipBytes: number | undefined;
+}
+
 export interface SessionFact {
   id: string;
   command: string;
@@ -127,6 +149,8 @@ export interface ProjectFacts {
   tokensFrom: string | undefined;
   /** The renamed set an export would write. Shown on the page before it exists. */
   exportPlan: ExportPlan;
+  /** Whether that export has actually been written, and how big it is. */
+  attachments: AttachmentFacts;
   warnings: string[];
   contents: ProjectContents;
 }
@@ -153,6 +177,7 @@ export async function collectProjectFacts(input: {
 
   const routes = await collectRoutes(contents);
   const { tokens, tokensFrom } = await collectTokens(contents.sessions);
+  const exportPlan = planDesignExport(contents.captures);
 
   const totals = { sessions: contents.sessions.length, captured: 0, failed: 0, skipped: 0, files: 0, routes: routes.length };
   for (const capture of contents.captures) {
@@ -174,9 +199,37 @@ export async function collectProjectFacts(input: {
     motion: collectMotion(contents.captures),
     tokens,
     tokensFrom,
-    exportPlan: planDesignExport(contents.captures),
+    exportPlan,
+    attachments: collectAttachments(contents, exportPlan),
     warnings,
     contents,
+  };
+}
+
+function collectAttachments(contents: ProjectContents, plan: ExportPlan): AttachmentFacts {
+  const exported = new Set(plan.entries.map((entry) => entry.source));
+  let totalBytes = 0;
+  for (const capture of contents.captures) {
+    if (!exported.has(capture.projectPath)) continue;
+    totalBytes += capture.record.image?.byteLength ?? capture.record.video?.byteLength ?? 0;
+  }
+
+  const zipName = basename(contents.paths.exportZip);
+  let zipBytes: number | undefined;
+  try {
+    zipBytes = statSync(contents.paths.exportZip).size;
+  } catch {
+    zipBytes = undefined;
+  }
+
+  return {
+    fileCount: plan.entries.length,
+    totalBytes,
+    folderHref: 'exports/',
+    folderExists: existsSync(contents.paths.exportsDir),
+    zipHref: zipName,
+    zipExists: zipBytes !== undefined,
+    zipBytes,
   };
 }
 
