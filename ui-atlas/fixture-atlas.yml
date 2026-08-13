@@ -1,0 +1,77 @@
+# A site config that produces a fully populated report: assets, locator
+# candidates and observed values in one run.
+#
+#   node scripts/serve-fixture.mjs &            # fixture site on :4173
+#   npm run ui-atlas -- crawl fixture-atlas.yml --tokens
+#   npm run ui-atlas -- report ui-atlas-output/fixture-atlas/<run-id>
+#
+# `--tokens` on its own gives values and pages and no images. Screenshots come
+# from recipes and from nothing else, so the two have to be asked for together:
+# the recipes below are what fills Components, Gallery and Duplicates, and
+# `--tokens` is what fills Values.
+
+project: fixture-atlas
+outputRoot: ./ui-atlas-output
+
+crawl:
+  seeds: ['http://127.0.0.1:4173/index.html']
+  include: ['/**']
+  budgets:
+    maxPages: 20
+    maxDepth: 2
+  # The fixture is served from this machine, so there is no host to be polite
+  # to. Leave the 750ms default in place for anything that is not localhost.
+  perPageDelayMs: 0
+
+  recipes:
+    # One shot per page, so every route the crawl reaches has an asset in the
+    # Gallery rather than only the routes that happen to have a state recipe.
+    - name: page-shot
+      match: '/**'
+      steps:
+        - capture: { kind: viewport, label: page }
+
+    # Element captures across states. These are what put real locator candidates
+    # in the detail panel — a viewport shot has no element to score.
+    #
+    # Each target is chosen to be in the OPPOSITE state to the one being
+    # captured. Forcing `checked` onto a box that is already checked is a valid
+    # capture of nothing: the report correctly reports no computed-style change,
+    # and the pair of images is identical. The before/after is the whole point,
+    # so the unchecked box is the one worth pointing at.
+    - name: focus-button-states
+      match: '/states.html'
+      steps:
+        - select: { testId: focus-demo }
+        - captureStates: [default, hover, focus, focus-visible, active]
+
+    - name: menu-trigger-states
+      match: '/states.html'
+      steps:
+        - select: { testId: menu-trigger }
+        - captureStates: [default, hover]
+
+    # This one still reports "no computed-style change was observed" and that is
+    # correct rather than a miss: a native checkbox's tick is painted by the user
+    # agent, so no CSS property on the input changes when it is checked. The two
+    # images differ; the computed style does not.
+    - name: checkbox-states
+      match: '/states.html'
+      steps:
+        - select: { testId: checkbox-unchecked }
+        - captureStates: [default, checked]
+
+    - name: tab-states
+      match: '/states.html'
+      steps:
+        - select: { testId: tab-two }
+        - captureStates: [default, selected]
+
+    - name: disabled-button-states
+      match: '/states.html'
+      steps:
+        - select: { testId: press-target }
+        - captureStates: [default, disabled]
+
+tokens:
+  enabled: true
