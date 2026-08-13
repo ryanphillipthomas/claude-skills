@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { dirname, relative, resolve } from 'node:path';
 import { emptyManifest, newRunId, readRunManifest, RunWriter } from '@ui-atlas/artifacts';
 import type { Page } from 'playwright';
 import { emulationOptions, launchSession, resolveViewport, viewportLabel } from '@ui-atlas/browser';
@@ -236,6 +236,11 @@ export async function runCrawl(args: ParsedArgs, logger: Logger): Promise<number
       );
     }
   }
+
+  // Same line, same format, as `inspect`. A crawl is the longest thing this
+  // tool does, so knowing where it is writing before it finishes matters most
+  // here — and it is what the launcher watches for.
+  logger.info(`run ${writer.runId} → ${relative(process.cwd(), writer.paths.runDir)}`);
 
   // A plain crawl injects nothing into the pages it visits: no overlay, no
   // probe. Recipes and the inventory both need the probe, because both must

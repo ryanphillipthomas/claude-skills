@@ -23,7 +23,8 @@ in its `warnings` or its `error`.
 | Design-system extraction | **Built.** `ui-atlas tokens <url>` and `crawl --tokens` count every element's computed values. Observations with counts, not a design system: nothing is named. Duplicate component grouping already spanned routes. Details below. |
 | CDP forced pseudo-states | Not implemented. `focus-visible` is reached with a real keyboard interaction or reported as `skipped` — never faked. |
 | Toolbar Animation panel | **Built.** The Animation button lists what moves and offers each row the one action that would work. Details below. |
-| Chrome extension packaging | Not required and not built. |
+| Chrome extension | **Built, unpacked.** `launcher:install-extension` writes the native messaging host manifest; the extension is loaded through Developer mode. Signed Web Store packaging is still not built. Details below. |
+| Menu bar launcher | **Built.** `npm run launcher` runs the build and `inspect` as child processes and shows them as three rows, plus the sign-in step. A supervisor, not a daemon: no port, no background service, no engine change. Details below. |
 
 ## Boundaries of what is possible
 
@@ -498,6 +499,73 @@ See [ADR 27](adr/0027-the-panel-says-what-to-do-next.md).
 - **A state with no computed-style delta gets a warning.** If hovering changed
   nothing in the watched properties, the record says so rather than implying a
   hover style exists.
+
+## Boundaries of the launcher
+
+- **It is a supervisor, not a daemon.** It spawns the build and `ui-atlas
+  inspect` and reads their log lines. There is no port, no status API and no
+  change to the capture engine. The design's mock shows `port 7333` next to the
+  running engine; that port does not exist, so the row shows the run id, which
+  does.
+- **It learns by matching the CLI's log lines.** Those patterns are covered by
+  `tests/unit/launcher-progress.test.ts`, which generates the lines through the
+  real logger — so rewording a log message fails a test rather than leaving the
+  launcher stuck on "Starting engine…". A line the launcher does not recognise
+  is still shown in `Show log`; it just does not move the state machine.
+- **The stages are three rows, not three processes.** "Start capture engine" and
+  "Open browser with panel" are two moments in one `inspect` child, not two
+  commands. That is what the design asked for at this stage, and it is why
+  nothing in the engine had to change.
+- **It never claims an account.** The design's mock reads "Signed in as
+  reviewer@acme.com". UI Atlas never learns an account name, so the row names
+  the profile it loaded. The expiry beneath it *is* real — it is read from the
+  saved storage state's own cookie `expires` fields.
+- **A challenge card has no primary button.** A signed-out session and a host
+  refusing the browser need opposite responses, so the challenge card offers
+  neither "Sign in…" nor "Capture anyway". There is no honest action there.
+- **`--mode attach` is not offered.** It drives a browser the launcher did not
+  start and cannot close. The CLI still offers it.
+- **macOS-shaped.** The tray, the vibrant popover and `⌘Q` assume macOS. The
+  supervisor underneath is platform-neutral and would work anywhere Electron
+  does, but nothing else has been tried.
+- **The popover is now driven as a real window.**
+  `tests/integration/launcher-window.test.ts` launches Electron, attaches over
+  CDP and asserts the panel paints itself and offers Start. That gap used to be
+  recorded here as uncovered, and the thing it failed to cover promptly broke:
+  the only state push happened before the page had loaded, `webContents.send`
+  dropped it, and the popover sat empty with no Start button on it. The
+  renderer asks for state on load now, and the test fails without that.
+- **What that test does *not* cover:** it evaluates JavaScript rather than
+  moving a pointer, so it proves the popover draws and its handlers are wired,
+  not that the window is positioned, visible or clickable on screen. Nothing
+  clicks the tray icon.
+
+## Boundaries of the browser extension
+
+- **Unpacked and unsigned.** It is loaded through Developer mode, not the Web
+  Store. Packaging and signing a `.crx` is not built.
+- **The extension id comes from the load path.** Chrome derives an unpacked
+  extension's id from the absolute directory it was loaded from, and the host
+  manifest names that id. Moving the checkout, or loading a copy from elsewhere,
+  means running `launcher:install-extension` again.
+- **A socket, not a port.** The launcher listens on `~/.ui-atlas/launcher.sock`
+  at mode 0600. Nothing running in a web page can reach it. There is still no
+  `port 7333`, and the design's mock of one remains fiction.
+- **Four methods, and none of them names a path.** The extension can ask for
+  status, start, stop, or capture a URL in one of three modes. It cannot name a
+  command, a flag, a profile or a directory. The URL is validated as http(s)
+  and passed as a single argv element.
+- **macOS host paths only.** `NATIVE_HOST_DIRECTORIES` lists Chromium-family
+  locations under `~/Library/Application Support`. Linux and Windows would each
+  need their own, and Windows would need a named pipe instead of the socket.
+- **Chrome is not in the test suite.** Everything up to the browser is tested,
+  including the native messaging framing and the relay driven as a real
+  subprocess against a real socket. What is *not* verified is Chrome reading the
+  host manifest, checking the extension id, and rendering the popup — that path
+  has been reasoned about and built to spec, but not executed here.
+- **Page and Whole site are one-shot.** They run `capture` and `crawl`, which
+  end by themselves; the launcher reports the finished run and returns to cold.
+  Only Element leaves a window open.
 
 ## Environment notes
 

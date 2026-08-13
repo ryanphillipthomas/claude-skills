@@ -1,4 +1,5 @@
 import { createInterface } from 'node:readline/promises';
+import type { Page } from 'playwright';
 import {
   assertProfileName,
   assessStorage,
@@ -14,9 +15,10 @@ import {
   STORAGE_STATE_WARNING,
   writeProfileMarker,
   writeStorageState,
+  type SignInReading,
 } from '@ui-atlas/browser';
 import { UiAtlasError, type BrowserMode } from '@ui-atlas/protocol';
-import { flagBoolean, requireHttpUrl, type ParsedArgs } from '../args.js';
+import { flagBoolean, flagNumber, requireHttpUrl, type ParsedArgs } from '../args.js';
 import { loadCliConfig } from '../config.js';
 import type { Logger } from '../logger.js';
 
@@ -43,6 +45,12 @@ ui-atlas auth clear <profile-name>
 
   --persistent   save into (or check) a real browser profile
   --headless     "check" only; "save" always needs a visible browser
+  --wait-for-signin
+                 "save" only. Watch the page instead of waiting for Enter, and
+                 save as soon as it reads as signed in. For callers with no
+                 terminal to press Enter in, such as the launcher.
+  --wait-timeout <seconds>
+                 how long --wait-for-signin waits before giving up (default 300)
 `.trim();
 
 export async function runAuth(args: ParsedArgs, logger: Logger): Promise<number> {
@@ -93,18 +101,15 @@ async function saveProfile(args: ParsedArgs, logger: Logger): Promise<number> {
     const page = session.context.pages()[0] ?? (await session.context.newPage());
     await page.goto(url, { waitUntil: 'domcontentloaded' });
     logger.info(`Sign in at ${url} in the browser window that just opened.`);
-    logger.info('When you are done, come back here and press Enter.');
-    await waitForEnter('Press Enter once you are signed in… ');
 
-    // Check before saving. Pressing Enter too early is the easiest way to save
-    // a signed-out session, and the failure would otherwise surface much later.
-    const reading = judgeSignIn(await probeSignIn(page, url));
-    if (reading.verdict === 'signed-out') {
-      logger.warn('This page still looks signed out:');
-      for (const line of reading.evidence) logger.warn(`  ${line}`);
-      const again = await waitForEnter('Save anyway? Press Enter to save, or Ctrl-C to stop… ');
-      void again;
-    } else {
+    // Two ways to know you are done. Pressing Enter is the right one at a
+    // terminal; watching the page is the only one available to a caller that
+    // has no terminal to press it in, such as the launcher.
+    const reading = (flagBoolean(args, 'wait-for-signin') ?? false)
+      ? await waitForSignedIn(page, url, logger, (flagNumber(args, 'wait-timeout') ?? 300) * 1000)
+      : await confirmByEnter(page, url, logger);
+
+    if (reading.verdict !== 'signed-out') {
       logger.info(`sign-in check: ${reading.verdict} (${reading.evidence[0] ?? ''})`);
     }
 
@@ -216,6 +221,72 @@ async function waitForEnter(prompt: string): Promise<string> {
   } finally {
     rl.close();
   }
+}
+
+/**
+ * The original flow, unchanged: you say when you are done, and the page is
+ * checked before anything is written. Pressing Enter too early is the easiest
+ * way to save a signed-out session, so a signed-out reading asks a second time
+ * rather than saving quietly.
+ */
+async function confirmByEnter(page: Page, url: string, logger: Logger): Promise<SignInReading> {
+  logger.info('When you are done, come back here and press Enter.');
+  await waitForEnter('Press Enter once you are signed in… ');
+
+  const reading = judgeSignIn(await probeSignIn(page, url));
+  if (reading.verdict === 'signed-out') {
+    logger.warn('This page still looks signed out:');
+    for (const line of reading.evidence) logger.warn(`  ${line}`);
+    await waitForEnter('Save anyway? Press Enter to save, or Ctrl-C to stop… ');
+  }
+  return reading;
+}
+
+/** How often the page is re-read while waiting. Cheap, and not a busy loop. */
+const SIGN_IN_POLL_MS = 1_500;
+
+/**
+ * Watch the page until it reads as signed in.
+ *
+ * This exists because a GUI caller has no stdin to press Enter on — the
+ * launcher opens this window for you and needs to know, by itself, when you
+ * have landed. It only ever *observes*: nothing is typed, submitted or
+ * clicked, exactly as with the interactive path.
+ *
+ * On timeout it returns the last reading rather than throwing, so a session
+ * that is genuinely signed in but unreadable is still offered for saving with
+ * its evidence shown.
+ */
+async function waitForSignedIn(
+  page: Page,
+  url: string,
+  logger: Logger,
+  timeoutMs: number,
+): Promise<SignInReading> {
+  const deadline = Date.now() + Math.max(SIGN_IN_POLL_MS, timeoutMs);
+  logger.info(`waiting for sign-in at ${url}`);
+
+  let last: SignInReading = { verdict: 'unclear', evidence: ['the page has not been read yet'] };
+  while (Date.now() < deadline) {
+    if (page.isClosed()) {
+      logger.warn('the sign-in window was closed before the page read as signed in');
+      return last;
+    }
+    try {
+      last = judgeSignIn(await probeSignIn(page, url));
+    } catch {
+      // A page mid-navigation cannot be read; the next poll will catch it.
+    }
+    if (last.verdict === 'signed-in') {
+      logger.info('sign-in detected');
+      return last;
+    }
+    await new Promise((resolve) => setTimeout(resolve, SIGN_IN_POLL_MS));
+  }
+
+  logger.warn(`gave up waiting for sign-in after ${String(Math.round(timeoutMs / 1000))}s`);
+  for (const line of last.evidence) logger.warn(`  ${line}`);
+  return last;
 }
 
 async function clearStoredProfile(args: ParsedArgs, logger: Logger): Promise<number> {

@@ -1602,12 +1602,226 @@ need the same rule one level up: pressing **Animation…** now brings the Animat
 tab forward, because content rendered into a tab you are not looking at is just
 as invisible as content in a collapsed section.
 
+## One Start button instead of two terminals (sixteenth slice)
+
+Starting the tool took two terminal windows and, when a site needed signing in,
+a third command you could skip without anything failing. The design's answer is
+a menu bar extra. Its own staging note is unusually specific about how far the
+first pass should go: run the same two commands as child processes, show them as
+three rows, change nothing in the engine.
+
+That constraint is the whole design. `apps/launcher` spawns a build and
+`ui-atlas inspect` and reads their log lines. No port, no daemon, no second
+protocol. Deleting the directory leaves the CLI exactly as it was.
+
+### Three rows, and the third one is the point
+
+Two commands became three rows because there were always three things, and only
+two of them ever reported. `npm run build` said it built. `inspect` said it
+started. Whether a browser had actually opened with the panel mounted in it was
+something you found out by looking at the screen.
+
+The engine row finishes when the session announces its run id; the browser row
+finishes when the overlay reports in. A page that blocks script injection is
+**not** a failed launch — the window is open and usable — so it lands as a row
+noted "no panel" and the launch still succeeds. Reporting that as a failure
+would hide a working browser.
+
+### The claim that would have rotted
+
+The design labels the build row "first run only". That is true once, and then it
+is the thing that makes the second run after an edit fail confusingly two stages
+later. The row is skipped on evidence instead: every output present, and the
+last build write newer than the newest source. So it says "first run only",
+"sources changed" or "already built", and each of those was checked.
+
+That rule took three attempts, and the last two failures were only visible by
+running it against the real tree:
+
+**Directory mtimes miss every edit.** Scanning `packages` and `apps` themselves
+seemed cheap and sufficient — writing a file updates its directory's mtime. It
+updates its *immediate* directory. Editing `packages/overlay/src/page/toolbar.ts`
+never touches `packages`, so every ordinary edit looked current. It walks the
+tree now, skipping `node_modules` and `dist`, in four milliseconds.
+
+**Incremental builds are not stale.** Comparing against the oldest output
+reported "sources changed" immediately after a successful full build, because
+`tsc -b` does not rewrite an output whose inputs did not change — `dist/bin.js`
+was twenty minutes older than the build that had just finished, correctly. The
+question worth asking is when a build last did any work, which is the *newest*
+output.
+
+Writing the test for the row also found the bug underneath it: `buildNeeded`
+arrived only on the `start` event, so the cold card — which is drawn *before*
+Start — promised "about 40 seconds the first time" on every launch forever. It
+has its own `build-checked` event now, fired when the popover opens.
+
+### A sign-in step, and one card with no buttons
+
+`auth check` already knew the saved session was dead. It had nowhere to say so,
+and the failure surfaced twenty minutes later as a stack of screenshots of a
+login wall. The launcher stops the sequence on that verdict and asks.
+
+The card that matters most is the one with nothing to press. A signed-out
+session and a host refusing the browser look identical from outside and need
+opposite responses — signing in again is the fix for one and the worst possible
+move against the other (ADR 30). So the challenge card offers neither "Sign
+in…" nor "Capture anyway". Inventing a button there would be the tool lying
+about what it can do.
+
+Building the sign-in card exposed a second version of the same mistake: the
+popover header hardcoded "Page is signed out" for *every* verdict, so a
+challenged host was being announced as a sign-in problem — precisely the
+confusion ADR 30 exists to prevent. The title now comes from one function, and a
+test asserts the header and the card cannot disagree.
+
+### One flag in the CLI
+
+`auth save` waited on Enter, and a GUI has no stdin to press it on.
+`--wait-for-signin` watches the page instead and saves when it reads as signed
+in — which is what the design describes. It only observes; nothing is typed or
+submitted, exactly as before. The interactive path is untouched, including its
+second Enter gate before saving a session that still looks signed out.
+
+### What the popover refuses to say
+
+The design's mock reads "Signed in as reviewer@acme.com". UI Atlas never learns
+an account name, so the row names the profile it loaded. The expiry underneath
+*is* knowable — it is written in the saved storage state — so that one is shown,
+read from the cookies' own `expires` fields and nothing else in the file. Same
+for the mock's `port 7333`: there is no port, so the row shows the run id.
+
+### Where the seams are
+
+Every decision is pure and unit-tested — the state machine, the sign-in wording,
+the build decision, the popover model — and the renderer draws the model with no
+conditions of its own. Fifty-two tests, and the log-line patterns are asserted
+against lines generated by the real logger, so rewording a CLI message fails a
+test rather than leaving the launcher stuck on "Starting engine…".
+
+What is *not* covered: nothing drives the rendered Electron window, so a change
+that broke only the drawing would pass. That is recorded in `docs/limitations.md`
+rather than implied away.
+
+## Capturing the page you are already on (seventeenth slice)
+
+Design turn 6's third stage: an extension, so the page you are looking at can be
+captured without retyping its URL somewhere else. Its staging note says it
+"needs only a local connection to the already-running engine" — and the launcher
+from the last slice deliberately had no such connection, because not having one
+is what let stage one ship without touching the engine.
+
+So the whole slice is that connection, and the interesting decision is its
+shape.
+
+### The obvious answer, and why not
+
+The design's mock shows `port 7333`. A localhost port is reachable by every page
+in every browser on the machine, and the guards you would put in front of it are
+weak: CORS does not stop a request being *made*, only read, and the capture
+would already have started. A token fixes that, and the extension has no private
+way to learn one — anything it can read, a page can be made to read.
+
+`~/.ui-atlas/launcher.sock`, mode 0600, is reachable by nothing that runs in a
+page. The check is the kernel's rather than a string compare in our code, and
+the directory is already 0700 because it holds saved sessions.
+
+Chrome will not talk to a socket, so a relay translates its length-prefixed
+stdio protocol to newline-delimited JSON. Chrome spawns that relay itself, and
+only for an extension whose id is in the host manifest. Two gates, neither ours.
+
+The relay holds no state and validates nothing — it forwards bytes and lets the
+launcher parse them. Two parsers would eventually disagree, and the one that
+disagreed quietly would be the security hole.
+
+### What the extension is allowed to say
+
+Four methods, and none of them names a path, a command, a flag or a profile. It
+can ask for status, start, stop, or capture a URL in one of three modes. The URL
+is schema-validated as http(s) and then passed as a single argv element, so a
+host with a space or a quote in it stays one argument.
+
+The three modes map to `inspect`, `capture` and `crawl` — a mapping that lives
+on this side of the socket. Which meant the third stage row could no longer be
+called "Open browser with panel": two of the three never mount a panel, and one
+of them is a crawl. The row is named from the command now.
+
+### The one-line CLI change underneath it
+
+Only `inspect` printed `run <id> → <dir>`, and the launcher watches for that
+line — so Page and Whole site had nothing to watch. Both commands print it now,
+same format, same position. That is independently worth having: a crawl is the
+longest thing this tool does, and knowing where it is writing before it finishes
+matters most there.
+
+### Two things the tests found
+
+A rejected request came back as `id: "unknown"`, because validation fails before
+the id can be read — so a client with two requests in flight learned only that
+*something* had been refused. Rejections now carry the id when the line had a
+usable one.
+
+And the sign-in state gave contradictory advice: a caption reading "answer this
+in the menu bar first" beside an enabled Start button, which would relaunch and
+ask the same question again. Start is disabled while a question is open.
+
+### What is not verified
+
+Chrome cannot be driven from this suite. Everything up to it is: the framing,
+the relay as a real subprocess against a real socket, the validation, and every
+decision the popover makes. Chrome reading the host manifest, checking the id
+and rendering the popup has been built to spec and reasoned about, but not
+executed here. That is in `docs/limitations.md` rather than implied away.
+
+## The panel that never drew itself (eighteenth slice)
+
+Reported from real use, in three words: hitting Start did nothing.
+
+It was not Start. Driving the same code path over the extension socket worked
+perfectly — cold, starting, running — and clicking the real button through the
+debugger worked too, once there *was* a button. The popover was empty. `#panel`
+had zero children.
+
+### One dropped message
+
+The launcher pushed state once at startup, and `webContents.send` to a page
+that has not finished loading is dropped silently. Nothing re-sent it, so the
+panel stayed blank until some later event happened to change state. Open the
+menu bar in the first seconds after launching — which is exactly what you do
+after running `npm run launcher` — and there is nothing to press.
+
+The renderer asks now, with a `hello` on load, instead of being told. Asking is
+reliable in a way that being told is not: the renderer knows when it exists and
+the main process only guesses. `did-finish-load` pushes as well, to cover a
+reload replacing the page and its listener.
+
+### The gap that was recorded, and then happened
+
+`docs/limitations.md` said it plainly: every decision the popover makes is
+unit-tested, but nothing drove the rendered window, so a change that broke only
+the drawing would pass. That is precisely the bug that shipped.
+
+So the fix comes with the missing test. It launches Electron with its own
+user-data directory and its own socket — so it cannot collide with a launcher
+already running, or steal its socket — attaches over CDP, and asserts the panel
+paints itself without being touched. Removing either half of the fix makes it
+fail with `expected 0 to be greater than 0`, which is the bug exactly.
+
+It evaluates JavaScript rather than moving a pointer, so it proves the popover
+draws and its handlers are wired, not that the window is on screen where you can
+click it. Nothing clicks the tray icon; that is still recorded as uncovered.
+
 ## Where this leaves the project
 
 **The brief is delivered.** Phases 0 through 4 are complete and every item on the
 brief's own list is built, including the Animation button that had been disabled
 since phase 1. The eighth slice is usability work on top of a delivered brief,
 driven by what the first real external run felt like to use.
+
+Design turn 6 is delivered in full. The sixteenth slice is the first surface
+outside the CLI — a menu bar launcher covering stages one and two — and the
+seventeenth adds the extension, which is stage three. What remains unbuilt there
+is signed Web Store packaging; the extension is loaded unpacked.
 
 Anything further is new scope rather than an unfinished milestone:
 
@@ -1617,8 +1831,11 @@ Anything further is new scope rather than an unfinished milestone:
 - sitemap seeding, and dedup by page structural fingerprint
 - `captureResponsive` during a crawl (the step validates and reports that it was
   unavailable)
-- extension packaging, distributed workers, CDP forced pseudo-states
+- signed Web Store packaging of the extension (it loads unpacked today),
+  distributed workers, CDP forced pseudo-states
 
-The one environment-bound gap is unchanged and recorded under Exit criteria: the
-three external-site smoke tests skip themselves in a sandbox with no outbound
-browser network access.
+The environment-bound gap recorded under Exit criteria is **closed on a
+networked machine**: the three external-site smoke tests ran and passed against
+example.com, wikipedia.org and developer.mozilla.org during the seventeenth slice.
+They still skip themselves in a sandbox with no outbound browser network
+access, which is the behaviour that was always intended.

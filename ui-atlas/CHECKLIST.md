@@ -531,11 +531,72 @@ the instructions block.
 - [x] A tab that receives content brings itself forward, for the same reason a
       collapsed section opens itself
 
+## Launcher — one Start button instead of two terminals (design turn 6)
+
+- [x] `npm run launcher` — a menu bar extra with a popover, no terminal left open
+- [x] Three rows for what used to be two commands and one unreported outcome:
+      build, capture engine, browser with the panel actually mounted
+- [x] The build row is skipped on evidence — outputs present *and* no source
+      newer — so "first run only" cannot rot into a lie
+- [x] That check runs when the popover opens, not only on Start; otherwise the
+      cold card promises a 40-second first run forever
+- [x] Each finished row reports its own elapsed time; the running row reports
+      whatever the process said about itself
+- [x] `Show log` is the output the two terminals used to print, unfiltered
+- [x] Cancel while starting, Stop while running; closing the browser window ends
+      the session without reporting a failure
+- [x] Sign-in is a step with three answers, not a warning nobody reads
+- [x] A challenge gets a different card with no way past it — ADR 30
+- [x] `auth save --wait-for-signin`, because a GUI has no stdin to press Enter on
+- [x] The popover names the profile it loaded, never an account name it cannot
+      know; the expiry beside it is read from the saved state's own cookies
+- [x] Recent runs, each opening its folder, with a Report link only where a
+      report exists
+- [x] Node comes from Electron with `ELECTRON_RUN_AS_NODE`, so a launch from
+      Finder does not depend on a PATH it did not inherit
+- [x] Every decision is pure and unit-tested; the renderer draws the model and
+      has no conditions of its own
+
+## Browser extension — capture the page you are already on (design 6c)
+
+- [x] MV3 extension with a popover: Element / Page / Whole site, mapping to
+      `inspect`, `capture` and `crawl`
+- [x] A unix domain socket at mode 0600, not a localhost port — a port is
+      reachable by every page in every browser on the machine
+- [x] Chrome reaches it through a native messaging host it spawns itself, and
+      only for one allowlisted extension id: two independent gates
+- [x] The relay forwards bytes verbatim and validates nothing, so there is one
+      idea of what a valid request is rather than two
+- [x] Four methods, none of which names a path, a command, a flag or a profile
+- [x] The URL is schema-validated as http(s) and passed as one argv element
+- [x] A rejection carries the request id, so a client with two requests in
+      flight is not told only that *something* failed
+- [x] `launcher:install-extension` derives the extension id the way Chrome does
+      and writes the host manifest for every Chromium-family browser present
+- [x] A stopped launcher shows the same Start button, never an error
+- [x] Start is disabled while a sign-in question is open — the caption sends you
+      to the menu bar, and an enabled button beside it is contradictory advice
+- [x] `capture` and `crawl` announce their run id like `inspect` always did
+- [x] The relay and socket are driven end to end by an integration test, with
+      real Chrome-style framing, as a real subprocess
+
+## The popover, drawn rather than only decided
+
+- [x] The renderer asks for state on load; a push at startup races the page
+      load and is dropped, which left the panel empty with no Start on it
+- [x] `did-finish-load` pushes too, for a reload that replaces the listener
+- [x] An integration test launches Electron and asserts the panel paints itself
+      and offers Start — the gap `docs/limitations.md` had recorded, and the
+      one that actually broke
+- [x] That test runs with its own user-data directory and its own socket, so it
+      cannot collide with a running launcher or take over its socket
+- [x] `UI_ATLAS_SOCKET` overrides the socket path for exactly that reason
+
 ### Still to build
 
 (nothing in the brief)
 
 ## Still out of scope
 
-Extension packaging, distributed workers, AI control, CDP animation, perceptual
-(near-duplicate) hashing.
+Signed Web Store packaging of the extension, distributed workers, AI control,
+CDP animation, perceptual (near-duplicate) hashing.

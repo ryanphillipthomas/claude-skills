@@ -25,6 +25,7 @@ const KNOWN_BOOLEAN_FLAGS = new Set([
   'video',
   'tokens',
   'animations',
+  'wait-for-signin',
 ]);
 
 /**
