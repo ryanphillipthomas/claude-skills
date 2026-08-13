@@ -28,8 +28,9 @@ import {
   type Viewport,
 } from '@ui-atlas/protocol';
 import { flagNumber, flagString, requireHttpUrl, type ParsedArgs } from '../args.js';
-import { loadCliConfig, TOOL_VERSION } from '../config.js';
+import { loadCliConfig, withProjectForUrl, TOOL_VERSION } from '../config.js';
 import type { Logger } from '../logger.js';
+import { refreshProjectPage } from '../project-session.js';
 
 export const ANIMATIONS_HELP = `
 ui-atlas animations <url> [options]
@@ -80,7 +81,10 @@ export async function runAnimations(args: ParsedArgs, logger: Logger): Promise<n
   const url = requireHttpUrl(target);
   const offsets = parseOffsets(flagString(args, 'offsets'));
   const videoMs = flagNumber(args, 'video-ms');
-  const loaded = await loadCliConfig(args, { browser: { headless: true } });
+  const loaded = withProjectForUrl(
+    await loadCliConfig(args, { browser: { headless: true } }),
+    url,
+  );
   const { config } = loaded;
   const runId = newRunId();
 
@@ -277,6 +281,7 @@ export async function runAnimations(args: ParsedArgs, logger: Logger): Promise<n
   }
 
   logger.info(`artifacts: ${writer.paths.runDir}`);
+  await refreshProjectPage({ outputRoot: loaded.outputRoot, project: config.project, logger });
   if (args.flags.get('json') === true) {
     process.stdout.write(
       `${JSON.stringify({ animations: records, frames }, null, 2)}\n`,

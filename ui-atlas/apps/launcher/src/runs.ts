@@ -10,7 +10,7 @@
 import { existsSync } from 'node:fs';
 import { readdir, readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
-import { readPages, readRunManifest } from '@ui-atlas/artifacts';
+import { listProjects, readPages, readProjectSessions, readRunManifest } from '@ui-atlas/artifacts';
 import { authPaths, savedAuthShape, type AuthPaths } from '@ui-atlas/browser';
 import { shortRunLabel, type AuthStatus, type AuthVerdict, type RecentRun } from './popover.js';
 
@@ -51,13 +51,17 @@ export async function readRecentRuns(options: ReadRunsOptions): Promise<RecentRu
   for (const runId of entries) {
     if (runs.length >= (options.limit ?? 4)) break;
     const runDir = join(projectDir, runId);
-    const run = await readOneRun(runDir, runId);
+    const run = await readOneRun(runDir, runId, { project: options.project });
     if (run !== undefined) runs.push(run);
   }
   return runs;
 }
 
-async function readOneRun(runDir: string, runId: string): Promise<RecentRun | undefined> {
+async function readOneRun(
+  runDir: string,
+  runId: string,
+  context: { project: string; resumeUrl?: string | undefined } = { project: 'default' },
+): Promise<RecentRun | undefined> {
   const manifestPath = join(runDir, 'run.json');
   if (!existsSync(manifestPath)) return undefined;
 
@@ -72,10 +76,62 @@ async function readOneRun(runDir: string, runId: string): Promise<RecentRun | un
       finishedAt: millisOf(manifest.finishedAt) ?? millisOf(manifest.startedAt),
       runDir,
       hasReport: existsSync(join(runDir, 'report', 'index.html')),
+      project: context.project,
+      // The page this session actually loaded is the truest place to reopen; the
+      // project's last URL stands in when it recorded no page at all.
+      resumeUrl: first?.finalUrl ?? context.resumeUrl,
     };
   } catch {
     return undefined;
   }
+}
+
+/**
+ * Recent sessions across every project, newest first.
+ *
+ * The launcher used to list one project's runs, because there was one project.
+ * Now a project is a website, so the list has to span them — otherwise pointing
+ * the launcher at a second site makes the first site's afternoon of work vanish
+ * from the panel, which is the opposite of what a resumable list is for.
+ */
+export async function readRecentSessions(options: {
+  outputRoot: string;
+  limit?: number;
+}): Promise<RecentRun[]> {
+  const projects = await listProjects(options.outputRoot);
+  const runs: RecentRun[] = [];
+
+  for (const project of projects) {
+    const sessions = await readProjectSessions(options.outputRoot, project.project, {
+      // One extra per project, so a project whose newest session is unreadable
+      // still contributes its next one to the merge.
+      limit: (options.limit ?? 4) + 1,
+      withRoutes: false,
+    });
+    for (const session of sessions) {
+      const run = await readOneRun(session.runDir, session.id, {
+        project: project.project,
+        resumeUrl: project.manifest?.lastUrl ?? project.manifest?.site.entryUrl,
+      });
+      if (run !== undefined) runs.push(run);
+    }
+  }
+
+  runs.sort((a, b) => (b.finishedAt ?? 0) - (a.finishedAt ?? 0) || b.runId.localeCompare(a.runId));
+  return runs.slice(0, options.limit ?? 4);
+}
+
+/** Sessions started today, across every project. */
+export async function countSessionsTodayOnDisk(
+  outputRoot: string,
+  now: number,
+): Promise<number> {
+  const projects = await listProjects(outputRoot);
+  let count = 0;
+  for (const project of projects) {
+    count += await countRunsTodayOnDisk({ outputRoot, project: project.project }, now);
+  }
+  return count;
 }
 
 /** `/pricing`, matching what the overlay's own flow calls a page. */

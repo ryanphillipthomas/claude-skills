@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { isAbsolute, resolve } from 'node:path';
+import { projectSlugFromUrl } from '@ui-atlas/artifacts';
 import { loadConfig, type UiAtlasConfig } from '@ui-atlas/config';
 import { flagBoolean, flagNumber, flagString, type ParsedArgs } from './args.js';
 
@@ -20,6 +21,29 @@ export interface CliConfig {
   config: UiAtlasConfig;
   outputRoot: string;
   sourcePath: string | undefined;
+  /** Whether `config.project` was chosen or merely defaulted. */
+  projectSource: 'override' | 'file' | 'default';
+}
+
+/**
+ * The project a URL belongs in.
+ *
+ * A project is a website, so the directory is named after the site unless
+ * somebody said otherwise — with `--project`, or with `project:` in a config
+ * file. Both of those are a deliberate choice and neither is overridden here.
+ */
+export function projectForUrl(loaded: CliConfig, url: string): string {
+  return loaded.projectSource === 'default' ? projectSlugFromUrl(url) : loaded.config.project;
+}
+
+/**
+ * Apply `projectForUrl` to a loaded config, so a command can pass one object on
+ * to the session without the two disagreeing about which project it is in.
+ */
+export function withProjectForUrl(loaded: CliConfig, url: string): CliConfig {
+  const project = projectForUrl(loaded, url);
+  if (project === loaded.config.project) return loaded;
+  return { ...loaded, config: { ...loaded.config, project } };
 }
 
 /**
@@ -67,7 +91,12 @@ export async function loadCliConfig(
     ? loaded.config.outputRoot
     : resolve(loaded.baseDir, loaded.config.outputRoot);
 
-  return { config: loaded.config, outputRoot, sourcePath: loaded.sourcePath };
+  return {
+    config: loaded.config,
+    outputRoot,
+    sourcePath: loaded.sourcePath,
+    projectSource: loaded.projectSource,
+  };
 }
 
 /** `UI_ATLAS_HEADLESS=1` lets CI run the same commands without a display. */

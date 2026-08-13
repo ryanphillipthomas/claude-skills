@@ -4,8 +4,9 @@ import { settlePage } from '@ui-atlas/settle';
 import { TokenScanner } from '@ui-atlas/tokens';
 import { UiAtlasError, type DesignTokenReport, type TokenCategory } from '@ui-atlas/protocol';
 import { requireHttpUrl, type ParsedArgs } from '../args.js';
-import { loadCliConfig, TOOL_VERSION } from '../config.js';
+import { loadCliConfig, withProjectForUrl, TOOL_VERSION } from '../config.js';
 import type { Logger } from '../logger.js';
+import { refreshProjectPage } from '../project-session.js';
 
 export const TOKENS_HELP = `
 ui-atlas tokens <url> [more urls...] [options]
@@ -45,7 +46,13 @@ export async function runTokens(args: ParsedArgs, logger: Logger): Promise<numbe
     throw new UiAtlasError('config.invalid', 'tokens needs at least one URL\n\n' + TOKENS_HELP);
   }
   const urls = targets.map((target) => requireHttpUrl(target));
-  const loaded = await loadCliConfig(args, { browser: { headless: true } });
+  // The first URL names the project, the same way it does for every other
+  // command — a token scan of a site belongs in that site's project, which is
+  // where the project page and the design prompt go looking for it.
+  const loaded = withProjectForUrl(
+    await loadCliConfig(args, { browser: { headless: true } }),
+    urls[0] ?? '',
+  );
   const { config } = loaded;
   const runId = newRunId();
 
@@ -121,6 +128,9 @@ export async function runTokens(args: ParsedArgs, logger: Logger): Promise<numbe
   for (const warning of report.warnings) logger.warn(warning);
   reportTokens(report, logger);
   logger.info(`artifacts: ${writer.paths.runDir}`);
+  // The scan is the one thing that fills the project page's Observed values
+  // section and the prompt's, so rebuilding here is what makes them appear.
+  await refreshProjectPage({ outputRoot: loaded.outputRoot, project: config.project, logger });
 
   if (args.flags.get('json') === true) {
     process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);

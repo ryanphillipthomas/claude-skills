@@ -413,6 +413,51 @@ export const RunManifestSchema = z.object({
 export type RunManifest = z.infer<typeof RunManifestSchema>;
 
 /* -------------------------------------------------------------------------- */
+/* Projects                                                                    */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The website a project is about.
+ *
+ * A project directory is named after the site rather than after a person's
+ * choice, so opening the same URL twice lands in the same place — that is what
+ * makes "go back into this and keep going" possible at all.
+ */
+export const ProjectSiteSchema = z.object({
+  /** `https://stripe.com`. Scheme and host, never a path or a query. */
+  origin: z.string(),
+  /** `stripe.com`, or `localhost:3000` — the host as typed, with its port. */
+  host: z.string(),
+  /** What the page called itself the first time, when it said anything. */
+  label: z.string(),
+  /** The URL the first session opened, so a resume knows where to go back to. */
+  entryUrl: z.string(),
+});
+export type ProjectSite = z.infer<typeof ProjectSiteSchema>;
+
+/**
+ * `project.json`, at the root of a project directory.
+ *
+ * Deliberately thin. The sessions, their counts and everything they captured
+ * are read back from the run directories themselves — a second copy here would
+ * be a second bookkeeping system, and the two would eventually disagree. This
+ * file holds only what a scan of those directories cannot recover: which site
+ * the project is about, and what to reopen when someone resumes it.
+ */
+export const ProjectManifestSchema = z.object({
+  schemaVersion: SchemaVersionSchema,
+  /** The directory name, which is also the `--project` value. */
+  project: z.string(),
+  site: ProjectSiteSchema,
+  createdAt: IsoDateTimeSchema,
+  updatedAt: IsoDateTimeSchema,
+  /** Where the most recent session was pointed. A resume opens this. */
+  lastUrl: z.string().optional(),
+  lastSessionId: z.string().optional(),
+});
+export type ProjectManifest = z.infer<typeof ProjectManifestSchema>;
+
+/* -------------------------------------------------------------------------- */
 /* Interaction inventory                                                       */
 /* -------------------------------------------------------------------------- */
 

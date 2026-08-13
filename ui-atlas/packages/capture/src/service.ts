@@ -1,6 +1,12 @@
 import type { Frame, Locator, Page } from 'playwright';
 import type { UiAtlasConfig } from '@ui-atlas/config';
-import { captureSlug, newCaptureId, routeKeyFromUrl, type RunWriter } from '@ui-atlas/artifacts';
+import {
+  captureSlug,
+  newCaptureId,
+  pngThumbnail,
+  routeKeyFromUrl,
+  type RunWriter,
+} from '@ui-atlas/artifacts';
 import { describeCandidate, resolveElement } from '@ui-atlas/identity';
 import { settlePage, waitAnimationFrames } from '@ui-atlas/settle';
 import {
@@ -70,6 +76,17 @@ export interface CaptureOnceOptions {
    * one breakpoint is a result, not a broken run.
    */
   elementAbsentOutcome?: 'fail' | 'skip' | undefined;
+  /**
+   * Called with an inline preview of the shot, when anything wants one.
+   *
+   * Opt-in because decoding and rescaling a PNG is real work that a headless
+   * crawl has no use for: no callback, no thumbnail, no cost. It is a callback
+   * rather than a field on the record because the preview is for a live panel,
+   * not for the run on disk — writing a few kilobytes of base64 into every line
+   * of `captures.jsonl` would bloat the artifact for something no reader of it
+   * needs.
+   */
+  onThumbnail?: ((dataUri: string) => void) | undefined;
 }
 
 const NO_OVERLAY: OverlayControl = { hide: async () => undefined, show: async () => undefined };
@@ -240,6 +257,13 @@ export class CaptureService {
         if (!includeOverlay) await this.overlay.show().catch(() => undefined);
       }
       steps.push({ action: 'capture', target: request.kind });
+
+      // After the shot and outside the hidden-overlay window: a preview is
+      // never worth holding the inspector off screen for a moment longer.
+      if (request.onThumbnail !== undefined) {
+        const preview = pngThumbnail(bytes);
+        if (preview !== undefined) request.onThumbnail(preview);
+      }
 
       const image = await writer.writeScreenshot(
         {

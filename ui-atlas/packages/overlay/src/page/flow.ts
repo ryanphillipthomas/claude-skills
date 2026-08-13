@@ -104,18 +104,18 @@ export function nextStep(input: FlowInput): FlowAdvice {
         total: FLOW_TOTAL,
         text:
           `${countCaptures(input.capturedHere)} on ${input.pageLabel}. ` +
-          'Open the Output tab to see what was written, and what each file is called.',
+          'The captured list below names each file as it lands.',
       };
     }
 
     // Step 5 is the one thing the panel could never answer before: where did it
-    // all go? "Open folder" is the answer, and it is a button.
+    // all go? "Show in Finder" is the answer, and it is a button.
     return {
       step: 'finish',
       position: FLOW_TOTAL,
       total: FLOW_TOTAL,
       text:
-        `${countCaptures(input.runTotal)} in this run. Open folder shows them on disk; ` +
+        `${countCaptures(input.runTotal)} in this run. Show in Finder reveals them on disk; ` +
         'Open report shows them side by side. Or carry on — the next capture joins the same run.',
     };
   }
@@ -161,14 +161,14 @@ export const FLOW_INSTRUCTIONS: ReadonlyArray<{ step: number; title: string; det
     step: 4,
     title: 'Review',
     detail:
-      'The Output tab lists what was written and what each file is called — names come ' +
+      'The captured list names every file as it lands — names come ' +
       'from the element itself, like button--save-changes--hover.png.',
   },
   {
     step: 5,
     title: 'Open',
     detail:
-      '📁 Folder in the title bar reveals the run on disk from anywhere; Open report builds a ' +
+      'Show in Finder, above the captured list, reveals the run on disk; Open report builds a ' +
       'page showing every capture side by side. Both print the path in the terminal too.',
   },
 ];

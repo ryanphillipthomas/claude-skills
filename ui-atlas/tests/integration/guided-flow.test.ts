@@ -55,19 +55,17 @@ async function captureSelection(): Promise<void> {
   await harness.session.queue.drain();
 }
 
-/** Bring a tab forward. Sections live in tabs now, not one long scroll. */
-async function openTab(name: string): Promise<void> {
-  await harness.session.page.getByRole('tab', { name, exact: true }).click();
+/** Bring a block into view. Design 3a shows every block at once. */
+async function goToStep(name: string): Promise<void> {
+  await harness.session.page.getByRole('button', { name, exact: true }).click();
 }
 
-/** Is a section expanded? Headings are toggles; the caret is decorative. */
-async function sectionOpen(title: string): Promise<boolean> {
-  return harness.session.page.evaluate((name) => {
+/** Is the help sheet open? It lives behind the ? in the title bar. */
+async function helpOpen(): Promise<boolean> {
+  return harness.session.page.evaluate(() => {
     const shadow = document.querySelector('[data-ui-atlas-overlay]')?.shadowRoot;
-    const headings = Array.from(shadow?.querySelectorAll('.ua-section__heading') ?? []);
-    const target = headings.find((h) => (h.textContent ?? '').includes(name));
-    return target?.getAttribute('aria-expanded') === 'true';
-  }, title);
+    return shadow?.querySelector('.ua-help-sheet')?.hasAttribute('hidden') === false;
+  });
 }
 
 async function readRunCaptures(): Promise<CaptureRecord[]> {
@@ -124,11 +122,12 @@ describe('the guided flow', () => {
     await harness.session.overlay.waitForMount();
 
     // 274px of onboarding on every run was more than a quarter of the panel.
-    expect(await sectionOpen('How this works')).toBe(false);
+    // In 3a it is a sheet behind the ? rather than a section at all.
+    expect(await helpOpen()).toBe(false);
     expect((await flowLine()).text).toContain('Press Inspect');
 
-    await harness.session.page.getByRole('button', { name: /How this works/u }).click();
-    expect(await sectionOpen('How this works')).toBe(true);
+    await harness.session.page.getByRole('button', { name: 'How this works', exact: true }).click();
+    expect(await helpOpen()).toBe(true);
     expect((await flowLine()).text).toContain('Press Inspect');
   });
 
@@ -136,7 +135,7 @@ describe('the guided flow', () => {
     await harness.session.navigate(harness.url('/states.html'));
     await harness.session.overlay.waitForMount();
 
-    const parent = harness.session.page.getByRole('button', { name: '↑ Parent', exact: true });
+    const parent = harness.session.page.getByRole('button', { name: 'Parent', exact: true });
     expect(await parent.isDisabled()).toBe(true);
 
     await harness.session.page.getByRole('button', { name: 'Inspect', exact: true }).click();
@@ -174,7 +173,7 @@ describe('the guided flow', () => {
     const flow = await flowLine();
     expect(flow.badge).toBe('Step 4 of 5');
     expect(flow.text).toContain('on /states.html');
-    expect(flow.text).toContain('Output tab');
+    expect(flow.text).toContain('captured list');
   });
 });
 
@@ -185,9 +184,6 @@ describe('the Output section', () => {
     await harness.session.page.getByRole('button', { name: 'Inspect', exact: true }).click();
     await selectMenuButton();
     await captureSelection();
-    // Capturing brings the Output tab forward by itself only once the summary
-    // has been asked for; until then the user is still on Capture.
-    await openTab('Output');
   }
 
   /** The file rows as the panel actually renders them. */
@@ -204,7 +200,7 @@ describe('the Output section', () => {
   it('lists what was written, by the name it was written under', async () => {
     await captureOne();
     await harness.session.page
-      .getByRole('button', { name: 'What have I captured?', exact: true })
+      .getByRole('button', { name: 'All files in this run', exact: true })
       .click();
     await harness.session.page.locator('.ua-files li').first().waitFor({ timeout: 10_000 });
 
@@ -216,7 +212,7 @@ describe('the Output section', () => {
   it('never shows an absolute path, which would leak the home directory', async () => {
     await captureOne();
     await harness.session.page
-      .getByRole('button', { name: 'What have I captured?', exact: true })
+      .getByRole('button', { name: 'All files in this run', exact: true })
       .click();
     await harness.session.page.locator('.ua-files li').first().waitFor({ timeout: 10_000 });
 
@@ -232,7 +228,7 @@ describe('the Output section', () => {
 
   it('opens the run folder, and only ever the run folder', async () => {
     await captureOne();
-    await harness.session.page.getByRole('button', { name: 'Open folder', exact: true }).click();
+    await harness.session.page.getByRole('button', { name: 'Show in Finder', exact: true }).click();
 
     await expect.poll(() => harness.opened.length, { timeout: 10_000 }).toBeGreaterThan(0);
     expect(harness.opened[0]).toBe(harness.session.writer.paths.runDir);
@@ -250,7 +246,7 @@ describe('the Output section', () => {
   it('reaches the last step once the output has been looked at', async () => {
     await captureOne();
     await harness.session.page
-      .getByRole('button', { name: 'What have I captured?', exact: true })
+      .getByRole('button', { name: 'All files in this run', exact: true })
       .click();
 
     await harness.session.page.waitForFunction(() => {
@@ -259,7 +255,7 @@ describe('the Output section', () => {
     });
     const flow = await flowLine();
     expect(flow.badge).toBe('Step 5 of 5');
-    expect(flow.text).toContain('Open folder');
+    expect(flow.text).toContain('Show in Finder');
   });
 });
 
@@ -328,35 +324,63 @@ describe('the panel fits on screen', () => {
     expect(fit.bottom).toBeLessThanOrEqual(fit.windowHeight);
   });
 
-  it('keeps the whole main loop in one tab', async () => {
+  it('keeps the whole main loop on one screen', async () => {
     await harness.session.navigate(harness.url('/states.html'));
     await harness.session.overlay.waitForMount();
 
-    // Select-then-capture is the one sequence this tool exists for. A tab
-    // boundary in the middle of it would be worse than the scrolling tabs
-    // replaced, so Mode, Element, States and Capture all live together.
-    const headings = await harness.session.page.evaluate(() => {
+    // Select-then-capture is the one sequence this tool exists for. Design 3a
+    // puts every block on screen at once and lets a segmented control say where
+    // you are, so nothing in that sequence is ever behind a tab — and a capture
+    // that finishes lands in a list you are already looking at.
+    const blocks = await harness.session.page.evaluate(() => {
       const shadow = document.querySelector('[data-ui-atlas-overlay]')?.shadowRoot;
-      return Array.from(shadow?.querySelectorAll('.ua-tabpanel .ua-section__heading') ?? []).map(
-        (heading) => heading.textContent?.replace(/[▾▸]/g, '').trim() ?? '',
-      );
+      const visible = (selector: string): boolean => {
+        const node = shadow?.querySelector(selector) as HTMLElement | null;
+        return node !== null && node !== undefined && node.getClientRects().length > 0;
+      };
+      return {
+        titles: Array.from(shadow?.querySelectorAll('.ua-block__title') ?? []).map(
+          (title) => title.textContent ?? '',
+        ),
+        target: visible('.ua-target'),
+        cards: visible('.ua-cards'),
+        capture: visible('.ua-btn--capture'),
+        shots: visible('.ua-shots'),
+      };
     });
-    expect(headings).toEqual(['Mode', 'Element', 'States to capture', 'Capture']);
+    expect(blocks.titles).toEqual(['States', 'Viewport', 'Captured']);
+    expect([blocks.target, blocks.cards, blocks.capture, blocks.shots]).toEqual([
+      true,
+      true,
+      true,
+      true,
+    ]);
   });
 
-  it('shows one tab at a time, and remembers a section\u2019s state across a switch', async () => {
+  it('marks the step you are on without hiding the others', async () => {
     await harness.session.navigate(harness.url('/states.html'));
     await harness.session.overlay.waitForMount();
 
-    await openTab('Viewport');
-    expect(await sectionOpen('Viewport')).toBe(false);
-    await harness.session.page.getByRole('button', { name: /Viewport/u }).last().click();
-    expect(await sectionOpen('Viewport')).toBe(true);
+    const current = async (): Promise<string> =>
+      harness.session.page.evaluate(
+        () =>
+          document
+            .querySelector('[data-ui-atlas-overlay]')
+            ?.shadowRoot?.querySelector('.ua-steps [aria-current="step"]')?.textContent ?? '',
+      );
 
-    // Switching away and back moves the section element; it does not rebuild it.
-    await openTab('Capture');
-    await openTab('Viewport');
-    expect(await sectionOpen('Viewport')).toBe(true);
+    // Nothing is selected yet, so the panel is still asking you to pick.
+    expect(await current()).toBe('Pick');
+
+    await goToStep('Review');
+    expect(await current()).toBe('Review');
+    // The states grid did not go anywhere: this is a step marker, not a tab.
+    expect(
+      await harness.session.page.evaluate(() => {
+        const shadow = document.querySelector('[data-ui-atlas-overlay]')?.shadowRoot;
+        return (shadow?.querySelector('.ua-cards') as HTMLElement | null)?.getClientRects().length ?? 0;
+      }),
+    ).toBeGreaterThan(0);
   });
 
   it('shrinks to the essentials, and gives the capture buttons back', async () => {
@@ -372,7 +396,7 @@ describe('the panel fits on screen', () => {
       });
 
     const full = await height();
-    await harness.session.page.getByRole('button', { name: '▴', exact: true }).click();
+    await harness.session.page.getByRole('button', { name: 'Shrink to the essentials', exact: true }).click();
     const compact = await height();
     expect(compact).toBeLessThan(full);
 
@@ -382,11 +406,17 @@ describe('the panel fits on screen', () => {
       return shadow?.querySelectorAll('.ua-compact .ua-row').length ?? 0;
     });
     expect(rows).toBe(1);
-    expect(
-      await harness.session.page.getByRole('button', { name: /^Capture /u }).first().isVisible(),
-    ).toBe(true);
+    // The footer control comes with the row, whichever variant it is wearing —
+    // it reads "Capture …" when something is selected and names the missing
+    // precondition when nothing is, so match the control rather than its copy.
+    const controlVisible = await harness.session.page.evaluate(() => {
+      const shadow = document.querySelector('[data-ui-atlas-overlay]')?.shadowRoot;
+      const control = shadow?.querySelector('.ua-compact .ua-btn--capture') as HTMLElement | null;
+      return control !== null && control.getBoundingClientRect().height > 0;
+    });
+    expect(controlVisible).toBe(true);
 
-    await harness.session.page.getByRole('button', { name: '▾', exact: true }).click();
+    await harness.session.page.getByRole('button', { name: 'Show the whole panel', exact: true }).click();
     expect(await height()).toBe(full);
   });
 
@@ -417,33 +447,34 @@ describe('the panel fits on screen', () => {
     expect(after.bottom - after.top).toBeGreaterThanOrEqual(200);
   });
 
-  it('offers the folder from the title bar, which never scrolls away', async () => {
+  it('reveals the run folder from the captured list', async () => {
     await harness.session.navigate(harness.url('/states.html'));
     await harness.session.overlay.waitForMount();
 
-    await harness.session.page.getByRole('button', { name: '📁 Folder', exact: true }).click();
+    // 3a gives the title bar to help and collapse, and puts "Show in Finder"
+    // where the files themselves are listed.
+    await harness.session.page.getByRole('button', { name: 'Show in Finder', exact: true }).click();
     await expect.poll(() => harness.opened.length, { timeout: 10_000 }).toBeGreaterThan(0);
     expect(harness.opened[0]).toBe(harness.session.writer.paths.runDir);
   });
 
-  it('brings the tab forward when a button fills a section behind it', async () => {
+  it('renders the animation list in place, with no tab to go and find', async () => {
     await harness.session.navigate(harness.url('/states.html'));
     await harness.session.overlay.waitForMount();
 
     await harness.session.page.getByRole('button', { name: 'Animation…', exact: true }).click();
-    // Revealing a collapsed section is not enough once tabs exist: content
-    // rendered into a tab you are not looking at reads as "nothing happened".
+    // Content that arrives in a pane you are not looking at reads as "nothing
+    // happened". With every block on screen, the list simply appears.
+    await harness.session.page.locator('.ua-anim-host').first().waitFor({ timeout: 10_000 });
     await expect
       .poll(
         () =>
           harness.session.page.evaluate(() => {
             const shadow = document.querySelector('[data-ui-atlas-overlay]')?.shadowRoot;
-            const active = shadow?.querySelector('.ua-tab--active');
-            return active?.textContent ?? '';
+            return (shadow?.querySelector('.ua-anim-host')?.textContent ?? '').length;
           }),
         { timeout: 10_000 },
       )
-      .toBe('Animation');
-    expect(await sectionOpen('Animation')).toBe(true);
+      .toBeGreaterThan(0);
   });
 });

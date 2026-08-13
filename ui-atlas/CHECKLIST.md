@@ -630,6 +630,77 @@ the instructions block.
 
 (nothing in the brief)
 
+## Projects, sessions, and the handover (design turn 7)
+
+A project is a website; a session is one sitting in front of it.
+[ADR 0035](docs/adr/0035-a-project-is-a-website-and-a-session-is-a-sitting.md),
+[ADR 0036](docs/adr/0036-the-prompt-is-data-and-the-export-is-a-second-view.md).
+
+- [x] The project directory is named after the site — `stripe-com`,
+      `localhost-3000` — so opening the same site next week lands in the same
+      place and the material accumulates
+- [x] `www.` dropped, port kept: one project for the domain either way, two for
+      two dev servers
+- [x] A name someone chose is never overridden. `loadConfig` reports
+      `projectSource`, because `project` always has a value by the time the
+      schema is done and a choice has to be distinguishable from a default
+- [x] `project.json` holds only what a scan cannot recover — the site, and where
+      to reopen. Sessions, counts and captures are read back from the run
+      directories, so there is no second list to disagree with the first
+- [x] `entryUrl` is written once; `lastUrl` is what moves
+- [x] A session *is* a run. `--resume <id>` / `--resume last` reopens the
+      directory through the same `RunWriter.resume` interrupted crawls use, so
+      names stay claimed and the final counts cover the whole session
+- [x] Every URL-taking command derives the same project, so `inspect`,
+      `capture`, `crawl`, `tokens` and `animations` accumulate into one
+- [x] The launcher lists sessions across every project, each row naming its own,
+      and offers Resume only where something recorded where to go back to
+- [x] Resume passes `--project` and `--resume` explicitly, so it cannot land
+      elsewhere because the config changed in between
+
+### The project page
+
+- [x] `<project>/index.html`, rebuilt whenever a session ends: sessions, pages,
+      components with the states actually captured, motion, observed values with
+      swatches, and every file with the name it would get on export
+- [x] Static markup, readable with JavaScript off; the only script is the
+      prompt's copy buttons, reading `textContent` from a `<pre>`
+- [x] Site text escaped and never assembled into markup — one test captures an
+      element whose accessible name is `</pre><script>`
+- [x] The one style attribute on the page is matched against a colour shape
+      rather than escaped and trusted
+- [x] Writes a page for a project that has captured nothing, saying so
+
+### The design prompt
+
+- [x] Stages as data in one file, prose above a marked line and plumbing below
+- [x] Foundations → Components → Refinement at Apple precision → Motion →
+      Screens, each assuming the previous one's output
+- [x] Only what was observed: counts from the token scan, states from the
+      capture records, widths from the viewports actually used
+- [x] Gaps named as gaps. No token scan gets a paragraph telling the model to
+      read values off the images and label its estimates, not a missing section
+- [x] A stage whose subject was never captured is omitted *and listed* as
+      omitted — asking for a motion system from a project where nothing moved is
+      asking for fiction
+- [x] One derivation (`ProjectFacts`) feeds both the page and the prompt, so
+      they cannot disagree about what was captured
+- [x] `--prompt [stage]` prints to stdout; each stage has its own copy button
+
+### Export names
+
+- [x] Planned in one pass, because a name is only unique relative to the set
+- [x] Pages, then components, then motion; a component's states stay together in
+      matrix order rather than scattering across the set
+- [x] Routes numbered by when each was *first* captured, not by iteration order,
+      which follows the sessions and would put the newest sitting first
+- [x] Minimal names that gain a qualifier — viewport, then route, then session —
+      only where something else would collide
+- [x] Copies, never renames: a record, its sidecar and its image stay pointing
+      at each other. Re-running clears the folder so nothing lingers under a
+      name this run no longer assigns
+- [x] `--dry-run` prints the names without writing a few hundred files
+
 ## Still out of scope
 
 Signed Web Store packaging of the extension, distributed workers, AI control,

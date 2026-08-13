@@ -32,6 +32,14 @@ export interface RecentRun {
   finishedAt: number | undefined;
   runDir: string;
   hasReport: boolean;
+  /** The project — which is to say the site — this session belongs to. */
+  project: string;
+  /**
+   * Where reopening this session would go. Absent when nothing recorded a URL
+   * for it, in which case the row cannot offer a resume rather than guessing
+   * one.
+   */
+  resumeUrl: string | undefined;
 }
 
 export type AuthVerdict = 'signed-in' | 'signed-out' | 'unclear' | 'unknown';
@@ -67,8 +75,11 @@ export interface RunRow {
   title: string;
   detail: string;
   runDir: string;
+  project: string;
   /** Absent when the run has no report to open yet. */
   reportAction: 'open-report' | undefined;
+  /** Absent when nothing recorded where this session was pointed. */
+  resumeAction: 'resume-session' | undefined;
 }
 
 export type PopoverBody =
@@ -101,7 +112,7 @@ export type PopoverBody =
 
 export interface FooterItem {
   label: string;
-  action: LauncherAction | 'reveal-captures' | 'settings' | 'quit';
+  action: LauncherAction | 'reveal-captures' | 'open-project-page' | 'settings' | 'quit';
   /** Shown right-aligned in monospace, e.g. `⌘Q`. */
   shortcut: string | undefined;
 }
@@ -115,6 +126,7 @@ export interface PopoverModel {
 }
 
 export const FOOTER: readonly FooterItem[] = [
+  { label: 'Open project page', action: 'open-project-page', shortcut: undefined },
   { label: 'Show captures in Finder', action: 'reveal-captures', shortcut: undefined },
   { label: 'Settings…', action: 'settings', shortcut: '⌘,' },
   { label: 'Quit UI Atlas', action: 'quit', shortcut: '⌘Q' },
@@ -262,15 +274,23 @@ export function shortRunLabel(runId: string): string {
   return `run ${suffix.length > 0 ? suffix : runId}`;
 }
 
+/**
+ * The project leads, because the list now spans every site this launcher has
+ * been pointed at and "run 4f2a · /pricing" does not say which site's /pricing
+ * that is. The route, the file count and the time move into the detail line,
+ * where they still fit at 308px.
+ */
 function runRow(run: RecentRun, now: number): RunRow {
   const files = run.fileCount === 1 ? '1 file' : `${String(run.fileCount)} files`;
   const when = run.finishedAt === undefined ? 'not finished' : relativeTime(run.finishedAt, now);
   return {
     runId: run.runId,
-    title: `${shortRunLabel(run.runId)} · ${run.label}`,
-    detail: `${files} · ${when}`,
+    title: run.project,
+    detail: `${run.label} · ${files} · ${when}`,
     runDir: run.runDir,
+    project: run.project,
     reportAction: run.hasReport ? 'open-report' : undefined,
+    resumeAction: run.resumeUrl === undefined ? undefined : 'resume-session',
   };
 }
 

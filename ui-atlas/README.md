@@ -54,7 +54,15 @@ as it was.
   browser gets a different card with no way past it: see
   [ADR 0030](docs/adr/0030-a-challenge-is-obeyed-not-worked-around.md).
 - **Running** — the page to inspect, which profile is loaded and when it
-  expires, and the last few runs with a link to each report.
+  expires, and the last few sessions.
+
+Starting a capture creates or reopens a project named after the site, so the
+session list spans every site you have pointed it at rather than one configured
+project. Each row names its project and offers **Resume**, which reopens that
+session and keeps capturing into it — a row only offers it when something
+recorded where that session was pointed, because a resume that guessed a URL
+would open the wrong page. `Open project page` in the footer opens the current
+project's `index.html`.
 
 The launcher never claims what it cannot observe. It names the profile it
 loaded rather than an account name it has no way of knowing, and it does not
@@ -241,6 +249,70 @@ the summary instead; `--no-html` skips writing the report.
 
 The report contains no authentication material, no absolute paths, and no
 executable content derived from the sites you captured.
+
+### Projects and sessions
+
+A project is a website; a session is one sitting in front of it. Every command
+that takes a URL derives its project from the site, so `inspect`, `capture`,
+`crawl` and `tokens` against one site all accumulate in one directory.
+
+```bash
+npm run ui-atlas -- project                    # every project, most recent first
+npm run ui-atlas -- project stripe-com         # rebuild its page, print the path
+npm run ui-atlas -- project stripe-com --sessions
+npm run ui-atlas -- project stripe-com --open
+```
+
+`<project>/index.html` is rebuilt automatically whenever a session ends. It is
+one static page holding everything the project knows: every session with its
+counts and a link into its folder and report, every page visited, every
+component with the states actually captured, what moves, the observed values
+with swatches, and every file with the name it would be given on export.
+
+**Going back in.** A finished session is resumable — from the launcher's list,
+or directly:
+
+```bash
+npm run ui-atlas -- inspect https://stripe.com/pricing --resume last
+npm run ui-atlas -- inspect https://stripe.com/pricing --resume 20260812T160000Z-a1b2c3
+```
+
+Captures append to that session's directory. Names already claimed stay claimed,
+and the session's final counts cover the whole of it rather than only the part
+after the resume. Without `--resume` you get a new session in the same project,
+which is equally fine — the project is what accumulates.
+
+### The design prompt
+
+The bottom of every project page is a prompt built from what that project
+actually captured, in stages you run in order:
+
+1. **Foundations** — the token set, from the reference images and the observed
+   computed values.
+2. **Components** — each captured component, in exactly the states there is
+   evidence for.
+3. **Refinement, at Apple precision** — optical alignment, hairlines at device
+   pixels, type metrics, contrast ratios, focus rings, easing.
+4. **Motion** — only when something was actually captured moving.
+5. **Screens** — the system reassembled as the pages it came from.
+
+Each stage has its own copy button on the page, or:
+
+```bash
+npm run ui-atlas -- project stripe-com --prompt              # all stages
+npm run ui-atlas -- project stripe-com --prompt refinement   # one of them
+```
+
+The prompt describes only what was observed, and says plainly where the material
+is thin — a project with no token scan gets a paragraph telling the model to
+read values off the images and label its estimates, rather than a missing
+section it would quietly fill in. A stage whose subject was never captured is
+left out and listed as left out.
+
+The stages live in `packages/reporter/src/design-prompt.ts` as data — an id, a
+title, and a function from observed facts to text — above a line marking where
+the prose ends and the plumbing begins. Editing the prompt means editing that
+file and rebuilding.
 
 ### Crawl
 
@@ -794,10 +866,21 @@ The two answers it separates:
 
 ## Output
 
+A **project is a website** and a **session is one sitting in front of it**. The
+project directory is named after the site — `stripe-com`, `localhost-3000` — so
+opening the same site next week lands in the same place and the material
+accumulates. `--project <name>`, or `project:` in the config, overrides that.
+
 ```
 ui-atlas-output/
-  <project>/
-    <run-id>/
+  <project>/                                          one website
+    project.json                                      which site, and where to reopen
+    index.html                                        everything captured, plus the design prompt
+    exports/                                          renamed copies, written by `ui-atlas export`
+      01-page-pricing-desktop.png
+      02-component-button-save-changes.png
+      manifest.json                                   what each exported file came from
+    <session-id>/                                     one sitting
       run.json                                        run manifest
       index.md                                        every capture, with what it is
       captures.jsonl                                  one record per capture
@@ -839,6 +922,36 @@ at the run root — and one inside each route folder — lists every file with a
 sentence saying what is in it, so a renaming pass has a map. **Renaming a file
 does not update `captures.jsonl` or the `.json` sidecar beside it**; rename the
 sidecar to match if you want the pair to stay together.
+
+### Export names
+
+The working names above are for scrolling a folder mid-run: they are grouped by
+route and viewport because the folders are, and they repeat freely because the
+folder gives them context. An export has no folders — it is a flat pile of
+reference images handed to a design tool, read in the order they sort.
+
+```bash
+ui-atlas export stripe-com --dry-run
+```
+
+```
+01-page-pricing-desktop.png
+02-page-pricing-mobile-sm.png
+03-component-button-save-changes.png
+04-component-button-save-changes-hover.png
+05-component-button-save-changes-focus.png
+06-motion-img-hero-frame-000.png
+```
+
+Pages first, then components, then motion. A component's states stay together,
+in matrix order. Each name starts as the shortest thing that could work and
+gains a qualifier — viewport, then route, then session — only where something
+else would otherwise be called the same thing, so `button-save-hover` stays
+`button-save-hover` unless there really are two of them.
+
+Exporting **copies**; the originals are never renamed, so a capture record, its
+sidecar and its image stay pointing at each other. Re-running replaces the
+folder, and `--dry-run` prints the names without writing anything.
 
 Every write is atomic: a temporary file in the same directory, fsynced,
 checksummed, then renamed. A capture that failed or was skipped is written as a

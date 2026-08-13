@@ -24,7 +24,8 @@ import {
 import { loadProbeBundle, probeLocator } from '@ui-atlas/overlay';
 import { UiAtlasError, type CrawlState, type PageRecord } from '@ui-atlas/protocol';
 import { flagNumber, flagString, type ParsedArgs } from '../args.js';
-import { loadCliConfig, TOOL_VERSION } from '../config.js';
+import { loadCliConfig, projectForUrl, TOOL_VERSION } from '../config.js';
+import { noteProjectSession, refreshProjectPage } from '../project-session.js';
 import { checkSignIn } from '../signin-check.js';
 import type { Logger } from '../logger.js';
 import { reportTokens } from './tokens.js';
@@ -185,7 +186,14 @@ export async function runCrawl(args: ParsedArgs, logger: Logger): Promise<number
   const resumed = resumeDir === undefined ? undefined : await resolveResumeTarget(resumeDir);
   const outputRoot = resumed?.outputRoot ?? loaded.outputRoot;
   const runId = resumed?.runId ?? newRunId();
-  const project = resumed?.project ?? config.project;
+  // A crawl is about one site, so its project is named after the first seed —
+  // the same rule `inspect` and `capture` follow, so all three accumulate into
+  // one project rather than three. A resumed crawl keeps the project it was
+  // already writing into.
+  const projectSeed = config.crawl.seeds[0];
+  const project =
+    resumed?.project ??
+    (projectSeed === undefined ? config.project : projectForUrl(loaded, projectSeed));
 
   const viewport = resolveViewport({
     name: 'base',
@@ -241,6 +249,16 @@ export async function runCrawl(args: ParsedArgs, logger: Logger): Promise<number
   // tool does, so knowing where it is writing before it finishes matters most
   // here — and it is what the launcher watches for.
   logger.info(`run ${writer.runId} → ${relative(process.cwd(), writer.paths.runDir)}`);
+
+  if (projectSeed !== undefined) {
+    await noteProjectSession({
+      outputRoot,
+      project,
+      url: projectSeed,
+      sessionId: writer.runId,
+      logger,
+    });
+  }
 
   // A plain crawl injects nothing into the pages it visits: no overlay, no
   // probe. Recipes and the inventory both need the probe, because both must
@@ -442,6 +460,7 @@ export async function runCrawl(args: ParsedArgs, logger: Logger): Promise<number
 
   report(result, logger);
   logger.info(`artifacts: ${writer.paths.runDir}`);
+  await refreshProjectPage({ outputRoot, project, logger });
   if (args.flags.get('json') === true) {
     process.stdout.write(`${JSON.stringify({ manifest, crawl: summarise(result) }, null, 2)}\n`);
   }

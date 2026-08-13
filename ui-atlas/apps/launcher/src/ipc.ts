@@ -36,6 +36,13 @@ export type LauncherRequest =
   | { kind: 'reveal-captures' }
   | { kind: 'reveal-run'; runId: string }
   | { kind: 'open-report'; runId: string }
+  /**
+   * Reopen a finished session and keep capturing into it. The renderer names a
+   * session it was shown; the URL, the project and the resume flag are all
+   * resolved on this side from what is on disk.
+   */
+  | { kind: 'resume-session'; runId: string }
+  | { kind: 'open-project-page' }
   | { kind: 'settings' }
   | { kind: 'quit' }
   /** Content height after a redraw; only the renderer can know it. */

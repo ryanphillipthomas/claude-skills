@@ -328,17 +328,24 @@ function runsList(runs: readonly RunRow[], dispatch: Dispatch): HTMLElement {
     row.append(el('div', 'thumb'), stack);
     pressable(row, dispatch, { kind: 'reveal-run', runId: run.runId });
 
-    if (run.reportAction !== undefined) {
-      const report = pressable(el('button', 'link', 'Report'), dispatch, {
-        kind: 'open-report',
-        runId: run.runId,
-      });
-      // The row reveals the folder; the link opens the report. Without this the
-      // link's click would also trigger the row underneath it.
-      report.addEventListener('click', (event) => {
+    // The row reveals the folder; each link does its own thing. Without
+    // stopping propagation a link's click would also trigger the row it sits
+    // on, and reveal a folder nobody asked for.
+    const link = (label: string, request: LauncherRequest): HTMLElement => {
+      const node = pressable(el('button', 'link', label), dispatch, request);
+      node.addEventListener('click', (event) => {
         event.stopPropagation();
       });
-      row.append(report);
+      return node;
+    };
+
+    // Resume comes first: going back into a session is the reason this list
+    // exists, and the report is what you read when you are done.
+    if (run.resumeAction !== undefined) {
+      row.append(link('Resume', { kind: 'resume-session', runId: run.runId }));
+    }
+    if (run.reportAction !== undefined) {
+      row.append(link('Report', { kind: 'open-report', runId: run.runId }));
     }
     list.append(row);
   }
@@ -355,11 +362,13 @@ function footer(model: PopoverModel, dispatch: Dispatch): HTMLElement {
     const request: LauncherRequest =
       item.action === 'reveal-captures'
         ? { kind: 'reveal-captures' }
-        : item.action === 'settings'
-          ? { kind: 'settings' }
-          : item.action === 'quit'
-            ? { kind: 'quit' }
-            : requestFor({ label: item.label, action: item.action });
+        : item.action === 'open-project-page'
+          ? { kind: 'open-project-page' }
+          : item.action === 'settings'
+            ? { kind: 'settings' }
+            : item.action === 'quit'
+              ? { kind: 'quit' }
+              : requestFor({ label: item.label, action: item.action });
     menu.append(pressable(button, dispatch, request));
   }
   return menu;

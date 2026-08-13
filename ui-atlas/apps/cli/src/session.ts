@@ -69,6 +69,7 @@ import {
   type Viewport,
 } from '@ui-atlas/protocol';
 import type { Logger } from './logger.js';
+import { noteProjectSession, refreshProjectPage } from './project-session.js';
 import { platformOpener, type Opener } from './reveal.js';
 import { checkSignIn } from './signin-check.js';
 
@@ -86,6 +87,18 @@ export interface StartSessionOptions {
    * headless environment can be given nothing at all.
    */
   opener?: Opener | undefined;
+  /**
+   * The site this session is about. Recorded on the project, which is what
+   * makes a project resumable later — the launcher needs somewhere to reopen.
+   */
+  siteUrl?: string | undefined;
+  /**
+   * Continue an existing session rather than opening a new one. Captures are
+   * appended to that session's directory, its earlier names stay claimed, and
+   * its final counts cover the whole of it rather than only the part after the
+   * resume.
+   */
+  resumeSessionId?: string | undefined;
 }
 
 interface Selection {
@@ -130,7 +143,6 @@ export class AtlasSession {
 
   static async start(options: StartSessionOptions): Promise<AtlasSession> {
     const { config, logger } = options;
-    const runId = newRunId();
     const viewport = resolveViewport({
       name: 'base',
       width: config.viewport.width,
@@ -139,23 +151,46 @@ export class AtlasSession {
       deviceScaleFactor: config.viewport.deviceScaleFactor,
     });
 
-    const writer = new RunWriter(
-      options.outputRoot,
-      emptyManifest({
-        runId,
+    // A resumed session keeps its own id, its start time and the command that
+    // opened it. What actually resumes is the directory: the writer recovers
+    // the counts and the filenames already claimed in it, so the second sitting
+    // cannot write over the first one's work.
+    const writer =
+      options.resumeSessionId === undefined
+        ? new RunWriter(
+            options.outputRoot,
+            emptyManifest({
+              runId: newRunId(),
+              project: config.project,
+              command: options.command,
+              toolVersion: options.toolVersion,
+              baseViewport: viewport,
+              browser: {
+                engine: 'chromium',
+                mode: config.browser.mode,
+                headless: config.browser.headless,
+                ...(config.browser.profile === undefined
+                  ? {}
+                  : { profileName: config.browser.profile }),
+              },
+            }),
+          )
+        : await RunWriter.resume(options.outputRoot, config.project, options.resumeSessionId);
+    if (options.resumeSessionId === undefined) await writer.init();
+    const runId = writer.runId;
+
+    // The project is the website. Stamped on every session so a project opened
+    // once and returned to a week later is the same project, pointing at the
+    // same place.
+    if (options.siteUrl !== undefined) {
+      await noteProjectSession({
+        outputRoot: options.outputRoot,
         project: config.project,
-        command: options.command,
-        toolVersion: options.toolVersion,
-        baseViewport: viewport,
-        browser: {
-          engine: 'chromium',
-          mode: config.browser.mode,
-          headless: config.browser.headless,
-          ...(config.browser.profile === undefined ? {} : { profileName: config.browser.profile }),
-        },
-      }),
-    );
-    await writer.init();
+        url: options.siteUrl,
+        sessionId: runId,
+        logger,
+      });
+    }
 
     // The handler closure needs the session, which needs the browser, which
     // needs the handler. A late-bound holder breaks the cycle.
@@ -200,6 +235,7 @@ export class AtlasSession {
             return { jobs: await session.handleCaptureRequest(source, params) };
           },
           'queue/list': async () => ({ jobs: requireSession(holder).queue.list() }),
+          'queue/cancel': async () => requireSession(holder).queue.stop(),
           'viewport/set': async (_source, params) => {
             const session = requireSession(holder);
             return { viewport: await session.applyViewport(params.width, params.height, params.presetName) };
@@ -571,13 +607,25 @@ export class AtlasSession {
       states,
       label,
       // A capture applies its own state; a held preview would contaminate it.
-      run: async (report) =>
+      run: async (report, shouldStop) =>
         this.withoutPreview(async () => {
           const captureIds: string[] = [];
           const warnings: string[] = [];
           const setId = states.length > 1 ? `set-${this.runId}-${String(Date.now())}` : undefined;
+          // The first shot stands for the job in the panel's captured list.
+          let thumbnail: string | undefined;
+          const fileNames: string[] = [];
 
           for (const state of states) {
+            // Between shots is the only safe place to stop: the state for the
+            // previous one has been released and the next has not been applied,
+            // so the page is exactly as it was found.
+            if (shouldStop()) {
+              warnings.push(
+                `stopped after ${String(captureIds.length)} of ${String(states.length)} states`,
+              );
+              break;
+            }
             report(`${state} (${String(captureIds.length + 1)}/${String(states.length)})`);
             const record = await this.captures.capture({
               kind: request.kind,
@@ -585,15 +633,21 @@ export class AtlasSession {
               identity,
               frame,
               includeOverlay: request.includeOverlay,
+              onThumbnail: (preview) => {
+                thumbnail ??= preview;
+              },
               ...(setId === undefined ? {} : { set: { id: setId, kind: 'state' as const, member: state } }),
             });
             captureIds.push(record.id);
+            // The name only. The path stays on this side of the bridge.
+            const written = record.image?.relativePath;
+            if (written !== undefined) fileNames.push(written.split('/').pop() ?? written);
             warnings.push(...record.warnings);
             if (record.status === 'failed' && record.error !== undefined) {
               warnings.push(`${state}: ${record.error.code} — ${record.error.message}`);
             }
           }
-          return { captureIds, warnings };
+          return { captureIds, warnings, thumbnail, fileNames };
         }),
     });
 
@@ -1092,6 +1146,14 @@ export class AtlasSession {
       ...(this.browser.browserVersion === undefined
         ? {}
         : { browserVersion: this.browser.browserVersion }),
+    });
+    // Rebuilt from every session in the project, so the page is current the
+    // moment the browser closes rather than the next time somebody remembers
+    // to ask for it.
+    await refreshProjectPage({
+      outputRoot: this.options.outputRoot,
+      project: this.options.config.project,
+      logger: this.options.logger,
     });
     await this.browser.close();
     return manifest;

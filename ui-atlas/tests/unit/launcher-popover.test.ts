@@ -63,14 +63,15 @@ describe('which body the popover shows', () => {
     expect(model.body.card.evidence).toEqual(['redirected to /login']);
   });
 
-  it('always offers the same three footer items', () => {
+  it('always offers the same footer items', () => {
     const model = popoverModel(initialState(), T0, facts());
     expect(model.footer.map((item) => item.label)).toEqual([
+      'Open project page',
       'Show captures in Finder',
       'Settings…',
       'Quit UI Atlas',
     ]);
-    expect(model.footer[2]?.shortcut).toBe('⌘Q');
+    expect(model.footer[3]?.shortcut).toBe('⌘Q');
   });
 });
 
@@ -157,8 +158,8 @@ describe('the saved-sign-in row', () => {
   });
 });
 
-describe('recent runs', () => {
-  it('counts files and says when, and only links a report that exists', () => {
+describe('recent sessions', () => {
+  it('names the project, counts files, and only links what exists', () => {
     const model = popoverModel(
       ready(),
       T0,
@@ -171,6 +172,8 @@ describe('recent runs', () => {
             finishedAt: T0 - 3 * 60_000,
             runDir: '/runs/a1b2c3',
             hasReport: true,
+            project: 'stripe-com',
+            resumeUrl: 'https://stripe.com/pricing',
           },
           {
             runId: '20260811T160000Z-b2c3d4',
@@ -179,18 +182,26 @@ describe('recent runs', () => {
             finishedAt: T0 - 26 * 3_600_000,
             runDir: '/runs/b2c3d4',
             hasReport: false,
+            project: 'shop-example-com',
+            resumeUrl: undefined,
           },
         ],
       }),
     );
     if (model.body.kind !== 'ready') throw new Error('expected the ready body');
-    // Short enough for a 308px row; the full id is the row's tooltip.
-    expect(model.body.runs[0]?.title).toBe('run a1b2c3 · /pricing');
+    // The list spans projects, so the site leads and everything else moves to
+    // the detail line. The full run id is still the row's tooltip.
+    expect(model.body.runs[0]?.title).toBe('stripe-com');
     expect(model.body.runs[0]?.runId).toBe('20260812T160000Z-a1b2c3');
-    expect(model.body.runs[0]?.detail).toBe('8 files · 3 minutes ago');
+    expect(model.body.runs[0]?.detail).toBe('/pricing · 8 files · 3 minutes ago');
     expect(model.body.runs[0]?.reportAction).toBe('open-report');
-    expect(model.body.runs[1]?.detail).toBe('22 files · yesterday');
+    expect(model.body.runs[0]?.resumeAction).toBe('resume-session');
+    expect(model.body.runs[1]?.title).toBe('shop-example-com');
+    expect(model.body.runs[1]?.detail).toBe('/checkout · 22 files · yesterday');
     expect(model.body.runs[1]?.reportAction).toBeUndefined();
+    // Nothing recorded where this one was pointed, so it cannot offer to go
+    // back to it rather than guessing somewhere.
+    expect(model.body.runs[1]?.resumeAction).toBeUndefined();
   });
 });
 

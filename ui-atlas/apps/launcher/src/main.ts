@@ -12,6 +12,7 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, screen, shell, 
 import { existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { projectSlugFromUrl } from '@ui-atlas/artifacts';
 import { loadConfig } from '@ui-atlas/config';
 import { authPaths } from '@ui-atlas/browser';
 import { CHANNEL_ACTION, CHANNEL_STATE, type LauncherRequest, type LauncherSnapshot } from './ipc.js';
@@ -24,7 +25,12 @@ import {
   type PopoverFacts,
   type RecentRun,
 } from './popover.js';
-import { countRunsTodayOnDisk, listProfiles, readAuthStatus, readRecentRuns } from './runs.js';
+import {
+  countSessionsTodayOnDisk,
+  listProfiles,
+  readAuthStatus,
+  readRecentSessions,
+} from './runs.js';
 import { initialState, reduce, type LauncherEvent, type LauncherState } from './startup.js';
 import { Supervisor, type InspectTarget } from './supervisor.js';
 import { PANEL_WIDTH } from './renderer/styles.js';
@@ -49,7 +55,14 @@ interface Session {
   logOpen: boolean;
   notice: string | undefined;
   outputRoot: string;
-  project: string;
+  /**
+   * A project name from the config, when the config actually chose one.
+   *
+   * Absent is the normal case and means "named after whatever site is being
+   * captured" — the engine derives that itself, so the launcher only needs to
+   * agree with it well enough to look in the right directory afterwards.
+   */
+  configuredProject: string | undefined;
 }
 
 let tray: Tray | undefined;
@@ -70,8 +83,23 @@ const session: Session = {
   logOpen: false,
   notice: undefined,
   outputRoot: join(WORKSPACE_ROOT, 'ui-atlas-output'),
-  project: 'default',
+  configuredProject: undefined,
 };
+
+/**
+ * The project the *next* capture would write into.
+ *
+ * Same rule the CLI follows, so the launcher's "Open project page" and the
+ * engine's output directory cannot disagree: a name from the config wins,
+ * otherwise the site names it.
+ */
+function currentProject(): string {
+  return session.configuredProject ?? projectSlugFromUrl(session.target.url);
+}
+
+function projectDir(project: string): string {
+  return join(session.outputRoot, project);
+}
 
 // --- Snapshot ----------------------------------------------------------------
 
@@ -197,9 +225,11 @@ async function handleBridge(request: BridgeRequest): Promise<void> {
 // --- Facts from disk ----------------------------------------------------------
 
 async function refreshRuns(): Promise<void> {
-  const options = { outputRoot: session.outputRoot, project: session.project };
-  session.runs = await readRecentRuns({ ...options, limit: 3 });
-  session.runsToday = await countRunsTodayOnDisk(options, Date.now());
+  // Across every project, not just the one the next capture would use: the list
+  // is what you go back into, and yesterday's site is exactly the thing you
+  // would want to reopen.
+  session.runs = await readRecentSessions({ outputRoot: session.outputRoot, limit: 3 });
+  session.runsToday = await countSessionsTodayOnDisk(session.outputRoot, Date.now());
   // The bundled browser's version is recorded in every manifest, so the header
   // states the engine it actually used rather than one it might use next time.
   session.engineLabel = undefined;
@@ -209,7 +239,8 @@ async function refreshRuns(): Promise<void> {
 async function loadWorkspace(): Promise<void> {
   try {
     const loaded = await loadConfig({ overrides: {} });
-    session.project = loaded.config.project;
+    session.configuredProject =
+      loaded.projectSource === 'default' ? undefined : loaded.config.project;
     session.outputRoot = resolve(loaded.baseDir, loaded.config.outputRoot);
     if (loaded.config.browser.profile !== undefined) {
       session.target.profile = loaded.config.browser.profile;
@@ -327,7 +358,7 @@ async function handle(request: LauncherRequest): Promise<void> {
       return;
 
     case 'reveal-captures':
-      await openPath(supervisor.runDir ?? session.outputRoot);
+      await openPath(supervisor.runDir ?? projectDir(currentProject()));
       return;
 
     case 'reveal-run': {
@@ -339,6 +370,43 @@ async function handle(request: LauncherRequest): Promise<void> {
     case 'open-report': {
       const run = session.runs.find((item) => item.runId === request.runId);
       if (run !== undefined) await openPath(join(run.runDir, 'report', 'index.html'));
+      return;
+    }
+
+    case 'open-project-page':
+      await openPath(join(projectDir(currentProject()), 'index.html'));
+      return;
+
+    case 'resume-session': {
+      const run = session.runs.find((item) => item.runId === request.runId);
+      if (run === undefined) return;
+      if (run.resumeUrl === undefined) {
+        // Only rows that recorded a URL offer this, so reaching here means the
+        // list moved underneath the click. Saying so beats opening something
+        // else.
+        session.notice = 'That session did not record a page to reopen.';
+        push();
+        return;
+      }
+
+      // The session is reopened where it was, in the project it belongs to —
+      // not in whatever the URL field happens to say. Both are passed
+      // explicitly so a resume cannot land somewhere else because the config
+      // changed since.
+      session.target = { ...session.target, url: run.resumeUrl };
+      rememberUrl(run.resumeUrl);
+      session.authVerdict = 'unknown';
+      session.authCheckedAt = undefined;
+      session.notice = undefined;
+      await supervisor.start(session.target, [
+        'inspect',
+        run.resumeUrl,
+        '--auto-inspect',
+        '--project',
+        run.project,
+        '--resume',
+        run.runId,
+      ]);
       return;
     }
 

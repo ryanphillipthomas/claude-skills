@@ -20,6 +20,16 @@ export interface LoadedConfig {
   sourcePath: string | undefined;
   /** Directory that relative paths in the config resolve against. */
   baseDir: string;
+  /**
+   * Where `config.project` came from.
+   *
+   * A project directory is named after the site by default, so that opening the
+   * same URL twice lands in the same place. That must not override a name
+   * someone actually chose, and `project` always has a value by the time the
+   * schema is done with it — so the caller needs to know whether the value it
+   * is holding was asked for or defaulted.
+   */
+  projectSource: 'override' | 'file' | 'default';
 }
 
 /** Plain-object check that rejects arrays and class instances. */
@@ -148,6 +158,12 @@ export async function loadConfig(options: LoadConfigOptions = {}): Promise<Loade
     config,
     sourcePath,
     baseDir: sourcePath === undefined ? cwd : dirname(sourcePath),
+    projectSource:
+      options.overrides?.['project'] !== undefined
+        ? 'override'
+        : fileData['project'] !== undefined
+          ? 'file'
+          : 'default',
   };
 }
 

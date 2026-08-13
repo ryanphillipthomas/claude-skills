@@ -64,7 +64,7 @@ describe('nextStep', () => {
     expect(advice.step).toBe('review');
     expect(advice.position).toBe(4);
     expect(advice.text).toContain('4 captures so far on /pricing');
-    expect(advice.text).toContain('Output tab');
+    expect(advice.text).toContain('captured list');
   });
 
   it('only reaches the last step once the output has actually been looked at', () => {
@@ -80,7 +80,7 @@ describe('nextStep', () => {
     // The run total, not the page total: by now the question is "where is all
     // of this?", not "what did I get on this page?".
     expect(advice.text).toContain('11 captures so far in this run');
-    expect(advice.text).toContain('Open folder');
+    expect(advice.text).toContain('Show in Finder');
   });
 
   it('counts one capture in the singular', () => {

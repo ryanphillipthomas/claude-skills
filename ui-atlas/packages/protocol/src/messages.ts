@@ -75,6 +75,20 @@ export const QUEUE_JOB_STATUSES = ['queued', 'running', 'done', 'failed', 'cance
 export const QueueJobStatusSchema = z.enum(QUEUE_JOB_STATUSES);
 export type QueueJobStatus = z.infer<typeof QueueJobStatusSchema>;
 
+/**
+ * A preview of what a job captured, small enough to travel in the event.
+ *
+ * Constrained to an inline PNG rather than left as a free string: the panel
+ * assigns it to an `img` inside the site being captured, so any other scheme
+ * would turn a status update into a network request made from that site's
+ * origin. The host is the only producer — this shape is what stops a
+ * page-supplied value from ever being mistaken for one.
+ */
+export const ThumbnailSchema = z
+  .string()
+  .max(262_144)
+  .regex(/^data:image\/png;base64,[A-Za-z0-9+/]+={0,2}$/u);
+
 export const QueueJobSchema = z.object({
   id: z.string(),
   createdAt: z.string(),
@@ -86,6 +100,17 @@ export const QueueJobSchema = z.object({
   captureIds: z.array(z.string()),
   warnings: z.array(z.string()),
   error: StructuredErrorSchema.optional(),
+  /** The first shot this job wrote. Absent until it has written one. */
+  thumbnail: ThumbnailSchema.optional(),
+  /**
+   * Names of the files written, in the order they were written.
+   *
+   * Names only, never paths: a file name is derived from the site's own
+   * content, where an absolute path would hand the page the user's home
+   * directory. This is what lets the captured list say
+   * `save-changes--hover.png` rather than a capture id.
+   */
+  fileNames: z.array(z.string()).default([]),
 });
 export type QueueJob = z.infer<typeof QueueJobSchema>;
 
@@ -156,6 +181,23 @@ export const ClearSelectionParamsSchema = z.object({});
 export const CaptureResultSchema = z.object({ jobs: z.array(QueueJobSchema) });
 export const QueueListParamsSchema = z.object({});
 export const QueueListResultSchema = z.object({ jobs: z.array(QueueJobSchema) });
+
+/**
+ * Stop the captures that have not started.
+ *
+ * Deliberately not a kill switch for the running one: a capture in flight has
+ * already applied a state to the live page and has to put it back, and tearing
+ * it down half-way would leave the site holding a hover it never asked for.
+ * `stopped` is how many were still queued, so the panel can say what it did
+ * rather than claim it stopped everything.
+ */
+export const QueueCancelParamsSchema = z.object({});
+export const QueueCancelResultSchema = z.object({
+  stopped: z.number().int().nonnegative(),
+  /** True while a job the cancel could not reach is still finishing. */
+  stillRunning: z.boolean(),
+});
+export type QueueCancelResult = z.infer<typeof QueueCancelResultSchema>;
 
 export const SetViewportParamsSchema = z.object({
   width: z.number().int().min(200).max(10_000),
@@ -294,6 +336,7 @@ export const BRIDGE_METHODS = {
   'element/cleared': { params: ClearSelectionParamsSchema, result: z.object({}) },
   'capture/request': { params: CaptureRequestSchema, result: CaptureResultSchema },
   'queue/list': { params: QueueListParamsSchema, result: QueueListResultSchema },
+  'queue/cancel': { params: QueueCancelParamsSchema, result: QueueCancelResultSchema },
   'viewport/set': { params: SetViewportParamsSchema, result: SetViewportResultSchema },
   'inspect/mode': { params: InspectModeParamsSchema, result: InspectModeResultSchema },
   'state/preview': { params: StatePreviewParamsSchema, result: StatePreviewResultSchema },

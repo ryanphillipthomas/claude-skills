@@ -11,9 +11,10 @@ import {
   STILL_CAPTURE_KINDS,
 } from '@ui-atlas/protocol';
 import { flagString, requireHttpUrl, type ParsedArgs } from '../args.js';
-import { loadCliConfig, TOOL_VERSION } from '../config.js';
+import { loadCliConfig, withProjectForUrl, TOOL_VERSION } from '../config.js';
 import { navigationHint } from '../navigation-hint.js';
 import type { Logger } from '../logger.js';
+import { resolveResumeTarget } from '../project-session.js';
 import { AtlasSession } from '../session.js';
 
 export const CAPTURE_HELP = `
@@ -26,7 +27,8 @@ ui-atlas capture <url> [options]
   --states <list>     comma separated, e.g. default,hover,focus (default: default)
   --responsive        replay the route once per configured viewport, each in a
                       fresh context with its own reload
-  --project <name>    artifact project directory
+  --resume <session>  append to an existing session in this project, or "last"
+  --project <name>    artifact project directory (default: named after the site)
   --output <dir>      artifact root
   --width/--height    base viewport size
   --config <path>     explicit config file
@@ -73,7 +75,21 @@ export async function runCapture(args: ParsedArgs, logger: Logger): Promise<numb
   }
 
   const responsive = args.flags.get('responsive') === true;
-  const loaded = await loadCliConfig(args, { browser: { headless: true } });
+  const loaded = withProjectForUrl(
+    await loadCliConfig(args, { browser: { headless: true } }),
+    url,
+  );
+
+  const requestedResume = flagString(args, 'resume');
+  const resumeSessionId =
+    requestedResume === undefined
+      ? undefined
+      : await resolveResumeTarget({
+          outputRoot: loaded.outputRoot,
+          project: loaded.config.project,
+          requested: requestedResume,
+        });
+
   const session = await AtlasSession.start({
     config: loaded.config,
     outputRoot: loaded.outputRoot,
@@ -81,12 +97,17 @@ export async function runCapture(args: ParsedArgs, logger: Logger): Promise<numb
     toolVersion: TOOL_VERSION,
     logger,
     overlay: false,
+    siteUrl: url,
+    resumeSessionId,
   });
 
   // Same line, same format, as `inspect`. Announcing the run at the start
   // rather than only in the closing `artifacts:` line means you can find it on
   // disk while it is still running — and it is what the launcher watches for.
-  logger.info(`run ${session.runId} → ${relative(process.cwd(), session.writer.paths.runDir)}`);
+  logger.info(
+    `${resumeSessionId === undefined ? 'run' : 'resumed'} ${session.runId} → ` +
+      relative(process.cwd(), session.writer.paths.runDir),
+  );
 
   const records: CaptureRecord[] = [];
   try {

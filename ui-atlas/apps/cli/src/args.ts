@@ -19,6 +19,7 @@ const KNOWN_BOOLEAN_FLAGS = new Set([
   'responsive',
   'open',
   'dry-run',
+  'sessions',
   'inventory',
   'trace-on-failure',
   'sample',

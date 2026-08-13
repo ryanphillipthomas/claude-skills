@@ -7,16 +7,23 @@ import { AUTH_HELP, runAuth } from './commands/auth.js';
 import { CAPTURE_HELP, runCapture } from './commands/capture.js';
 import { CRAWL_HELP, runCrawl } from './commands/crawl.js';
 import { DOCTOR_HELP, runDoctor } from './commands/doctor.js';
+import { EXPORT_HELP, runExport } from './commands/export.js';
 import { INSPECT_HELP, runInspect } from './commands/inspect.js';
+import { PROJECT_HELP, runProject } from './commands/project.js';
 import { REPORT_HELP, runReport } from './commands/report.js';
 import { TOKENS_HELP, runTokens } from './commands/tokens.js';
 
 export const TOP_LEVEL_HELP = `
 ui-atlas — collect website UI reference material for design-system work
 
+A project is a website; a session is one sitting in front of it. Opening the
+same site twice lands in the same project, so the material accumulates.
+
 Commands
   inspect <url>                 open a clean browser with the inspector overlay
   capture <url>                 one-shot non-interactive capture
+  project [name]                list projects, or rebuild one's page and prompt
+  export  <project>             renamed copies of a project, for a design tool
   report  <run-directory>       summarise a run
   auth save <profile> <url>     sign in by hand and store the session
   auth check <profile> <url>    is that stored session still signed in?
@@ -38,6 +45,8 @@ Run \`ui-atlas <command> --help\` for command options.
 const COMMAND_HELP: Record<string, string> = {
   inspect: INSPECT_HELP,
   capture: CAPTURE_HELP,
+  project: PROJECT_HELP,
+  export: EXPORT_HELP,
   report: REPORT_HELP,
   auth: AUTH_HELP,
   crawl: CRAWL_HELP,
@@ -84,6 +93,10 @@ export async function run(options: RunOptions): Promise<number> {
         return await runInspect(args, logger);
       case 'capture':
         return await runCapture(args, logger);
+      case 'project':
+        return await runProject(args, logger);
+      case 'export':
+        return await runExport(args, logger);
       case 'report':
         return await runReport(args, logger);
       case 'auth':

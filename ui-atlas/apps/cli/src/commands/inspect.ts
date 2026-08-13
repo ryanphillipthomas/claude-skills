@@ -3,8 +3,9 @@ import { UiAtlasError } from '@ui-atlas/protocol';
 import { flagBoolean, flagNumber, flagString, requireHttpUrl, type ParsedArgs } from '../args.js';
 import type { Logger } from '../logger.js';
 import { AtlasSession } from '../session.js';
-import { loadCliConfig, TOOL_VERSION } from '../config.js';
+import { loadCliConfig, withProjectForUrl, TOOL_VERSION } from '../config.js';
 import { navigationHint } from '../navigation-hint.js';
+import { resolveResumeTarget } from '../project-session.js';
 
 export const INSPECT_HELP = `
 ui-atlas inspect <url> [options]
@@ -12,7 +13,12 @@ ui-atlas inspect <url> [options]
   Opens a clean Chromium window, injects the inspector overlay, and captures
   whatever you select. Runs until you close the browser.
 
-  --project <name>      artifact project directory (default: from config)
+  A project is a website. Without --project the project directory is named
+  after the site, so opening the same site again lands in the same place and
+  the material accumulates.
+
+  --resume <session>    continue an existing session in this project, or "last"
+  --project <name>      artifact project directory (default: named after the site)
   --profile <name>      named UI Atlas auth profile
   --mode <mode>         clean | profile | storage-state | attach (default: clean)
   --cdp-endpoint <url>  CDP endpoint for --mode attach
@@ -31,7 +37,20 @@ export async function runInspect(args: ParsedArgs, logger: Logger): Promise<numb
     throw new UiAtlasError('config.invalid', 'inspect needs a URL\n\n' + INSPECT_HELP);
   }
   const url = requireHttpUrl(target);
-  const loaded = await loadCliConfig(args, { overlay: { autoInspect: flagBoolean(args, 'auto-inspect') ?? true } });
+  const loaded = withProjectForUrl(
+    await loadCliConfig(args, { overlay: { autoInspect: flagBoolean(args, 'auto-inspect') ?? true } }),
+    url,
+  );
+
+  const requestedResume = flagString(args, 'resume');
+  const resumeSessionId =
+    requestedResume === undefined
+      ? undefined
+      : await resolveResumeTarget({
+          outputRoot: loaded.outputRoot,
+          project: loaded.config.project,
+          requested: requestedResume,
+        });
 
   const session = await AtlasSession.start({
     config: loaded.config,
@@ -40,9 +59,14 @@ export async function runInspect(args: ParsedArgs, logger: Logger): Promise<numb
     toolVersion: TOOL_VERSION,
     logger,
     overlay: true,
+    siteUrl: url,
+    resumeSessionId,
   });
 
-  logger.info(`run ${session.runId} → ${relative(process.cwd(), session.writer.paths.runDir)}`);
+  logger.info(
+    `${resumeSessionId === undefined ? 'run' : 'resumed'} ${session.runId} → ` +
+      relative(process.cwd(), session.writer.paths.runDir),
+  );
   logger.info(`opening ${url}`);
 
   const timeoutMs = flagNumber(args, 'open-timeout');

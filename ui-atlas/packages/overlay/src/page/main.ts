@@ -12,10 +12,12 @@ import type {
   OutputSummaryResult,
   OverlayBootstrap,
   OverlaySession,
+  QueueCancelResult,
   QueueJob,
   StateName,
 } from '@ui-atlas/protocol';
 import { BridgeError, createBridge, type Bridge } from './bridge.js';
+import { CaptureProgressMachine } from './capture-progress.js';
 import { pageLabelFrom } from './flow.js';
 import { Highlight } from './highlight.js';
 import { InspectMode, navigateFrom } from './inspect.js';
@@ -62,6 +64,12 @@ class OverlayApp {
    * not when it lands.
    */
   private jobPages = new Map<string, string>();
+  /**
+   * What the run is doing, folded from the queue events themselves. Every beat
+   * of the capture animation is read from here, so nothing is ever animated on
+   * a guess about how long the host is likely to take.
+   */
+  private readonly captureProgress = new CaptureProgressMachine();
   private rafHandle: number | undefined;
   private keydownHandler: ((event: KeyboardEvent) => void) | undefined;
 
@@ -108,6 +116,16 @@ class OverlayApp {
             void this.requestAnimationCapture('animation-video', id, `record · ${label}`),
           onRefreshOutput: () => void this.refreshOutput(),
           onRevealOutput: (target) => void this.revealOutput(target),
+          onStopCapture: () => void this.stopCapture(),
+          onCaptureSettled: () => {
+            this.captureProgress.releaseComplete();
+            this.toolbar?.setCaptureProgress({
+              view: this.captureProgress.view,
+              startedShot: undefined,
+              completedJobs: [],
+              runFinished: false,
+            });
+          },
         })
       : undefined;
   }
@@ -263,6 +281,29 @@ class OverlayApp {
     }
   }
 
+  /**
+   * Stop the captures that have not started.
+   *
+   * The notice says what actually happened rather than "stopped": a job in
+   * flight is left to finish, because it is holding a state on the live page
+   * and has to put it back.
+   */
+  private async stopCapture(): Promise<void> {
+    try {
+      const result = await this.bridge.call<QueueCancelResult>('queue/cancel', {});
+      const stopped =
+        result.stopped === 1 ? '1 capture dropped' : `${String(result.stopped)} captures dropped`;
+      this.toolbar?.notice(
+        'info',
+        result.stillRunning
+          ? `${stopped}. The one already running is finishing, so the page is left as it was found.`
+          : stopped,
+      );
+    } catch (error) {
+      this.toolbar?.notice('error', describe(error));
+    }
+  }
+
   private async requestAnimationCapture(
     kind: 'animation-frame' | 'animation-video',
     animationId: string | undefined,
@@ -354,8 +395,27 @@ class OverlayApp {
     for (const job of jobs) {
       this.jobs.set(job.id, job);
       if (!this.jobPages.has(job.id)) this.jobPages.set(job.id, page);
+      // The jobs that come back from the request are the run opening. Folding
+      // them in here is what turns the footer control to "Capturing…" on the
+      // press rather than one round trip later.
+      this.trackCapture(job);
     }
     this.refreshJobs();
+  }
+
+  /**
+   * Advance the capture animation by one real event.
+   *
+   * The shutter fires on the host reporting that it has begun a state — the
+   * only per-state signal the queue emits — and only for element captures,
+   * because a viewport shot has no element to sweep.
+   */
+  private trackCapture(job: QueueJob): void {
+    const change = this.captureProgress.apply(job);
+    this.toolbar?.setCaptureProgress(change);
+    if (change.startedShot === undefined) return;
+    if (job.kind !== 'element' || this.selectedElement === undefined) return;
+    this.highlight.flash(this.selectedElement);
   }
 
   /**
@@ -378,6 +438,7 @@ class OverlayApp {
     switch (event.type) {
       case 'queue/update':
         this.jobs.set(event.job.id, event.job);
+        this.trackCapture(event.job);
         this.refreshJobs();
         break;
       case 'session/update':

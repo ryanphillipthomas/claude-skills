@@ -3,7 +3,12 @@
 # easy to find and change. Run `ui-atlas capture <url> --config <path>` to use a
 # different file.
 
-project: default
+# A project is a website, and by default the project directory is named after
+# the site being captured — `stripe-com`, `localhost-3000` — so opening the same
+# site again lands in the same place and the reference material accumulates.
+# Setting `project` here overrides that for every command, which is what you
+# want when several sites belong to one piece of work and not otherwise.
+# project: default
 outputRoot: ./ui-atlas-output
 
 # Base viewport for `inspect` and `capture`.
