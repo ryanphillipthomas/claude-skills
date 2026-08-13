@@ -52,6 +52,11 @@ export const OVERLAY_STYLES = `
   --ua-warn-quiet: rgba(255, 159, 10, 0.16);
   --ua-error-quiet: rgba(255, 69, 58, 0.16);
   --ua-mono: "SF Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  /*
+   * How far down the scrolling body a second sticky row sits: the height of the
+   * step control plus the ring of background it paints around itself.
+   */
+  --ua-sticky-top: 33px;
 }
 
 /*
@@ -327,9 +332,30 @@ button.ua-seg__item--on {
 .ua-steps {
   position: sticky;
   top: 0;
-  z-index: 1;
+  z-index: 2;
   flex: none;
   /* Opaque, or the cards would show through it as they pass underneath. */
+  background: var(--ua-surface-opaque);
+  box-shadow: 0 0 0 4px var(--ua-surface-opaque);
+}
+
+/*
+ * The captured list keeps its heading, the same way.
+ *
+ * Moving the folder button out of the title bar to where 3a draws it gave back
+ * the thing commit #5 removed on purpose: a way to reach the run on disk that
+ * can scroll off screen. Sticking the heading returns that guarantee without
+ * putting a third control back in the title bar — "Show in Finder" is reachable
+ * from anywhere in the list it belongs to, and the file count stays readable
+ * while you scroll the files it is counting.
+ *
+ * The offset is shared with the step control above rather than measured, so the
+ * two cannot drift apart when either one's padding changes.
+ */
+.ua-block__head--sticky {
+  position: sticky;
+  top: var(--ua-sticky-top);
+  z-index: 1;
   background: var(--ua-surface-opaque);
   box-shadow: 0 0 0 4px var(--ua-surface-opaque);
 }

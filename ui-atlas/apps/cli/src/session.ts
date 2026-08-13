@@ -990,7 +990,7 @@ export class AtlasSession {
       kind: input.kind,
       states: input.states,
       label: `${input.label} · ${String(this.options.config.viewports.length)} viewports`,
-      run: async (report) =>
+      run: async (report, shouldStop) =>
         this.withoutPreview(async () => {
         const result = await this.runResponsive({
           url,
@@ -998,16 +998,20 @@ export class AtlasSession {
           states: input.states,
           identity: input.identity,
           onProgress: report,
+          shouldStop,
         });
         const warnings = [...result.warnings];
+        const fileNames: string[] = [];
         for (const record of result.records) {
           warnings.push(...record.warnings);
+          const written = record.image?.relativePath;
+          if (written !== undefined) fileNames.push(written.split('/').pop() ?? written);
           if (record.status !== 'captured' && record.error !== undefined) {
             const viewport = record.set?.member ?? 'viewport';
             warnings.push(`${viewport}: ${record.error.code} — ${record.error.message}`);
           }
         }
-        return { captureIds: result.records.map((record) => record.id), warnings };
+        return { captureIds: result.records.map((record) => record.id), warnings, fileNames };
         }),
     });
   }
@@ -1023,6 +1027,8 @@ export class AtlasSession {
     identity?: ElementIdentity | undefined;
     url?: string | undefined;
     onProgress?: ((message: string) => void) | undefined;
+    /** Checked between viewports, so a long set can be called off. */
+    shouldStop?: (() => boolean) | undefined;
   }): Promise<ResponsiveRunResult> {
     const runner = new ResponsiveRunner({
       config: this.options.config,
@@ -1038,6 +1044,7 @@ export class AtlasSession {
       identity: input.identity,
       setId: `responsive-${this.runId}-${String(Date.now())}`,
       onProgress: input.onProgress,
+      shouldStop: input.shouldStop,
     });
   }
 

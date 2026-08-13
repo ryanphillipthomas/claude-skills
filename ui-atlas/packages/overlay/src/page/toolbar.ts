@@ -340,7 +340,9 @@ export class Toolbar {
 
     /* --- Review ---------------------------------------------------------- */
     this.reviewBlock = div('ua-block');
-    const reviewHead = div('ua-block__head');
+    // Sticky: "Show in Finder" and the file count belong to the list, so they
+    // stay with it however far down it you have scrolled.
+    const reviewHead = div('ua-block__head ua-block__head--sticky');
     const reviewTitle = document.createElement('span');
     reviewTitle.className = 'ua-block__title';
     reviewTitle.textContent = 'Captured';

@@ -50,6 +50,12 @@ export interface ResponsiveRunRequest {
   presets?: ViewportPreset[] | undefined;
   setId: string;
   onProgress?: ((message: string) => void) | undefined;
+  /**
+   * Checked between viewports. A responsive set is the longest thing this tool
+   * does — a fresh browser context per preset — so it is the one a user is most
+   * likely to want to call off part way through.
+   */
+  shouldStop?: (() => boolean) | undefined;
 }
 
 export interface ResponsiveRunResult {
@@ -80,6 +86,16 @@ export class ResponsiveRunner {
     for (let index = 0; index < presets.length; index += 1) {
       const preset = presets[index];
       if (preset === undefined) continue;
+
+      // Between presets is the safe boundary: the previous viewport's context
+      // has been closed and the next has not been opened, so stopping here
+      // leaves no browser context behind and no state applied anywhere.
+      if (request.shouldStop?.() === true) {
+        warnings.push(
+          `stopped after ${String(index)} of ${String(presets.length)} viewports`,
+        );
+        break;
+      }
       request.onProgress?.(`${preset.name} (${String(index + 1)}/${String(presets.length)})`);
 
       const outcome = await this.runOne(preset, request);

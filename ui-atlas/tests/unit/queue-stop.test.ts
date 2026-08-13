@@ -1,6 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import { CaptureQueue } from '../../packages/capture/src/queue.js';
+import { ResponsiveRunner } from '../../packages/capture/src/responsive.js';
+import { validateConfig } from '../../packages/config/src/index.js';
 import type { QueueJob, StateName } from '../../packages/protocol/src/index.js';
+
+/** Enough config for the runner to read its viewport list. */
+function testConfig(): ReturnType<typeof validateConfig> {
+  return validateConfig({ project: 'fixture' });
+}
+
+/** The runner never reaches the writer in these tests; it stops first. */
+function fakeWriter(): unknown {
+  return {};
+}
 
 /**
  * Stop has to mean something. With one job covering every state a user picked,
@@ -120,6 +132,31 @@ describe('CaptureQueue.stop', () => {
   it('reports nothing to stop when the queue is idle', () => {
     const queue = new CaptureQueue();
     expect(queue.stop()).toEqual({ stopped: 0, stillRunning: false });
+  });
+
+  it('stops a responsive set between viewports, keeping the ones it ran', async () => {
+    const runner = new ResponsiveRunner({
+      config: testConfig(),
+      writer: fakeWriter(),
+      runId: 'run-1',
+      project: 'fixture',
+      createTarget: () => {
+        throw new Error('createTarget should never be reached after a stop');
+      },
+    } as unknown as ConstructorParameters<typeof ResponsiveRunner>[0]);
+
+    // Stopped before the first viewport opens a context: the runner must not
+    // even try to create one, because creating it is the expensive part.
+    const result = await runner.run({
+      url: 'http://127.0.0.1/x',
+      kind: 'viewport',
+      states: ['default'],
+      setId: 'set-1',
+      shouldStop: () => true,
+    });
+
+    expect(result.records).toHaveLength(0);
+    expect(result.warnings.join(' ')).toContain('stopped after 0 of');
   });
 
   it('passes a job thumbnail through to the update the panel sees', async () => {
