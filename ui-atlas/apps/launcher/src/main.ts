@@ -468,7 +468,21 @@ function togglePopover(): void {
     return;
   }
   positionPopover();
+
+  /*
+   * Hiding the Dock tile makes this an accessory app, and showing a window
+   * does not activate an accessory app. The window then never becomes the key
+   * window, macOS swallows the first click on it, and the panel reads — from
+   * the outside — as simply not responding: the button is drawn, hit-testable
+   * and wired to a working handler, and nothing happens when you press it.
+   *
+   * `steal: true` activates the app so the window can take key status. The
+   * order matters: activate, show, then focus.
+   */
+  app.focus({ steal: true });
   popover.show();
+  popover.focus();
+
   // Re-read the build and the run list on every open: both change underneath a
   // launcher that has been sitting in the menu bar all afternoon.
   void supervisor.checkBuild();

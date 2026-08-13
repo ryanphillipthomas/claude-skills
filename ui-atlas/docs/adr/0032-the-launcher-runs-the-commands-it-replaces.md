@@ -112,6 +112,22 @@ pure. The renderer draws the model and has no conditions of its own, so "what
 does the panel say when the profile has never been checked?" is a unit test
 rather than something you discover by opening a window and squinting.
 
+### The popover has to be activated, not merely shown
+
+Hiding the Dock tile makes this an accessory app (`LSUIElement`), and showing a
+window does **not** activate an accessory app. The window never becomes the key
+window, and macOS swallows clicks on it.
+
+From the outside that is indistinguishable from a dead button: the panel draws,
+the button is hit-testable, its handler is wired, and pressing it does nothing.
+It cost two rounds of debugging to find, because every layer we could test in
+isolation was working — a mouse event dispatched through Chromium's own input
+pipeline drove the whole launch correctly while a real click did nothing at all.
+The distinguishing evidence is one line: `document.hasFocus()` returned `false`.
+
+So `togglePopover` calls `app.focus({ steal: true })` before `show()`, then
+`popover.focus()`. Activate, show, focus — in that order.
+
 ## Consequences
 
 - Electron is a new devDependency, and the first non-CLI surface in the repo.

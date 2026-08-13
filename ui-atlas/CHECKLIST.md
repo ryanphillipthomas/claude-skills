@@ -591,6 +591,10 @@ the instructions block.
 - [x] That test runs with its own user-data directory and its own socket, so it
       cannot collide with a running launcher or take over its socket
 - [x] `UI_ATLAS_SOCKET` overrides the socket path for exactly that reason
+- [x] The popover is **activated**, not merely shown: an accessory app is not
+      activated by showing a window, so the window never became key and macOS
+      swallowed every click — a drawn, hit-testable, correctly wired button that
+      did nothing. `app.focus({ steal: true })`, then `show()`, then `focus()`
 
 ### Still to build
 

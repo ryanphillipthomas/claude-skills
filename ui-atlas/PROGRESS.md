@@ -1811,6 +1811,26 @@ It evaluates JavaScript rather than moving a pointer, so it proves the popover
 draws and its handlers are wired, not that the window is on screen where you can
 click it. Nothing clicks the tray icon; that is still recorded as uncovered.
 
+### And then the same gap again, one layer down
+
+Reported the same way — Start does nothing — with the panel now drawing
+perfectly. Every layer testable in isolation worked: the button was drawn,
+hit-testable, and wired to a handler that ran; a mouse event dispatched through
+Chromium's own input pipeline drove a complete launch. A real click did nothing.
+
+One line separated the two: `document.hasFocus()` was `false`. Hiding the Dock
+tile makes this an accessory app, and showing a window does not activate an
+accessory app, so the window never became the key window and macOS swallowed
+every click on it. `togglePopover` now activates the app before showing —
+`app.focus({ steal: true })`, `show()`, `focus()`, in that order.
+
+Both of these bugs landed in the gap the limitations file already named. Closing
+it properly would mean a test that steals keyboard focus from whoever is running
+it, mid-run, which is a worse trade than the gap. It stays named rather than
+implied, now with the packaged-app caveat beside it: this is verified from a
+terminal launch, and an `LSUIElement` app can behave differently once bundled
+and signed.
+
 ## Where this leaves the project
 
 **The brief is delivered.** Phases 0 through 4 are complete and every item on the

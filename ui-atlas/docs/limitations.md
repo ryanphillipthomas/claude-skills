@@ -540,6 +540,17 @@ See [ADR 27](adr/0027-the-panel-says-what-to-do-next.md).
   not that the window is positioned, visible or clickable on screen. Nothing
   clicks the tray icon.
 
+  Both launcher bugs found in real use landed in exactly that gap — a panel that
+  never drew, and then a panel whose window could not take clicks because an
+  accessory app is not activated by showing a window. Closing the gap properly
+  would mean an automated test that steals keyboard focus from whoever is
+  running it, mid-run, to assert `document.hasFocus()`. That is a worse trade
+  than the gap, so the gap stays, named rather than implied.
+- **Menu bar behaviour is verified from a terminal launch, not a packaged app.**
+  `npm run launcher` runs Electron directly. Activation and key-window
+  behaviour for an `LSUIElement` app can differ once it is bundled and signed as
+  a `.app`, and nothing here has been through that path.
+
 ## Boundaries of the browser extension
 
 - **Unpacked and unsigned.** It is loaded through Developer mode, not the Web
