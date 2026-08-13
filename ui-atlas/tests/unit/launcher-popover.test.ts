@@ -21,6 +21,7 @@ function facts(overrides: Partial<PopoverFacts> = {}): PopoverFacts {
     recentUrls: ['https://acme.com/pricing'],
     auth: { profile: 'acme', verdict: 'signed-in', expiresAt: undefined, checkedAt: T0 },
     runs: [],
+    newerBuildOnDisk: false,
     ...overrides,
   };
 }
@@ -156,6 +157,36 @@ describe('the saved-sign-in row', () => {
     const row = authRow({ profile: 'acme', verdict: 'signed-out', expiresAt: undefined, checkedAt: T0 }, T0);
     expect(row.tone).toBe('warn');
     expect(row.action?.action).toBe('sign-in');
+  });
+});
+
+describe('the out-of-date warning', () => {
+  it('is absent when the running build is the one on disk', () => {
+    expect(popoverModel(initialState(), T0, facts()).staleBuild).toBeUndefined();
+  });
+
+  it('offers a restart when nothing is running', () => {
+    const model = popoverModel(initialState(), T0, facts({ newerBuildOnDisk: true }));
+    expect(model.staleBuild?.title).toBe('This launcher is running older code');
+    expect(model.staleBuild?.detail).toContain('Restart to pick it up');
+    expect(model.staleBuild?.restartAction).toBe('restart-launcher');
+  });
+
+  it('withholds the restart while a session is live, and says why', () => {
+    const model = popoverModel(ready(), T0, facts({ newerBuildOnDisk: true }));
+    // Restarting would take the browser and the run with it.
+    expect(model.staleBuild?.restartAction).toBeUndefined();
+    expect(model.staleBuild?.detail).toContain('Finish or stop the session');
+  });
+
+  it('appears on every card, because every card is drawn by the old build', () => {
+    const failed = reduceAll([
+      { kind: 'start', at: T0, buildNeeded: false },
+      { kind: 'failed', at: T0, stage: 'browser', message: 'net::ERR_CONNECTION_REFUSED' },
+    ]);
+    for (const state of [initialState(), ready(), failed]) {
+      expect(popoverModel(state, T0, facts({ newerBuildOnDisk: true })).staleBuild).toBeDefined();
+    }
   });
 });
 

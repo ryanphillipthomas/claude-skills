@@ -92,6 +92,26 @@ export async function newestMtime(paths: readonly string[]): Promise<number | un
  */
 const TOLERANCE_MS = 1_000;
 
+/**
+ * Is what is on disk newer than what a running instance loaded?
+ *
+ * Shared by the two places that ask: a second instance deciding what to print,
+ * and the running instance's own panel. They must agree — a terminal saying the
+ * launcher is stale while its panel says nothing would be worse than either
+ * alone.
+ *
+ * Deliberately one-directional. A tree rebuilt and then reverted, or a clock
+ * that went backwards, leaves disk *older*, and that is not a reason to tell
+ * anyone their launcher is out of date.
+ */
+export function isNewerBuild(
+  loadedAt: number | undefined,
+  onDiskAt: number | undefined,
+): boolean {
+  if (loadedAt === undefined || onDiskAt === undefined) return false;
+  return onDiskAt > loadedAt + TOLERANCE_MS;
+}
+
 export function describeSecondInstance(input: {
   running: RunningBuild | undefined;
   /** Newest mtime across the launcher's outputs right now. */
@@ -100,10 +120,9 @@ export function describeSecondInstance(input: {
 }): SecondInstanceVerdict {
   const { running, builtAt, now } = input;
 
-  const stale =
-    running !== undefined && builtAt !== undefined && builtAt > running.builtAt + TOLERANCE_MS;
+  const stale = running !== undefined && isNewerBuild(running.builtAt, builtAt);
 
-  if (!stale) {
+  if (!stale || running === undefined) {
     return {
       stale: false,
       message:

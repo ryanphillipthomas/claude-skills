@@ -7,7 +7,13 @@
  */
 
 import type { LauncherRequest, LauncherSnapshot } from '../ipc.js';
-import type { FooterItem, PopoverBody, PopoverModel, RunRow } from '../popover.js';
+import type {
+  FooterItem,
+  PopoverBody,
+  PopoverModel,
+  RunRow,
+  StaleBuildNotice,
+} from '../popover.js';
 import type { LauncherButton, LauncherTone, StageRow } from '../startup.js';
 
 export type Dispatch = (request: LauncherRequest) => void;
@@ -113,6 +119,9 @@ export function render(root: HTMLElement, snapshot: LauncherSnapshot, dispatch: 
   root.append(header(model, dispatch));
 
   if (model.progress !== undefined) root.append(progress(model.progress));
+  // Directly under the header, above the card: everything below it was drawn
+  // by the build this is warning about.
+  if (model.staleBuild !== undefined) root.append(staleBuild(model.staleBuild, dispatch));
   root.append(el('div', 'divider'));
   root.append(...bodyOf(model.body, snapshot, dispatch));
 
@@ -120,6 +129,18 @@ export function render(root: HTMLElement, snapshot: LauncherSnapshot, dispatch: 
 
   root.append(el('div', 'divider'));
   root.append(footer(model, dispatch));
+}
+
+function staleBuild(notice: StaleBuildNotice, dispatch: Dispatch): HTMLElement {
+  const row = el('div', 'stale');
+  const stack = el('div', 'stack');
+  stack.append(el('span', 'top', notice.title), el('span', 'bottom', notice.detail));
+  row.append(icon(WARN), stack);
+
+  if (notice.restartAction !== undefined) {
+    row.append(pressable(el('button', 'link', 'Restart'), dispatch, { kind: 'restart-launcher' }));
+  }
+  return row;
 }
 
 function header(model: PopoverModel, dispatch: Dispatch): HTMLElement {

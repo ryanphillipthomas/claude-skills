@@ -209,6 +209,32 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; bo
 
 .notice { padding: 0 12px 10px; font-size: 11px; color: var(--warn); }
 
+/*
+ * The out-of-date strip, under the header and above everything else. Tinted
+ * rather than outlined: it is a condition the whole panel is under, not one
+ * more row inside it.
+ */
+.stale {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 9px 12px;
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
+  border-top: 0.5px solid color-mix(in srgb, var(--warn) 28%, transparent);
+  border-bottom: 0.5px solid color-mix(in srgb, var(--warn) 28%, transparent);
+}
+/*
+ * Its own stack rules rather than the ones .row uses: that one ellipsises the
+ * title on a single line, which is right for "Signed in as acme" and wrong for
+ * a sentence that has to be read.
+ */
+.stale .stack { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.stale .top { font-size: 12px; font-weight: 600; color: var(--warn); }
+.stale .bottom { font-size: 10.5px; color: var(--text-4); }
+.stale .link { color: var(--warn); flex: none; }
+/* The warning icon sits on the first line of the title, not centred on both. */
+.stale svg { flex: none; margin-top: 1px; }
+
 /* --- Motion ----------------------------------------------------------------- */
 
 @keyframes ua-spin { to { transform: rotate(360deg); } }

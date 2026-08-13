@@ -48,6 +48,11 @@ export type LauncherRequest =
    * surface that can actually open Finder, which a `file://` page cannot.
    */
   | { kind: 'export-attachments' }
+  /**
+   * Quit and come straight back, to pick up a build made after this one
+   * started. Only offered when nothing is running.
+   */
+  | { kind: 'restart-launcher' }
   | { kind: 'settings' }
   | { kind: 'quit' }
   /** Content height after a redraw; only the renderer can know it. */

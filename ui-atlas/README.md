@@ -46,8 +46,13 @@ as it was.
 One launcher at a time. Running it again while one is up brings that one's panel
 forward and says so — and if you have rebuilt since, it says *that* instead,
 because a running launcher does not reload itself and testing the build you just
-replaced is the failure this warning exists to end. Quit it from the menu bar
-icon and start it again to pick up new code.
+replaced is the failure this warning exists to end.
+
+The panel says it too: rebuild while it is sitting in the menu bar and the next
+time you open it, a strip under the header reads **This launcher is running
+older code**, with a Restart beside it. Restart is withheld while a session is
+live — it would take the browser and the run with it — and the strip says to
+finish or stop the session first.
 
 - **Cold** — the build row says whether it has anything to do. It is checked
   when the popover opens, so "first run only", "sources changed" and "already

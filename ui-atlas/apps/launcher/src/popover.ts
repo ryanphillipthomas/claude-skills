@@ -54,6 +54,36 @@ export interface AuthStatus {
   checkedAt: number | undefined;
 }
 
+/**
+ * The launcher's own code has been rebuilt since this instance loaded it.
+ *
+ * A running launcher does not reload itself, so everything on screen is from
+ * the older build — including, awkwardly, this panel. The terminal already says
+ * so when you try to start a second one; this is the same fact for the person
+ * who rebuilt in one window and came back to the menu bar in another.
+ */
+export interface StaleBuildNotice {
+  title: string;
+  detail: string;
+  /**
+   * Absent while something is running. Restarting takes the browser and the
+   * run with it, and losing an afternoon's captures to a convenience button
+   * would be a far worse bug than the one this warns about.
+   */
+  restartAction: 'restart-launcher' | undefined;
+}
+
+export function staleBuildNotice(phase: LauncherState['phase']): StaleBuildNotice {
+  const busy = phase === 'running' || phase === 'starting' || phase === 'signin';
+  return {
+    title: 'This launcher is running older code',
+    detail: busy
+      ? 'It was rebuilt after this started. Finish or stop the session, then restart to pick it up.'
+      : 'It was rebuilt after this started. Restart to pick it up.',
+    restartAction: busy ? undefined : 'restart-launcher',
+  };
+}
+
 export interface PopoverFacts extends ViewFacts {
   /** The URL the next inspect would open. */
   targetUrl: string;
@@ -61,6 +91,8 @@ export interface PopoverFacts extends ViewFacts {
   recentUrls: readonly string[];
   auth: AuthStatus;
   runs: readonly RecentRun[];
+  /** The launcher's own outputs on disk are newer than the ones it loaded. */
+  newerBuildOnDisk: boolean;
 }
 
 export interface AuthRow {
@@ -127,6 +159,8 @@ export interface PopoverModel {
   header: { title: string; subtitle: string; tone: LauncherTone; action: LauncherButton | undefined };
   /** 0–1 hairline under the header, or absent when nothing is in flight. */
   progress: number | undefined;
+  /** Sits under the header, above everything, when this build has been superseded. */
+  staleBuild: StaleBuildNotice | undefined;
   body: PopoverBody;
   footer: FooterItem[];
 }
@@ -148,11 +182,14 @@ export function popoverModel(state: LauncherState, now: number, facts: PopoverFa
     action: base.headerAction,
   };
   const footer = [...FOOTER];
+  // Every card carries it, because every card is drawn by the old build.
+  const staleBuild = facts.newerBuildOnDisk ? staleBuildNotice(state.phase) : undefined;
 
   if (state.phase === 'signin' && state.signIn !== undefined) {
     return {
       header,
       progress: base.progress,
+      staleBuild,
       body: { kind: 'signin', card: signInCard(state.signIn), stages: base.stages },
       footer,
     };
@@ -162,6 +199,7 @@ export function popoverModel(state: LauncherState, now: number, facts: PopoverFa
     return {
       header,
       progress: undefined,
+      staleBuild,
       body: {
         kind: 'ready',
         urlField: { value: facts.targetUrl, options: facts.recentUrls },
@@ -180,6 +218,7 @@ export function popoverModel(state: LauncherState, now: number, facts: PopoverFa
   return {
     header,
     progress: base.progress,
+    staleBuild,
     body: {
       kind: 'stages',
       stages: base.stages,

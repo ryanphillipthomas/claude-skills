@@ -744,6 +744,12 @@ A project is a website; a session is one sitting in front of it.
       clock that went backwards)
 - [x] An unwritable or corrupt record degrades to the plain message rather than
       guessing, and never stops a launch
+- [x] The panel says it too — a strip under the header, on every card, checked
+      on every open, from the same comparison the terminal makes
+- [x] It offers Restart (`relaunch` then `quit`, so the bridge socket closes),
+      withheld while a session is live because that would take the browser with
+      it — verified by rebuilding, watching the strip appear, pressing Restart,
+      and watching it go
 
 ## Still out of scope
 

@@ -159,6 +159,33 @@ worked. The same-build case is not a failure and exits 0.
 The verdict is a pure function, so what it says in each case is a unit test
 rather than something found by rebuilding and squinting at a terminal.
 
+### And the panel says it too
+
+The terminal only reaches you if you relaunch from one. Rebuild in one window,
+come back to the menu bar in another, and the panel would have gone on quietly
+drawing the old build — including, awkwardly, drawing the very warning it was
+too old to have.
+
+So the popover carries a strip under its header whenever the launcher's own
+outputs on disk are newer than the ones it loaded, checked on every open. Three
+`stat` calls, the same comparison the terminal makes, so the two cannot
+disagree. It sits on every card, because every card is drawn by the build being
+warned about.
+
+It offers **Restart**, which is `app.relaunch()` followed by `app.quit()` —
+quit rather than exit, so `before-quit` still stops the supervisor and closes
+the bridge socket the replacement needs. The button is withheld while a session
+is live: restarting takes the browser and the run with it, and losing an
+afternoon's captures to a convenience button would be a far worse bug than the
+one being warned about. The detail line says so instead.
+
+A note for whoever verifies this next. `pgrep -f "electron apps/launcher"` finds
+a launcher started by `npm run launcher` and **not** one that has relaunched
+itself: the npm wrapper is lowercase, and a self-relaunched process is only
+`…/MacOS/Electron apps/launcher`, capital E. Checking with the lowercase pattern
+says the restart quit and never came back, which is wrong, and was believed
+here for long enough to nearly delete a working button.
+
 ## Consequences
 
 - Electron is a new devDependency, and the first non-CLI surface in the repo.

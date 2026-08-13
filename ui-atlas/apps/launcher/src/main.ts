@@ -20,6 +20,7 @@ import { BridgeServer } from './bridge/server.js';
 import { LAUNCHER_OUTPUTS } from './build-plan.js';
 import {
   describeSecondInstance,
+  isNewerBuild,
   newestMtime,
   readRunningBuild,
   runningBuildPath,
@@ -63,6 +64,10 @@ interface Session {
   logOpen: boolean;
   notice: string | undefined;
   outputRoot: string;
+  /** Newest mtime across the launcher's own outputs when this instance loaded. */
+  loadedBuildAt: number | undefined;
+  /** Whether disk has moved past that. Re-read every time the popover opens. */
+  newerBuildOnDisk: boolean;
   /**
    * A project name from the config, when the config actually chose one.
    *
@@ -91,8 +96,29 @@ const session: Session = {
   logOpen: false,
   notice: undefined,
   outputRoot: join(WORKSPACE_ROOT, 'ui-atlas-output'),
+  loadedBuildAt: undefined,
+  newerBuildOnDisk: false,
   configuredProject: undefined,
 };
+
+function launcherOutputPaths(): string[] {
+  return LAUNCHER_OUTPUTS.map((path) => join(WORKSPACE_ROOT, path));
+}
+
+/**
+ * Has the launcher's own code been rebuilt since this instance loaded it?
+ *
+ * Three `stat` calls, run when the popover opens — which is both cheap and the
+ * only moment the answer is looked at. The same comparison the terminal makes
+ * when a second instance is refused, so the two cannot disagree.
+ */
+async function refreshBuildFreshness(): Promise<void> {
+  const onDisk = await newestMtime(launcherOutputPaths());
+  const stale = isNewerBuild(session.loadedBuildAt, onDisk);
+  if (stale === session.newerBuildOnDisk) return;
+  session.newerBuildOnDisk = stale;
+  push();
+}
 
 /**
  * The project the *next* capture would write into.
@@ -124,6 +150,7 @@ async function snapshot(): Promise<LauncherSnapshot> {
       checkedAt: session.authCheckedAt,
     }),
     runs: session.runs,
+    newerBuildOnDisk: session.newerBuildOnDisk,
   };
   return {
     model: popoverModel(session.state, now, facts),
@@ -189,6 +216,9 @@ function bridgeStatus(): BridgeStatus {
     recentUrls: session.recentUrls,
     auth: { profile: session.target.profile, verdict: session.authVerdict, expiresAt: undefined, checkedAt: session.authCheckedAt },
     runs: session.runs,
+    // The extension gets a phase and two lines; whether this launcher needs
+    // restarting is a thing for the person at the machine, not a browser.
+    newerBuildOnDisk: false,
   });
   const latest = session.runs[0];
   return {
@@ -384,6 +414,23 @@ async function handle(request: LauncherRequest): Promise<void> {
     case 'open-project-page':
       await openPath(join(projectDir(currentProject()), 'index.html'));
       return;
+
+    case 'restart-launcher': {
+      // Guarded here as well as in the model: the panel hides the button while
+      // a session is live, and a stale panel is exactly the thing that might
+      // still be showing one.
+      if (supervisor.running) {
+        session.notice = 'Finish or stop the current session before restarting.';
+        push();
+        return;
+      }
+      app.relaunch();
+      // `quit` rather than `exit`, so `before-quit` still stops the supervisor
+      // and closes the bridge socket — the replacement needs that socket.
+      app.quit();
+      return;
+    }
+
 
     case 'export-attachments': {
       // The engine is left alone: this writes files and opens a window, and a
@@ -597,9 +644,11 @@ function togglePopover(): void {
   popover.focus();
 
   // Re-read the build and the run list on every open: both change underneath a
-  // launcher that has been sitting in the menu bar all afternoon.
+  // launcher that has been sitting in the menu bar all afternoon — and so does
+  // the launcher's own code, which it cannot reload.
   void supervisor.checkBuild();
   void refreshRuns();
+  void refreshBuildFreshness();
   void snapshot().then((value) => {
     popover?.webContents.send(CHANNEL_STATE, value);
   });
@@ -677,10 +726,10 @@ if (!app.requestSingleInstanceLock()) {
   void app.whenReady().then(async () => {
     // Written before anything else, so a second instance started seconds later
     // can tell whether this one is the build it wanted.
+    session.loadedBuildAt = await newestMtime(launcherOutputPaths());
     await writeRunningBuild(runningBuildPath(app.getPath('userData')), {
       startedAt: Date.now(),
-      builtAt:
-        (await newestMtime(LAUNCHER_OUTPUTS.map((path) => join(WORKSPACE_ROOT, path)))) ?? 0,
+      builtAt: session.loadedBuildAt ?? 0,
     });
 
     supervisor = new Supervisor({
