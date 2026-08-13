@@ -1545,12 +1545,117 @@ tests went red, which is exactly right — a button that produces a result you
 cannot see is worse than a button that does nothing, because it looks like
 nothing happened. Sections now open themselves when content arrives.
 
+## One Start button instead of two terminals (fifteenth slice)
+
+Starting the tool took two terminal windows and, when a site needed signing in,
+a third command you could skip without anything failing. The design's answer is
+a menu bar extra. Its own staging note is unusually specific about how far the
+first pass should go: run the same two commands as child processes, show them as
+three rows, change nothing in the engine.
+
+That constraint is the whole design. `apps/launcher` spawns a build and
+`ui-atlas inspect` and reads their log lines. No port, no daemon, no second
+protocol. Deleting the directory leaves the CLI exactly as it was.
+
+### Three rows, and the third one is the point
+
+Two commands became three rows because there were always three things, and only
+two of them ever reported. `npm run build` said it built. `inspect` said it
+started. Whether a browser had actually opened with the panel mounted in it was
+something you found out by looking at the screen.
+
+The engine row finishes when the session announces its run id; the browser row
+finishes when the overlay reports in. A page that blocks script injection is
+**not** a failed launch — the window is open and usable — so it lands as a row
+noted "no panel" and the launch still succeeds. Reporting that as a failure
+would hide a working browser.
+
+### The claim that would have rotted
+
+The design labels the build row "first run only". That is true once, and then it
+is the thing that makes the second run after an edit fail confusingly two stages
+later. The row is skipped on evidence instead: every output present, and the
+last build write newer than the newest source. So it says "first run only",
+"sources changed" or "already built", and each of those was checked.
+
+That rule took three attempts, and the last two failures were only visible by
+running it against the real tree:
+
+**Directory mtimes miss every edit.** Scanning `packages` and `apps` themselves
+seemed cheap and sufficient — writing a file updates its directory's mtime. It
+updates its *immediate* directory. Editing `packages/overlay/src/page/toolbar.ts`
+never touches `packages`, so every ordinary edit looked current. It walks the
+tree now, skipping `node_modules` and `dist`, in four milliseconds.
+
+**Incremental builds are not stale.** Comparing against the oldest output
+reported "sources changed" immediately after a successful full build, because
+`tsc -b` does not rewrite an output whose inputs did not change — `dist/bin.js`
+was twenty minutes older than the build that had just finished, correctly. The
+question worth asking is when a build last did any work, which is the *newest*
+output.
+
+Writing the test for the row also found the bug underneath it: `buildNeeded`
+arrived only on the `start` event, so the cold card — which is drawn *before*
+Start — promised "about 40 seconds the first time" on every launch forever. It
+has its own `build-checked` event now, fired when the popover opens.
+
+### A sign-in step, and one card with no buttons
+
+`auth check` already knew the saved session was dead. It had nowhere to say so,
+and the failure surfaced twenty minutes later as a stack of screenshots of a
+login wall. The launcher stops the sequence on that verdict and asks.
+
+The card that matters most is the one with nothing to press. A signed-out
+session and a host refusing the browser look identical from outside and need
+opposite responses — signing in again is the fix for one and the worst possible
+move against the other (ADR 30). So the challenge card offers neither "Sign
+in…" nor "Capture anyway". Inventing a button there would be the tool lying
+about what it can do.
+
+Building the sign-in card exposed a second version of the same mistake: the
+popover header hardcoded "Page is signed out" for *every* verdict, so a
+challenged host was being announced as a sign-in problem — precisely the
+confusion ADR 30 exists to prevent. The title now comes from one function, and a
+test asserts the header and the card cannot disagree.
+
+### One flag in the CLI
+
+`auth save` waited on Enter, and a GUI has no stdin to press it on.
+`--wait-for-signin` watches the page instead and saves when it reads as signed
+in — which is what the design describes. It only observes; nothing is typed or
+submitted, exactly as before. The interactive path is untouched, including its
+second Enter gate before saving a session that still looks signed out.
+
+### What the popover refuses to say
+
+The design's mock reads "Signed in as reviewer@acme.com". UI Atlas never learns
+an account name, so the row names the profile it loaded. The expiry underneath
+*is* knowable — it is written in the saved storage state — so that one is shown,
+read from the cookies' own `expires` fields and nothing else in the file. Same
+for the mock's `port 7333`: there is no port, so the row shows the run id.
+
+### Where the seams are
+
+Every decision is pure and unit-tested — the state machine, the sign-in wording,
+the build decision, the popover model — and the renderer draws the model with no
+conditions of its own. Fifty-two tests, and the log-line patterns are asserted
+against lines generated by the real logger, so rewording a CLI message fails a
+test rather than leaving the launcher stuck on "Starting engine…".
+
+What is *not* covered: nothing drives the rendered Electron window, so a change
+that broke only the drawing would pass. That is recorded in `docs/limitations.md`
+rather than implied away.
+
 ## Where this leaves the project
 
 **The brief is delivered.** Phases 0 through 4 are complete and every item on the
 brief's own list is built, including the Animation button that had been disabled
 since phase 1. The eighth slice is usability work on top of a delivered brief,
 driven by what the first real external run felt like to use.
+
+The fifteenth slice is the first surface outside the CLI: a menu bar launcher
+covering design turn 6's stages one and two. Stage three, the browser-extension
+popover, is still out of scope because extension packaging is.
 
 Anything further is new scope rather than an unfinished milestone:
 

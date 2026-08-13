@@ -1,0 +1,20 @@
+{
+  "name": "@ui-atlas/launcher",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/main.js",
+  "scripts": {
+    "build:bundle": "node build.mjs",
+    "start": "electron ."
+  },
+  "dependencies": {
+    "@ui-atlas/artifacts": "*",
+    "@ui-atlas/browser": "*",
+    "@ui-atlas/config": "*",
+    "@ui-atlas/protocol": "*"
+  },
+  "devDependencies": {
+    "electron": "^43.0.0"
+  }
+}

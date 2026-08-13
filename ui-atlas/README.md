@@ -28,6 +28,40 @@ npm install
 npm run build          # compiles the packages and bundles the injected inspector
 ```
 
+## The launcher
+
+```bash
+npm run launcher       # a menu bar extra; no terminal stays open
+```
+
+One Start button in place of two terminal windows. The launcher runs the same
+commands documented below as child processes and shows them as three rows —
+build, engine, browser-with-panel — so the third one, which nothing used to
+report, is finally visible.
+
+It is a supervisor, not a daemon: there is no port, no background service and
+no change to the capture engine. Quitting the launcher leaves the CLI exactly
+as it was.
+
+- **Cold** — the build row says whether it has anything to do. It is checked
+  when the popover opens, so "first run only", "sources changed" and "already
+  built" are all things the launcher looked at rather than assumed.
+- **Starting** — each row reports its own time, and `Show log` is the same
+  output the two terminals used to print.
+- **Sign-in needed** — the verdict `auth check` already produced, as a card
+  with three answers instead of a warning nobody read. `Sign in…` opens a real
+  window and saves the session when you land. A site that is *refusing* the
+  browser gets a different card with no way past it: see
+  [ADR 0030](docs/adr/0030-a-challenge-is-obeyed-not-worked-around.md).
+- **Running** — the page to inspect, which profile is loaded and when it
+  expires, and the last few runs with a link to each report.
+
+The launcher never claims what it cannot observe. It names the profile it
+loaded rather than an account name it has no way of knowing, and it does not
+offer `--mode attach`, which drives a browser it did not start and cannot
+close. Design notes are in
+[ADR 0032](docs/adr/0032-the-launcher-runs-the-commands-it-replaces.md).
+
 ## Commands
 
 ### Guided inspection
@@ -569,6 +603,17 @@ types credentials and never submits a form. The saved state lives in
 `~/.ui-atlas/` with owner-only permissions, never in the artifact tree, and
 every command that uses it warns that session cookies can impersonate you.
 
+Two ways to say you are done. At a terminal you press Enter, and the page is
+checked before anything is written. `--wait-for-signin` watches the page
+instead and saves as soon as it reads as signed in — for callers with no
+terminal to press Enter in, which is how the launcher's sign-in step works. It
+only observes; nothing is typed or submitted on either path.
+
+```bash
+npm run ui-atlas -- auth save my-profile https://example.com/login --wait-for-signin
+npm run ui-atlas -- auth save my-profile https://example.com/login --wait-for-signin --wait-timeout 600
+```
+
 #### Two ways to keep a session, and how to tell which you need
 
 A Playwright storage state — the default — carries **cookies and localStorage,
@@ -802,6 +847,7 @@ has no network access.
 
 ```
 apps/cli          command parsing, session wiring, process lifecycle
+apps/launcher     the menu bar extra: staged startup, sign-in step, popover
 packages/protocol versioned schemas: records, manifests, bridge messages
 packages/config   configuration schema, discovery and validation
 packages/artifacts atomic writes, run manifest, JSONL, path safety, PNG headers

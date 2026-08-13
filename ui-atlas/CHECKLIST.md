@@ -512,11 +512,38 @@ panel could not say where anything was saved.
 - [x] A section that receives content opens itself, so a button never produces a
       result the user cannot see
 
+## Launcher — one Start button instead of two terminals (design turn 6)
+
+- [x] `npm run launcher` — a menu bar extra with a popover, no terminal left open
+- [x] Three rows for what used to be two commands and one unreported outcome:
+      build, capture engine, browser with the panel actually mounted
+- [x] The build row is skipped on evidence — outputs present *and* no source
+      newer — so "first run only" cannot rot into a lie
+- [x] That check runs when the popover opens, not only on Start; otherwise the
+      cold card promises a 40-second first run forever
+- [x] Each finished row reports its own elapsed time; the running row reports
+      whatever the process said about itself
+- [x] `Show log` is the output the two terminals used to print, unfiltered
+- [x] Cancel while starting, Stop while running; closing the browser window ends
+      the session without reporting a failure
+- [x] Sign-in is a step with three answers, not a warning nobody reads
+- [x] A challenge gets a different card with no way past it — ADR 30
+- [x] `auth save --wait-for-signin`, because a GUI has no stdin to press Enter on
+- [x] The popover names the profile it loaded, never an account name it cannot
+      know; the expiry beside it is read from the saved state's own cookies
+- [x] Recent runs, each opening its folder, with a Report link only where a
+      report exists
+- [x] Node comes from Electron with `ELECTRON_RUN_AS_NODE`, so a launch from
+      Finder does not depend on a PATH it did not inherit
+- [x] Every decision is pure and unit-tested; the renderer draws the model and
+      has no conditions of its own
+
 ### Still to build
 
 (nothing in the brief)
 
 ## Still out of scope
 
-Extension packaging, distributed workers, AI control, CDP animation, perceptual
+Extension packaging — which the launcher's browser-extension popover (design 6c)
+waits on — distributed workers, AI control, CDP animation, perceptual
 (near-duplicate) hashing.

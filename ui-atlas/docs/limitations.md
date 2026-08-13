@@ -23,7 +23,8 @@ in its `warnings` or its `error`.
 | Design-system extraction | **Built.** `ui-atlas tokens <url>` and `crawl --tokens` count every element's computed values. Observations with counts, not a design system: nothing is named. Duplicate component grouping already spanned routes. Details below. |
 | CDP forced pseudo-states | Not implemented. `focus-visible` is reached with a real keyboard interaction or reported as `skipped` — never faked. |
 | Toolbar Animation panel | **Built.** The Animation button lists what moves and offers each row the one action that would work. Details below. |
-| Chrome extension packaging | Not required and not built. |
+| Chrome extension packaging | Not required and not built. The launcher's browser-extension popover (design 6c) waits on this. |
+| Menu bar launcher | **Built.** `npm run launcher` runs the build and `inspect` as child processes and shows them as three rows, plus the sign-in step. A supervisor, not a daemon: no port, no background service, no engine change. Details below. |
 
 ## Boundaries of what is possible
 
@@ -491,6 +492,41 @@ See [ADR 27](adr/0027-the-panel-says-what-to-do-next.md).
 - **A state with no computed-style delta gets a warning.** If hovering changed
   nothing in the watched properties, the record says so rather than implying a
   hover style exists.
+
+## Boundaries of the launcher
+
+- **It is a supervisor, not a daemon.** It spawns the build and `ui-atlas
+  inspect` and reads their log lines. There is no port, no status API and no
+  change to the capture engine. The design's mock shows `port 7333` next to the
+  running engine; that port does not exist, so the row shows the run id, which
+  does.
+- **It learns by matching the CLI's log lines.** Those patterns are covered by
+  `tests/unit/launcher-progress.test.ts`, which generates the lines through the
+  real logger — so rewording a log message fails a test rather than leaving the
+  launcher stuck on "Starting engine…". A line the launcher does not recognise
+  is still shown in `Show log`; it just does not move the state machine.
+- **The stages are three rows, not three processes.** "Start capture engine" and
+  "Open browser with panel" are two moments in one `inspect` child, not two
+  commands. That is what the design asked for at this stage, and it is why
+  nothing in the engine had to change.
+- **It never claims an account.** The design's mock reads "Signed in as
+  reviewer@acme.com". UI Atlas never learns an account name, so the row names
+  the profile it loaded. The expiry beneath it *is* real — it is read from the
+  saved storage state's own cookie `expires` fields.
+- **A challenge card has no primary button.** A signed-out session and a host
+  refusing the browser need opposite responses, so the challenge card offers
+  neither "Sign in…" nor "Capture anyway". There is no honest action there.
+- **`--mode attach` is not offered.** It drives a browser the launcher did not
+  start and cannot close. The CLI still offers it.
+- **No browser extension.** Design 6c needs extension packaging, which is listed
+  above as not built.
+- **macOS-shaped.** The tray, the vibrant popover and `⌘Q` assume macOS. The
+  supervisor underneath is platform-neutral and would work anywhere Electron
+  does, but nothing else has been tried.
+- **The popover is not covered by an automated UI test.** Its decisions are —
+  `startup.ts`, `signin.ts`, `popover.ts` and `build-plan.ts` are pure and are
+  unit-tested — but nothing drives the rendered Electron window, so a change
+  that broke only the drawing would not fail the suite.
 
 ## Environment notes
 
