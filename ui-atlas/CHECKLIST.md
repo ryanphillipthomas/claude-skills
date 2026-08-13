@@ -614,6 +614,18 @@ the instructions block.
 - [x] The extension offers no Start button when the launcher is unreachable; it
       cannot start an app it has no connection to
 
+## The panel, designed twice (design 3a/3b)
+
+- [x] Every colour on a token; nothing below `:host` names one
+- [x] A light palette chosen rather than inverted — `#007aff` against `#0a84ff`,
+      `#248a3d` against `#30d158`, `#ff2d55` against `#ff375f`
+- [x] 3a's chrome: 340pt, 12px corners, 38px title bar, 0.5px hairlines, SF
+      text and SF Mono, translucent scrim with a backdrop blur
+- [x] Follows the operator's appearance, not the page's; hidden before every
+      capture, so a theme can never reach an artifact
+- [x] Two tests: the palettes differ in the specific ways above, and a spread of
+      real elements repaints between appearances
+
 ### Still to build
 
 (nothing in the brief)

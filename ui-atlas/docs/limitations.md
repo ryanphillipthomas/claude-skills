@@ -21,6 +21,8 @@ in its `warnings` or its `error`.
 | Provoked motion | **Built.** The `captureAnimation` recipe step hovers or focuses, works out which animations that started, photographs them as one moment and puts them back. It can never click. Details below. |
 | Animation video / screencast | **Built.** `animations --video` records the motion no seek can reproduce, for a bounded window. A recording is not a sample and says so. Details below. |
 | Design-system extraction | **Built.** `ui-atlas tokens <url>` and `crawl --tokens` count every element's computed values. Observations with counts, not a design system: nothing is named. Duplicate component grouping already spanned routes. Details below. |
+| Panel appearance (design 3a/3b) | **Built.** The inspector uses the designed dark and light palettes, chosen separately rather than inverted. Follows the operator's system appearance, and is hidden before every capture so it never reaches an artifact. |
+| Scrubbable motion timeline (design 4b) | Not built, deliberately. ADR 25 chose a list over a timeline: most animations cannot be sampled, and a timeline would have to guess which one was meant. |
 | CDP forced pseudo-states | Not implemented. `focus-visible` is reached with a real keyboard interaction or reported as `skipped` — never faked. |
 | Toolbar Animation panel | **Built.** The Animation button lists what moves and offers each row the one action that would work. Details below. |
 | Chrome extension | **Built, unpacked.** `launcher:install-extension` writes the native messaging host manifest; the extension is loaded through Developer mode. Signed Web Store packaging is still not built. Details below. |

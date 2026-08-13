@@ -55,6 +55,86 @@ async function readRunCaptures(harness_: TestHarness): Promise<CaptureRecord[]> 
   return result.records;
 }
 
+describe('the panel in both appearances', () => {
+  /** Read the panel's own tokens under a forced system appearance. */
+  async function palette(scheme: 'light' | 'dark'): Promise<Record<string, string>> {
+    const page = harness.session.page;
+    await page.emulateMedia({ colorScheme: scheme });
+    return page.evaluate(() => {
+      const panel = document
+        .querySelector('[data-ui-atlas-overlay]')
+        ?.shadowRoot?.querySelector('.ua-panel') as HTMLElement | null;
+      if (panel === null || panel === undefined) return {} as Record<string, string>;
+      const style = getComputedStyle(panel);
+      const read = (name: string): string => style.getPropertyValue(name).trim();
+      return {
+        surface: read('--ua-surface'),
+        accent: read('--ua-accent'),
+        text: read('--ua-text'),
+        ok: read('--ua-ok'),
+        highlight: read('--ua-highlight'),
+      };
+    });
+  }
+
+  it('is designed twice over, not inverted once', async () => {
+    await harness.session.navigate(harness.url('/states.html'));
+    expect(await harness.session.overlay.waitForMount()).toBe(true);
+
+    const dark = await palette('dark');
+    const light = await palette('light');
+    await harness.session.page.emulateMedia({ colorScheme: null });
+
+    // Apple's light and dark semantics are not reflections of one another, and
+    // this is what "designed, not inverted" (3b) means in practice: the accent,
+    // the success colour and the selection ring all have their own light
+    // values, which no inversion of the dark ones would produce.
+    expect(dark.accent).toBe('#0a84ff');
+    expect(light.accent).toBe('#007aff');
+    expect(dark.ok).toBe('#30d158');
+    expect(light.ok).toBe('#248a3d');
+    expect(dark.highlight).toBe('#ff375f');
+    expect(light.highlight).toBe('#ff2d55');
+
+    // And the panel is a scrim in both, rather than one being a lightened
+    // version of the other.
+    expect(dark.surface).toBe('rgba(30, 30, 32, 0.78)');
+    expect(light.surface).toBe('rgba(250, 250, 252, 0.9)');
+    expect(dark.text).not.toBe(light.text);
+  });
+
+  it('repaints the whole panel, not only the tokens', async () => {
+    await harness.session.navigate(harness.url('/states.html'));
+    expect(await harness.session.overlay.waitForMount()).toBe(true);
+
+    /** Rendered colours of a spread of real elements, in one appearance. */
+    const rendered = async (scheme: 'light' | 'dark'): Promise<string[]> => {
+      const page = harness.session.page;
+      await page.emulateMedia({ colorScheme: scheme });
+      return page.evaluate(() => {
+        const shadow = document.querySelector('[data-ui-atlas-overlay]')?.shadowRoot;
+        return ['.ua-panel', '.ua-titlebar', 'button.ua-btn', '.ua-flow', '.ua-run'].map((selector) => {
+          const node = shadow?.querySelector(selector) as HTMLElement | null;
+          if (node === null || node === undefined) return `${selector}:missing`;
+          const style = getComputedStyle(node);
+          return `${selector}:${style.backgroundColor}/${style.color}`;
+        });
+      });
+    };
+
+    const dark = await rendered('dark');
+    const light = await rendered('light');
+    await harness.session.page.emulateMedia({ colorScheme: null });
+
+    expect(dark).not.toContain(expect.stringContaining(':missing'));
+    // Every one of them moves. A rule left on a literal colour would sit still
+    // in one appearance, which is how a half-themed panel happens.
+    for (const [index, value] of dark.entries()) {
+      expect(light[index], `${value} did not change between appearances`).not.toBe(value);
+    }
+  });
+});
+
 describe('injected inspector', () => {
   it('mounts a Shadow DOM overlay and reports its session', async () => {
     await harness.session.navigate(harness.url('/states.html'));
@@ -324,6 +404,11 @@ describe('injected inspector', () => {
         hostZIndex: getComputedStyle(host).zIndex,
         panelFont: panelStyle.fontFamily,
         panelBackground: panelStyle.backgroundColor,
+        // The panel's own token, whichever theme the machine is in. Comparing
+        // the two is the assertion that matters — the background is the
+        // panel's, not one the page imposed — without pinning this test to an
+        // appearance the test runner happens to be set to.
+        panelSurfaceToken: panelStyle.getPropertyValue('--ua-surface').trim(),
         panelRadius: panelStyle.borderTopLeftRadius,
       };
     });
@@ -331,8 +416,10 @@ describe('injected inspector', () => {
     // The page forces Comic Sans and square corners on everything; the shadow
     // root starts from `all: initial`, so the toolbar keeps its own styling.
     expect(style?.panelFont).not.toContain('Comic Sans');
-    expect(style?.panelBackground).toBe('rgb(15, 23, 42)');
-    expect(style?.panelRadius).toBe('10px');
+    // Translucent by design (3a), so this is a scrim rather than a flat fill.
+    expect(style?.panelBackground).toBe(style?.panelSurfaceToken);
+    expect(style?.panelBackground).toMatch(/^rgba\(/);
+    expect(style?.panelRadius).toBe('12px');
     expect(Number(style?.hostZIndex)).toBeGreaterThan(2147483001);
 
     // The banner sits above the page but the inspector still selects through it.
