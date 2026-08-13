@@ -1831,6 +1831,45 @@ implied, now with the packaged-app caveat beside it: this is verified from a
 terminal launch, and an `LSUIElement` app can behave differently once bundled
 and signed.
 
+## Four things real use found (nineteenth slice)
+
+All reported in one sentence: it keeps going to localhost even if I change the
+URL, and the Chrome extension never does anything.
+
+**There was no URL field until after it had already opened something.** The
+design puts the field only on the running card, because there Start boots an
+engine and choosing a page is a separate act. This launcher has no daemon, so
+Start *is* `inspect <url>` — and without the field on the cold card the first
+launch always went to the default, and the URL could only be changed after the
+wrong page was already open. The field is on the cold and failed cards now, and
+absent mid-launch, where an editable field would imply something untrue.
+
+**A scheme-less host was rejected in silence.** The design's own mock reads
+`localhost:3000/pricing`, and the first version required `http://`. Typing what
+the mock shows set a notice, kept the previous target, and reverted the field on
+the next redraw — indistinguishable from the launcher ignoring the edit.
+`normalizeTargetUrl` now adds the scheme, `http` for a local host because
+`https://localhost:3000` fails in a way that looks like the tool's fault.
+
+**The redraw ate the click.** `change` fires on blur, which is on the way to
+clicking the button beside the field. Redrawing there destroys that button
+mid-click and the press is lost. A successful `set-url` no longer redraws, and
+the primary button reads the field itself before acting.
+
+**Chrome could not start the native host.** Its shebang is `#!/usr/bin/env
+node`, and a browser launched from the Dock has `/usr/bin:/bin:/usr/sbin:/sbin`
+— where a Homebrew Node is not. `env: node: No such file or directory`, silently,
+forever. This is the exact failure the supervisor already avoids by running
+children under `process.execPath`; the relay needed it one layer out. The
+installer now writes a wrapper with an absolute interpreter, preferring the
+bundled Electron under `ELECTRON_RUN_AS_NODE`. Verified by running the wrapper
+under Chrome's exact PATH with Chrome's own framing.
+
+Two smaller ones alongside: starting while a session was live spawned a second
+and orphaned the first, and the extension offered a Start button when the
+launcher was unreachable — a button that could not work, since an extension
+cannot start an app it has no connection to.
+
 ## Where this leaves the project
 
 **The brief is delivered.** Phases 0 through 4 are complete and every item on the

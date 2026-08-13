@@ -99,6 +99,10 @@ export class Supervisor {
   async start(target: InspectTarget, command?: readonly string[]): Promise<void> {
     if (this.busy) return;
     this.busy = true;
+    // Pressing Open inspector while a session is already up used to spawn a
+    // second one and lose track of the first: its browser stayed open with
+    // nothing owning it. One launcher, one run.
+    if (this.child !== undefined) this.kill();
     this.ready = false;
     this.lastRunDir = undefined;
     this.lines.length = 0;

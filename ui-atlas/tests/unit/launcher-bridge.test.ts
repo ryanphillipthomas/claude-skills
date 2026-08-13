@@ -9,6 +9,7 @@ import {
   nativeHostManifest,
   unpackedExtensionId,
 } from '../../apps/launcher/src/bridge/extension-id.js';
+import { wrapperScript } from '../../apps/launcher/src/bridge/install.js';
 import {
   extensionModel,
   hostOfTab,
@@ -113,19 +114,22 @@ describe('the extension id', () => {
 });
 
 describe('the extension popover', () => {
-  it('offers Start rather than an error when the launcher is not running', () => {
-    // The design is explicit: "if the engine is stopped, its popover shows the
-    // same Start button rather than an error".
+  it('stays calm rather than showing an error when the launcher is not running', () => {
+    // The design says a stopped *engine* shows a Start button rather than an
+    // error, and it does — see the cold case below. An unreachable launcher is
+    // a different thing, and offering Start for it would be a button that
+    // cannot work: an extension cannot start an app it has no connection to.
     const stopped = model({ status: undefined });
     expect(stopped.header.title).toBe('UI Atlas is not running');
     expect(stopped.header.tone).toBe('idle');
-    expect(stopped.primary).toEqual({ label: 'Start', action: 'start', enabled: true });
+    expect(stopped.primary.enabled).toBe(false);
     expect(stopped.modes).toBeUndefined();
   });
 
   it('treats an unreachable native host the same as a stopped launcher', () => {
     const unavailable = model({ status: status({ phase: 'unavailable', protocol: 0 }) });
-    expect(unavailable.primary.action).toBe('start');
+    expect(unavailable.primary.enabled).toBe(false);
+    expect(unavailable.header.title).toBe('UI Atlas is not running');
   });
 
   it('names the page it is looking at, and whether that profile is signed in', () => {
@@ -189,5 +193,55 @@ describe('hostOfTab', () => {
     expect(hostOfTab('chrome://extensions')).toBeUndefined();
     expect(hostOfTab('file:///tmp/x.html')).toBeUndefined();
     expect(hostOfTab(undefined)).toBeUndefined();
+  });
+});
+
+describe('the native messaging host wrapper', () => {
+  it('bakes in an absolute interpreter, because Chrome has no useful PATH', () => {
+    // The relay's shebang is `#!/usr/bin/env node`, and a browser launched
+    // from the Dock inherits /usr/bin:/bin:/usr/sbin:/sbin — where a Homebrew
+    // or nvm Node is not. The host then never starts and the extension shows
+    // "UI Atlas is not running" forever, with no way to find out why.
+    const script = wrapperScript('/opt/homebrew/bin/node', '/repo/dist/native-host.mjs');
+    expect(script).toContain("'/opt/homebrew/bin/node'");
+    expect(script).toContain("'/repo/dist/native-host.mjs'");
+    expect(script).not.toContain('env node');
+    expect(script.startsWith('#!/bin/sh\n')).toBe(true);
+  });
+
+  it('can run the relay under Electron, which is present whenever the launcher is', () => {
+    const script = wrapperScript('/apps/Electron', '/repo/host.mjs', { ELECTRON_RUN_AS_NODE: '1' });
+    expect(script).toContain("env ELECTRON_RUN_AS_NODE='1' '/apps/Electron' '/repo/host.mjs'");
+  });
+
+  it('quotes a path containing a space or a quote', () => {
+    const script = wrapperScript("/Users/a b/node", "/Users/a b/o'brien/host.mjs");
+    expect(script).toContain(`'/Users/a b/node'`);
+    expect(script).toContain(`'/Users/a b/o'\\''brien/host.mjs'`);
+  });
+
+  it('forwards Chrome\u2019s own arguments through to the relay', () => {
+    expect(wrapperScript('/n', '/h').trimEnd().endsWith('"$@"')).toBe(true);
+  });
+});
+
+describe('the extension when the launcher is absent', () => {
+  it('does not offer a Start button it provably cannot honour', () => {
+    // A stopped *engine* shows Start, per the design. An unreachable launcher
+    // is different and was wrongly folded into it: an extension cannot start a
+    // macOS app it has no connection to.
+    const gone = extensionModel({ status: undefined, selected: 'element', pageHost: 'acme.com' });
+    expect(gone.primary.enabled).toBe(false);
+    expect(gone.header.subtitle).toBe('Open it from the menu bar');
+    expect(gone.caption).toContain('npm run launcher');
+  });
+
+  it('still offers Start when the launcher is there and only the engine is cold', () => {
+    const cold = extensionModel({
+      status: status({ phase: 'cold', title: 'Engine stopped', subtitle: 'Nothing is running' }),
+      selected: 'element',
+      pageHost: 'acme.com',
+    });
+    expect(cold.primary).toEqual({ label: 'Start', action: 'start', enabled: true });
   });
 });

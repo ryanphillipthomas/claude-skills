@@ -596,6 +596,24 @@ the instructions block.
       swallowed every click — a drawn, hit-testable, correctly wired button that
       did nothing. `app.focus({ steal: true })`, then `show()`, then `focus()`
 
+## What real use found
+
+- [x] A URL field on the cold card. Start opens a page, not just an engine, so
+      without it the first launch always went to the default
+- [x] Scheme-less input is normalised — the design's own mock shows
+      `localhost:3000/pricing`, which the first version rejected in silence
+- [x] `http` for a local host; `https://localhost:3000` fails in a way that
+      looks like the tool's fault
+- [x] A successful URL change does not redraw: `change` fires on blur, on the
+      way to the button beside it, and redrawing ate the click
+- [x] The primary button reads the field itself before acting
+- [x] Starting while a session is live stops it first, instead of orphaning a
+      browser nothing owns
+- [x] Chrome runs a wrapper with an absolute interpreter, not a `#!/usr/bin/env
+      node` script it cannot resolve — verified under Chrome's exact PATH
+- [x] The extension offers no Start button when the launcher is unreachable; it
+      cannot start an app it has no connection to
+
 ### Still to build
 
 (nothing in the brief)

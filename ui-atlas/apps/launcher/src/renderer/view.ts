@@ -159,14 +159,75 @@ function stagesSection(
   dispatch: Dispatch,
 ): HTMLElement {
   const section = el('div', 'section');
+
+  // Above the rows, because it is what the rows are about to act on.
+  const field = body.urlField === undefined ? undefined : urlField(body.urlField, dispatch);
+  if (field !== undefined) section.append(field.group);
+
   section.append(stageList(body.stages));
 
   if (body.primary !== undefined) {
-    section.append(pressable(el('button', 'primary', body.primary.label), dispatch, requestFor(body.primary)));
+    section.append(primaryButton(body.primary, field?.input, dispatch));
   }
   if (body.footnote !== undefined) section.append(el('div', 'caption', body.footnote));
   if (body.showLog) section.append(...logDisclosure(snapshot, dispatch));
   return section;
+}
+
+/**
+ * The URL field, shared by the cold card and the running one.
+ *
+ * `change` fires on blur, which happens on the way to clicking the button
+ * beside it — so the value is also read at click time. Without that, the first
+ * press after an edit could act on the previous URL.
+ */
+function urlField(
+  spec: { value: string; options: readonly string[] },
+  dispatch: Dispatch,
+): { group: HTMLElement; input: HTMLInputElement } {
+  const group = el('div');
+  group.style.display = 'flex';
+  group.style.flexDirection = 'column';
+  group.style.gap = '6px';
+  group.append(el('span', 'label', 'Inspect a page'));
+
+  const field = el('div', 'field');
+  const input = el('input');
+  input.type = 'text';
+  input.value = spec.value;
+  input.spellcheck = false;
+  input.setAttribute('aria-label', 'URL to inspect');
+  input.addEventListener('change', () => {
+    dispatch({ kind: 'set-url', url: input.value });
+  });
+  input.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter') return;
+    dispatch({ kind: 'set-url', url: input.value });
+    dispatch({ kind: 'start' });
+  });
+  field.append(icon(GLOBE), input);
+  if (spec.options.length > 0) field.append(el('span', 'caret', '⌄'));
+  group.append(field);
+  return { group, input };
+}
+
+/**
+ * A primary button that commits the URL beside it before acting, so what you
+ * typed is what gets opened even if the field never fired `change`.
+ */
+function primaryButton(
+  button: LauncherButton,
+  input: HTMLInputElement | undefined,
+  dispatch: Dispatch,
+): HTMLElement {
+  const node = el('button', 'primary', button.label);
+  node.addEventListener('click', () => {
+    if (input !== undefined && button.action === 'start') {
+      dispatch({ kind: 'set-url', url: input.value });
+    }
+    dispatch(requestFor(button));
+  });
+  return node;
 }
 
 function logDisclosure(snapshot: LauncherSnapshot, dispatch: Dispatch): HTMLElement[] {
@@ -228,34 +289,11 @@ function signInSection(
 function readySections(body: Extract<PopoverBody, { kind: 'ready' }>, dispatch: Dispatch): HTMLElement[] {
   const section = el('div', 'section');
 
-  const group = el('div');
-  group.style.display = 'flex';
-  group.style.flexDirection = 'column';
-  group.style.gap = '6px';
-  group.append(el('span', 'label', 'Inspect a page'));
-
-  const field = el('div', 'field');
-  const input = el('input');
-  input.type = 'text';
-  input.value = body.urlField.value;
-  input.spellcheck = false;
-  input.setAttribute('aria-label', 'URL to inspect');
-  input.addEventListener('change', () => {
-    dispatch({ kind: 'set-url', url: input.value });
-  });
-  input.addEventListener('keydown', (event) => {
-    if (event.key === 'Enter') {
-      dispatch({ kind: 'set-url', url: input.value });
-      dispatch({ kind: 'start' });
-    }
-  });
-  field.append(icon(GLOBE), input);
-  if (body.urlField.options.length > 0) field.append(el('span', 'caret', '⌄'));
-  group.append(field);
-  section.append(group);
+  const field = urlField(body.urlField, dispatch);
+  section.append(field.group);
 
   section.append(authRow(body, dispatch));
-  section.append(pressable(el('button', 'primary', body.primary.label), dispatch, requestFor(body.primary)));
+  section.append(primaryButton(body.primary, field.input, dispatch));
   section.append(el('div', 'caption', body.caption));
 
   const sections: HTMLElement[] = [section];

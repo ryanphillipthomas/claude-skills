@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   authRow,
   describeDelta,
+  normalizeTargetUrl,
   popoverModel,
   relativeTime,
   type PopoverFacts,
@@ -246,5 +247,60 @@ describe('deciding whether to build', () => {
 
   it('does not skip on an empty output list, which would prove nothing', () => {
     expect(decideBuild({ outputs: [], newestSource: undefined }).needed).toBe(true);
+  });
+});
+
+describe('the URL field', () => {
+  it('is on the cold card, because Start opens a page and not just an engine', () => {
+    // Regression: the field existed only once the engine was running, so the
+    // first launch always went to the default and the URL could only be
+    // changed after something else had already opened.
+    const cold = popoverModel(initialState(), T0, facts());
+    if (cold.body.kind !== 'stages') throw new Error('expected the stages body');
+    expect(cold.body.urlField?.value).toBe('https://acme.com/pricing');
+  });
+
+  it('is offered again after a failure, so you can fix a typo and retry', () => {
+    const failed = reduceAll([
+      { kind: 'start', at: T0, buildNeeded: false },
+      { kind: 'failed', at: T0, stage: 'browser', message: 'net::ERR_CONNECTION_REFUSED' },
+    ]);
+    const model = popoverModel(failed, T0, facts());
+    if (model.body.kind !== 'stages') throw new Error('expected the stages body');
+    expect(model.body.urlField).toBeDefined();
+  });
+
+  it('is absent mid-launch, where an editable field would be a lie', () => {
+    const starting = reduceAll([{ kind: 'start', at: T0, buildNeeded: true }]);
+    const model = popoverModel(starting, T0, facts());
+    if (model.body.kind !== 'stages') throw new Error('expected the stages body');
+    expect(model.body.urlField).toBeUndefined();
+  });
+});
+
+describe('normalizeTargetUrl', () => {
+  it('accepts what the design mock shows someone typing', () => {
+    // The mock reads `localhost:3000/pricing` — no scheme — and the first
+    // version rejected exactly that, silently keeping the old target.
+    expect(normalizeTargetUrl('localhost:3000/pricing')).toBe('http://localhost:3000/pricing');
+    expect(normalizeTargetUrl('acme.com/pricing')).toBe('https://acme.com/pricing');
+    expect(normalizeTargetUrl('  example.com  ')).toBe('https://example.com/');
+  });
+
+  it('assumes http only for a local host, where https would fail confusingly', () => {
+    expect(normalizeTargetUrl('127.0.0.1:8080')).toBe('http://127.0.0.1:8080/');
+    expect(normalizeTargetUrl('app.localhost:3000')).toBe('http://app.localhost:3000/');
+    expect(normalizeTargetUrl('example.com:8080')).toBe('https://example.com:8080/');
+  });
+
+  it('leaves an explicit scheme alone', () => {
+    expect(normalizeTargetUrl('http://acme.com')).toBe('http://acme.com/');
+    expect(normalizeTargetUrl('https://acme.com/a?b=c')).toBe('https://acme.com/a?b=c');
+  });
+
+  it('refuses what a browser must not be pointed at', () => {
+    for (const input of ['', '   ', 'file:///etc/passwd', 'javascript:alert(1)', 'data:text/html,x']) {
+      expect(normalizeTargetUrl(input), input).toBeUndefined();
+    }
   });
 });

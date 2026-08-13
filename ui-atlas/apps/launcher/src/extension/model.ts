@@ -51,15 +51,22 @@ export function extensionModel(input: ExtensionInput): ExtensionModel {
   const status = input.status;
 
   if (status === undefined || status.phase === 'unavailable') {
+    /*
+     * The design says a stopped *engine* shows a Start button rather than an
+     * error, and it does — below, for `cold`. This case is different and was
+     * wrongly folded into it: here the launcher itself is not reachable, and
+     * an extension cannot start a macOS app it has no connection to. A Start
+     * button here is one that provably cannot work, so there isn't one.
+     */
     return {
       header: {
         title: 'UI Atlas is not running',
-        subtitle: 'Start it to capture this page',
+        subtitle: 'Open it from the menu bar',
         tone: 'idle',
       },
       modes: undefined,
-      primary: { label: 'Start', action: 'start', enabled: true },
-      caption: 'Starting opens the engine; nothing is captured yet',
+      primary: { label: 'Waiting for UI Atlas', action: 'start', enabled: false },
+      caption: 'Run `npm run launcher`, then reopen this popover',
       lastRun: undefined,
     };
   }

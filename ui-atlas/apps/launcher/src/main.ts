@@ -17,7 +17,13 @@ import { authPaths } from '@ui-atlas/browser';
 import { CHANNEL_ACTION, CHANNEL_STATE, type LauncherRequest, type LauncherSnapshot } from './ipc.js';
 import { BridgeServer } from './bridge/server.js';
 import { BRIDGE_PROTOCOL_VERSION, commandFor, type BridgeRequest, type BridgeStatus } from './bridge/protocol.js';
-import { popoverModel, type AuthVerdict, type PopoverFacts, type RecentRun } from './popover.js';
+import {
+  normalizeTargetUrl,
+  popoverModel,
+  type AuthVerdict,
+  type PopoverFacts,
+  type RecentRun,
+} from './popover.js';
 import { countRunsTodayOnDisk, listProfiles, readAuthStatus, readRecentRuns } from './runs.js';
 import { initialState, reduce, type LauncherEvent, type LauncherState } from './startup.js';
 import { Supervisor, type InspectTarget } from './supervisor.js';
@@ -261,17 +267,21 @@ async function handle(request: LauncherRequest): Promise<void> {
       return;
 
     case 'set-url': {
-      const url = request.url.trim();
-      if (!/^https?:\/\//i.test(url)) {
-        session.notice = 'A page to inspect must be an http or https URL.';
+      const url = normalizeTargetUrl(request.url);
+      if (url === undefined) {
+        session.notice = `${request.url.trim()} is not a page this can open.`;
         push();
         return;
       }
+      if (url === session.target.url && session.notice === undefined) return;
       session.target = { ...session.target, url };
       session.authVerdict = 'unknown';
       session.authCheckedAt = undefined;
       session.notice = undefined;
-      push();
+      // Deliberately no `push()`. This arrives from the field on blur — which
+      // is on the way to clicking the button beside it — and a redraw here
+      // destroys that button mid-click, so the press is lost. The field
+      // already shows what was typed; the next real state change redraws it.
       return;
     }
 

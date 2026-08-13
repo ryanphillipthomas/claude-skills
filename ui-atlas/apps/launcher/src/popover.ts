@@ -75,6 +75,16 @@ export type PopoverBody =
   | {
       kind: 'stages';
       stages: StageRow[];
+      /**
+       * Present on the cold and failed cards, absent mid-launch.
+       *
+       * The design shows the field only on the running card, because there
+       * Start boots an engine and choosing a page is a separate act. This
+       * launcher has no daemon, so Start *is* `inspect <url>` — without the
+       * field here you can only change the URL after it has already opened
+       * something else, which is exactly how it behaved.
+       */
+      urlField: { value: string; options: readonly string[] } | undefined;
       primary: LauncherButton | undefined;
       footnote: string | undefined;
       showLog: boolean;
@@ -145,18 +155,58 @@ export function popoverModel(state: LauncherState, now: number, facts: PopoverFa
     };
   }
 
+  // Only where pressing something would use it. While starting, the URL is
+  // already decided and an editable field would imply otherwise.
+  const editable = state.phase === 'cold' || state.phase === 'failed';
   return {
     header,
     progress: base.progress,
     body: {
       kind: 'stages',
       stages: base.stages,
+      urlField: editable ? { value: facts.targetUrl, options: facts.recentUrls } : undefined,
       primary: base.primary,
       footnote: base.footnote,
       showLog: base.showLog,
     },
     footer,
   };
+}
+
+/**
+ * What someone types into a URL field is not a URL.
+ *
+ * The design's own mock reads `localhost:3000/pricing` — no scheme — and the
+ * first version rejected exactly that, leaving the previous target in place
+ * and the field reverting on the next redraw. It read as the launcher ignoring
+ * the edit.
+ *
+ * Localhost gets `http`, because a dev server is rarely on TLS and offering
+ * `https://localhost:3000` would fail in a way that looks like the tool's
+ * fault. Everything else gets `https`.
+ */
+export function normalizeTargetUrl(input: string): string | undefined {
+  const trimmed = input.trim();
+  if (trimmed.length === 0) return undefined;
+
+  const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed)
+    ? trimmed
+    : `${isLocal(trimmed) ? 'http' : 'https'}://${trimmed}`;
+
+  let parsed: URL;
+  try {
+    parsed = new URL(withScheme);
+  } catch {
+    return undefined;
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return undefined;
+  if (parsed.hostname.length === 0) return undefined;
+  return parsed.toString();
+}
+
+function isLocal(value: string): boolean {
+  const host = value.split('/')[0]?.split(':')[0]?.toLowerCase() ?? '';
+  return host === 'localhost' || host === '127.0.0.1' || host === '[::1]' || host.endsWith('.localhost');
 }
 
 /**

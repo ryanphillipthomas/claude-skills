@@ -7,6 +7,7 @@
  * quietly at startup.
  */
 
+import { createRequire } from 'node:module';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { existsSync } from 'node:fs';
@@ -21,7 +22,33 @@ if (!existsSync(extensionDir) || !existsSync(hostPath)) {
   process.exit(1);
 }
 
-const result = await installNativeHost({ extensionDir, hostPath });
+/**
+ * Prefer the bundled Electron binary over whatever Node ran this.
+ *
+ * Anyone using the extension is by definition running the launcher, so Electron
+ * is present; a system Node might be a version manager's shim that disappears
+ * when the shell that installed it does. `ELECTRON_RUN_AS_NODE` makes it a
+ * plain Node — the same trick the supervisor uses for its child processes.
+ */
+function interpreter(): { path: string; env: Record<string, string> } {
+  try {
+    const electron = createRequire(import.meta.url)('electron') as unknown;
+    if (typeof electron === 'string' && existsSync(electron)) {
+      return { path: electron, env: { ELECTRON_RUN_AS_NODE: '1' } };
+    }
+  } catch {
+    // Not installed; fall back to this Node, which at least resolved.
+  }
+  return { path: process.execPath, env: {} };
+}
+
+const chosen = interpreter();
+const result = await installNativeHost({
+  extensionDir,
+  hostPath,
+  interpreter: chosen.path,
+  interpreterEnv: chosen.env,
+});
 for (const line of installSummary(result)) process.stdout.write(`${line}\n`);
 
 if (result.written.length > 0) {

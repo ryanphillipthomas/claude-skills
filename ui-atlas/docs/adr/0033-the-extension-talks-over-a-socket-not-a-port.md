@@ -91,6 +91,29 @@ now print it, in the same format and at the same point — which is independentl
 useful: a crawl is the longest thing this tool does, and knowing where it writes
 before it finishes matters most there.
 
+### Chrome executes a wrapper, not the relay
+
+The relay's shebang is `#!/usr/bin/env node`, and Chrome does not have `node` on
+its PATH. A browser launched from the Dock inherits `/usr/bin:/bin:/usr/sbin:
+/sbin`, and a Homebrew or nvm Node is in none of them. The host then never
+starts, and the extension shows "UI Atlas is not running" forever with no way to
+find out why — the same silent-PATH failure this project already avoids for
+child processes, made one layer further out.
+
+`launcher:install-extension` therefore generates a `sh` wrapper with an absolute
+interpreter baked in, and points the manifest at that. It prefers the bundled
+Electron with `ELECTRON_RUN_AS_NODE=1`: anyone using the extension is running
+the launcher, so Electron is present, whereas a system Node may be a version
+manager's shim that is not on any fixed path.
+
+### The extension cannot start a launcher that is not running
+
+The design says a stopped engine shows a Start button rather than an error, and
+it does. That was wrongly extended to cover an unreachable *launcher*, which is
+a different state: an extension has no way to start a macOS app it has no
+connection to, so the button could never work. That case now says so and offers
+no button.
+
 ## Consequences
 
 - The launcher now listens on something. It is a socket in the user's own home
