@@ -3,9 +3,9 @@
 Running log for the build. Updated after each milestone so an interrupted
 session is recoverable.
 
-**Last updated:** 2026-08-12, after `doctor` landed. The brief is delivered;
-the last three slices are usability work on top of it, each one driven by a
-real failure during real use.
+**Last updated:** after the nineteenth slice. The brief is delivered; slices
+eight onwards are usability and surface work on top of it, each one driven by a
+real failure during real use rather than by a plan.
 
 ## Status
 
@@ -21,12 +21,20 @@ observed-value extraction, the animation inventory during a crawl, and the
 toolbar's Animation panel. **Everything the brief scopes is built** — the last
 item on its own list was the Animation button, and it is no longer disabled.
 
-Two more slices followed the first real external runs. The eighth: guided flow,
-buttons for everything the keyboard could reach, and filenames derived from what
-each capture already knows about itself. The ninth: a saved sign-in that is
-checked rather than assumed, after the same authentication failure happened
-repeatedly and always looked like something else. The tenth: `doctor`, which
-says what actually failed when a page reports something inscrutable.
+**Everything since is usability and surface work**, in twelve further slices,
+each one prompted by something that actually went wrong in front of a user.
+
+Eight to fifteen made the CLI usable: a guided flow with buttons for everything
+the keyboard could reach, filenames derived from what each capture already knows
+about itself, a saved sign-in that is checked rather than assumed, `doctor` for
+when a page reports something inscrutable, a challenge that is named and obeyed
+rather than worked around, attach mode tested against a browser it does not own,
+an Output section that opens the run folder, and a panel sized to what you are
+doing instead of to the whole window.
+
+Sixteen to nineteen took it outside the terminal: a menu bar launcher, a browser
+extension for capturing the page you are already on, and two rounds of fixing
+what real use found in both.
 
 ```
 npm install
@@ -1874,12 +1882,14 @@ cannot start an app it has no connection to.
 
 **The brief is delivered.** Phases 0 through 4 are complete and every item on the
 brief's own list is built, including the Animation button that had been disabled
-since phase 1. The eighth slice is usability work on top of a delivered brief,
-driven by what the first real external run felt like to use.
+since phase 1. Slices eight through fifteen are usability work on top of that
+delivered brief, driven by what real runs against real sites felt like to use.
 
 Design turn 6 is delivered in full. The sixteenth slice is the first surface
 outside the CLI — a menu bar launcher covering stages one and two — and the
-seventeenth adds the extension, which is stage three. What remains unbuilt there
+seventeenth adds the extension, which is stage three. The eighteenth and
+nineteenth are what using those two found: a popover that never drew itself, and
+four separate faults reported in a single sentence. What remains unbuilt there
 is signed Web Store packaging; the extension is loaded unpacked.
 
 Anything further is new scope rather than an unfinished milestone:
