@@ -385,6 +385,9 @@ See [ADR 28](adr/0028-a-saved-sign-in-is-checked-not-assumed.md).
 - **A challenge and a signed-out session are told apart deliberately**, because
   they need opposite responses: one is fixed by signing in again, the other
   cannot be fixed here at all.
+- **Attach mode needs a browser you started.** Nothing is launched for you, so
+  the failure when that browser is not running is the most common one there is;
+  the error names the port and gives the launch line for your platform.
 - **`--mode attach` is the only remaining route**, and it is not a bypass: it
   drives a browser you launched and signed into yourself. It is lower fidelity
   (the attached browser's extensions, flags and profile all affect rendering)

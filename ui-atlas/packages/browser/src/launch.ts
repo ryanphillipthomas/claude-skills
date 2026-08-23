@@ -204,6 +204,19 @@ async function launchStorageState(options: LaunchOptions): Promise<BrowserSessio
   };
 }
 
+/** The launch line for this platform, so the advice can be pasted rather than adapted. */
+function chromeLaunchExample(platform = process.platform): string {
+  const dir = '--user-data-dir="$HOME/.ui-atlas-chrome"';
+  switch (platform) {
+    case 'darwin':
+      return `"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --remote-debugging-port=9222 ${dir}`;
+    case 'win32':
+      return 'chrome.exe --remote-debugging-port=9222 --user-data-dir="%USERPROFILE%\\.ui-atlas-chrome"';
+    default:
+      return `google-chrome --remote-debugging-port=9222 ${dir}`;
+  }
+}
+
 /**
  * Experimental. Attaching to an already-running Chromium gives lower fidelity:
  * the target's own extensions, flags and profile all affect rendering, and we
@@ -218,10 +231,22 @@ async function attachOverCdp(options: LaunchOptions): Promise<BrowserSession> {
   try {
     browser = await chromium.connectOverCDP(config.cdpEndpoint);
   } catch (cause) {
-    throw new UiAtlasError('browser.launch-failed', 'could not attach over CDP', {
-      detail: { cdpEndpoint: config.cdpEndpoint },
-      cause,
-    });
+    // "could not attach over CDP" describes the socket, not the situation.
+    // Attach mode has a prerequisite no other mode has — a browser you started
+    // yourself, with the port open — and the failure almost always means that
+    // browser is not running. Saying so is the difference between a
+    // five-second fix and a puzzled minute, the same reasoning as the
+    // navigation hints in the CLI.
+    throw new UiAtlasError(
+      'browser.launch-failed',
+      `nothing is listening for CDP at ${config.cdpEndpoint}. Attach mode drives a browser ` +
+        'you start yourself; launch one with a debugging port first:\n\n' +
+        `  ${chromeLaunchExample()}\n\n` +
+        'A separate --user-data-dir is required: Chrome 136 and later refuse ' +
+        '--remote-debugging-port on the default profile. Sign in by hand in that window, ' +
+        'then run this command again.',
+      { detail: { cdpEndpoint: config.cdpEndpoint }, cause },
+    );
   }
   // The signed-in context is the reason to attach at all, so the existing one
   // is reused rather than creating a fresh (cookie-less) context.

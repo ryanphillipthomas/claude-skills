@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { chromium, type BrowserContext } from 'playwright';
 import { launchSession, resolveViewport } from '@ui-atlas/browser';
+import { UiAtlasError } from '@ui-atlas/protocol';
 import { loadConfig } from '@ui-atlas/config';
 import { startFixtureServer, type FixtureServer } from '../support/harness.js';
 
@@ -152,5 +153,34 @@ describe('attach mode', () => {
     } finally {
       await session.close();
     }
+  });
+});
+
+describe('attaching to a browser that is not there', () => {
+  it('says a browser has to be started first, and how', async () => {
+    const loaded = await loadConfig({
+      overrides: {
+        // A port nothing is listening on, which is the whole failure: attach
+        // mode is the one mode with a prerequisite outside the tool.
+        browser: { mode: 'attach', cdpEndpoint: 'http://127.0.0.1:9', headless: false },
+      },
+    });
+
+    const failure = await launchSession({
+      config: loaded.config.browser,
+      viewport: resolveViewport({ name: 'base', width: 1280, height: 800, mode: 'desktop' }),
+    }).then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+
+    expect(failure).toBeInstanceOf(UiAtlasError);
+    const message = (failure as UiAtlasError).message;
+    expect(message).toContain('nothing is listening for CDP at http://127.0.0.1:9');
+    // The paste-able part: without it the reader still has to go and find out
+    // what "attach" needs.
+    expect(message).toContain('--remote-debugging-port=9222');
+    expect(message).toContain('--user-data-dir');
+    expect(message).toContain('Chrome 136 and later refuse');
   });
 });
